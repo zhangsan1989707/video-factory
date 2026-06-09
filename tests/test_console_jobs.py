@@ -18,6 +18,16 @@ from src.console.store import create_job, next_job_id, read_json, update_job, wr
 from src.console.background import is_active, start_async_job
 
 
+def _fake_hyperframes_previews(projects: list[dict], output_dir: Path, **kwargs) -> list[Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    previews = []
+    for index in range(1, len(projects) + 4):
+        path = output_dir / f"shot-{index:02d}.png"
+        path.write_bytes(b"preview")
+        previews.append(path)
+    return previews
+
+
 class ConsoleJobsTest(unittest.TestCase):
     def setUp(self) -> None:
         self.route_patcher = patch("src.console.jobs.route_snapshot", return_value={
@@ -28,8 +38,11 @@ class ConsoleJobsTest(unittest.TestCase):
             "configured": "",
         })
         self.route_patcher.start()
+        self.preview_patcher = patch("src.console.jobs.render_hotlist_v2_previews_from_projects", side_effect=_fake_hyperframes_previews)
+        self.preview_patcher.start()
 
     def tearDown(self) -> None:
+        self.preview_patcher.stop()
         self.route_patcher.stop()
 
     def test_background_runner_prevents_duplicate_active_job(self) -> None:
@@ -527,6 +540,30 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertTrue(calls[0]["dry_run"])
                 self.assertEqual(calls[0]["from_plan"], str(jobs_dir / job["id"]))
 
+    def test_prepare_plan_uses_hyperframes_previews_for_tech_hotspot(self) -> None:
+        calls = []
+
+        def previews(projects, output_dir, **kwargs):
+            calls.append({"projects": projects, "output_dir": output_dir, **kwargs})
+            return _fake_hyperframes_previews(projects, output_dir, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.render_hotlist_v2_previews_from_projects", side_effect=previews),
+            ):
+                job = create_job("GH-HOTLIST-20990101-HF-PREVIEWS", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                result = prepare_plan(job["id"])
+
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0]["style"], "tech_hotspot")
+                self.assertEqual(result["readiness_report"]["status"], "ready")
+
     def test_prepare_plan_records_failure_stage_immediately(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
@@ -535,7 +572,10 @@ class ConsoleJobsTest(unittest.TestCase):
                 patch("src.console.jobs.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.render_vertical_previews", side_effect=RuntimeError("preview failed")),
             ):
-                job = create_job("GH-HOTLIST-20990101-PREPARE-FAIL", {"project_count": 2})
+                job = create_job("GH-HOTLIST-20990101-PREPARE-FAIL", {
+                    "project_count": 2,
+                    "template_params": {"render_engine": "pil"},
+                })
                 _mark_awaiting_project_confirmation(job["id"])
                 selection = save_selection(job["id"], {"items": _sample_projects()})
                 save_script(job["id"], {"segments": selection["segments"]})

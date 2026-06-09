@@ -31,7 +31,7 @@ from src.models import AssetManifest, Shot, ShotPlan, VisualAsset
 from src.pipeline import run_pipeline
 from src.composer.bgm import post_process_video
 from src.composer.vertical import render_vertical_previews
-from src.hotlist_v2.render import render_hotlist_v2_from_projects
+from src.hotlist_v2.render import render_hotlist_v2_from_projects, render_hotlist_v2_previews_from_projects
 from src.planner.script_v2 import generate_script_from_shot_plan
 
 
@@ -248,10 +248,13 @@ def prepare_plan(job_id: str) -> dict[str, Any]:
         write_json(job_dir / "shot_plan.json", shot_plan.to_dict())
         write_json(job_dir / "script.json", script.to_dict())
         write_json(job_dir / "info.json", {"projects": selected})
-        previews = render_vertical_previews(script, shot_plan, manifest, job_dir / "preview_frames")
+        if _render_engine(job) == "hyperframes" and _visual_style(job) == "tech_hotspot":
+            previews = render_hotlist_v2_previews_from_projects(selected, job_dir / "preview_frames", style="tech_hotspot")
+        else:
+            previews = render_vertical_previews(script, shot_plan, manifest, job_dir / "preview_frames")
         cover = _write_cover_frame(job_id, previews)
         readiness = _write_readiness_report(job_id, selected, segments, len(previews), bool(cover.get("path")))
-        append_log(job_id, f"计划文件已生成，并输出 {len(previews)} 张静态预览帧；预览帧只看版式，入场、扫光和数字动效会在正式 MP4 渲染时体现。")
+        append_log(job_id, f"计划文件已生成，并输出 {len(previews)} 张静态预览帧；预览帧来自当前渲染模板，入场、扫光和数字动效会在正式 MP4 渲染时体现。")
         update_job(
             job_id,
             status="awaiting_validation",

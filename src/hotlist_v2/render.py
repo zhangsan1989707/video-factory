@@ -57,6 +57,38 @@ async def render_hotlist_v2_from_projects(
     return await render_hotlist_v2_from_data(data, output_path=output_path, durations=durations, style=style)
 
 
+def render_hotlist_v2_previews_from_projects(
+    projects: list[dict],
+    output_dir: Path,
+    durations: dict[str, int] | None = None,
+    style: str = DEFAULT_STYLE,
+) -> list[Path]:
+    """Render static preview frames from the HyperFrames HTML template."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    data = _data_from_projects(projects)
+    html_dir = output_dir.parent / "hyperframes_preview_html"
+    html_dir.mkdir(parents=True, exist_ok=True)
+
+    previews = []
+    base_html = html_dir / "composition.html"
+    render_composition(data, base_html, durations, style=style)
+    previews.append(_capture_html_screen(base_html, "screen-intro", output_dir / "shot-01.png"))
+    previews.append(_capture_html_screen(base_html, "screen-list", output_dir / "shot-02.png"))
+
+    base_projects = data.get("projects") or []
+    for index, project in enumerate(base_projects, start=1):
+        detail_data = {
+            **data,
+            "projects": [project, *[item for item in base_projects if item is not project]],
+        }
+        detail_html = html_dir / f"composition-detail-{index:02d}.html"
+        render_composition(detail_data, detail_html, durations, style=style)
+        previews.append(_capture_html_screen(detail_html, "screen-detail", output_dir / f"shot-{index + 2:02d}.png"))
+
+    previews.append(_capture_html_screen(base_html, "screen-hook", output_dir / f"shot-{len(previews) + 1:02d}.png"))
+    return previews
+
+
 async def render_hotlist_v2_from_data(
     data: dict,
     output_path: Path | None = None,
@@ -208,6 +240,33 @@ def _theme_tags(projects: list[dict]) -> list[str]:
             if tag and tag not in tags:
                 tags.append(tag)
     return tags[:4] or ["GitHub", "开源", "热点"]
+
+
+def _capture_html_screen(html_path: Path, screen_id: str, output_path: Path) -> Path:
+    from playwright.sync_api import sync_playwright
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1080, "height": 1920}, device_scale_factor=1)
+        page.goto(html_path.resolve().as_uri(), wait_until="domcontentloaded")
+        page.wait_for_selector(f"#{screen_id}", timeout=5000)
+        page.evaluate(
+            """(screenId) => {
+                document.querySelectorAll('.screen').forEach((el) => {
+                    el.style.visibility = 'hidden';
+                    el.style.opacity = '0';
+                });
+                const target = document.getElementById(screenId);
+                target.style.visibility = 'visible';
+                target.style.opacity = '1';
+            }""",
+            screen_id,
+        )
+        box = page.locator('[data-composition-id="main"]').bounding_box()
+        page.screenshot(path=str(output_path), clip=box)
+        browser.close()
+    return output_path
 
 
 def _build_script(data: dict, durations: dict[str, int] | None = None) -> VideoScript:
