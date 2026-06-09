@@ -544,7 +544,7 @@ def _render_hotlist_rank_card_frame(subtitle: str, treatment: str, asset_path: s
         tag_y = visual_y + 488
         labels = ["解决", "亮点", "适合"]
         for idx, (label, text) in enumerate(zip(labels, details)):
-            row_appear = _appear(progress, 0.46 + idx * 0.08, 0.82 + idx * 0.08)
+            row_appear = _appear(progress, 0.36 + idx * 0.06, 0.64 + idx * 0.06)
             iy = tag_y + idx * 94 + int((1 - row_appear) * 22)
             if row_appear <= 0:
                 continue
