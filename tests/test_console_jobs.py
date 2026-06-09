@@ -94,6 +94,22 @@ class ConsoleJobsTest(unittest.TestCase):
             "可用 README、标签和仓库页做信息卡片",
         )
 
+    def test_manifest_prefers_homepage_then_readme_image_then_repo(self) -> None:
+        manifest = console_jobs._manifest([{
+            "name": "alpha",
+            "full_name": "demo/alpha",
+            "repo_url": "https://github.com/demo/alpha",
+            "homepage": "https://alpha.example.com",
+            "default_branch": "main",
+            "readme": "![demo](docs/screen.png)",
+            "description": "AI agent workflow",
+        }]).to_dict()
+
+        assets = manifest["assets"]
+        self.assertEqual([asset["type"] for asset in assets], ["webpage", "image", "github_repo"])
+        self.assertEqual(assets[0]["source"], "https://alpha.example.com")
+        self.assertEqual(assets[1]["source"], "https://raw.githubusercontent.com/demo/alpha/main/docs/screen.png")
+
     def test_start_render_job_returns_background_status_without_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
@@ -314,10 +330,15 @@ class ConsoleJobsTest(unittest.TestCase):
                     self.assertIsNone(re.search(r"[;:]", parts[5]))
 
                 manifest = read_json(jobs_dir / job["id"] / "asset_manifest.json", {})
-                self.assertEqual(
-                    [asset["id"] for asset in manifest["assets"]],
-                    ["p1-asset-001", "p2-asset-001"],
-                )
+                asset_ids = [asset["id"] for asset in manifest["assets"]]
+                self.assertIn("p1-asset-001", asset_ids)
+                self.assertIn("p2-asset-001", asset_ids)
+                self.assertTrue(any(asset["type"] in {"webpage", "image", "github_repo"} for asset in manifest["assets"]))
+                rank_card_shots = [
+                    shot for shot in shot_plan["shots"]
+                    if shot["visual_treatment"].startswith("hotlist_rank_card:")
+                ]
+                self.assertEqual([shot["visual_asset"] for shot in rank_card_shots], ["p1-asset-001", "p2-asset-001"])
                 previews = sorted((jobs_dir / job["id"] / "preview_frames").glob("*.png"))
                 self.assertEqual(len(previews), len(shot_plan["shots"]))
                 cover_frame = jobs_dir / job["id"] / "cover_frame.png"
@@ -329,6 +350,44 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(readiness["score"], 100)
                 self.assertEqual(job_detail(job["id"])["readiness_report"]["status"], "ready")
                 self.assertEqual(job_detail(job["id"])["cover_frame"]["status"], "ready")
+
+    def test_hotlist_manifest_prefers_homepage_then_readme_image_then_repo(self) -> None:
+        projects = [
+            {
+                "name": "site",
+                "full_name": "demo/site",
+                "repo_url": "https://github.com/demo/site",
+                "homepage": "https://site.example.com",
+                "description": "project with homepage",
+            },
+            {
+                "name": "shot",
+                "full_name": "demo/shot",
+                "repo_url": "https://github.com/demo/shot",
+                "default_branch": "main",
+                "readme": "![demo](docs/screen.png)",
+                "description": "project with readme image",
+            },
+            {
+                "name": "repo",
+                "full_name": "demo/repo",
+                "repo_url": "https://github.com/demo/repo",
+                "description": "repo only",
+            },
+        ]
+
+        assets = console_jobs._manifest(projects).to_dict()["assets"]
+        by_id = {asset["id"]: asset for asset in assets}
+
+        self.assertEqual(by_id["p1-asset-001"]["type"], "webpage")
+        self.assertEqual(by_id["p1-asset-001"]["source"], "https://site.example.com")
+        self.assertEqual(by_id["p2-asset-001"]["type"], "image")
+        self.assertEqual(
+            by_id["p2-asset-001"]["source"],
+            "https://raw.githubusercontent.com/demo/shot/main/docs/screen.png",
+        )
+        self.assertEqual(by_id["p3-asset-001"]["type"], "github_repo")
+        self.assertEqual(by_id["p3-asset-001"]["source"], "https://github.com/demo/repo")
 
     def test_selection_preserves_client_order(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -797,7 +856,13 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(narration_call["model"], "mock-model")
                 self.assertEqual(narration_call["status"], "success")
                 self.assertNotIn("api_key", narration_call)
+                self.assertEqual(saved["narration_source"]["status"], "ai_success")
+                self.assertEqual(saved["narration_source"]["provider"], "Mock")
+                self.assertEqual(saved["narration_source"]["model"], "mock-model")
+                source_file = read_json(jobs_dir / job["id"] / "narration_source.json", {})
+                self.assertEqual(source_file["status"], "ai_success")
                 self.assertEqual(job_detail(job["id"])["latest_model_call"], saved["model_calls"][-1])
+                self.assertEqual(job_detail(job["id"])["narration_source"]["status"], "ai_success")
 
     def test_invalid_model_narration_response_is_saved_for_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -829,6 +894,10 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(raw["model"], "mock-model")
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"][0]["status"], "invalid_json")
+                self.assertEqual(saved["narration_source"]["status"], "ai_failed_fallback")
+                self.assertEqual(saved["narration_source"]["provider"], "Mock")
+                self.assertEqual(saved["narration_source"]["model"], "mock-model")
+                self.assertEqual(job_detail(job["id"])["narration_source"]["status"], "ai_failed_fallback")
 
     def test_candidate_analysis_invalid_response_is_saved_for_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1105,6 +1174,9 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertIn("别再只收藏 GitHub 项目了", result["segments"][0]["text"])
                 logs = (jobs_dir / job["id"] / "logs.txt").read_text(encoding="utf-8")
                 self.assertIn("口播生成使用默认模板", logs)
+                detail = job_detail(job["id"])
+                self.assertEqual(detail["narration_source"]["status"], "model_skipped")
+                self.assertEqual(detail["narration_source"]["reason"], "未配置模型路由")
 
     def test_default_project_narration_uses_problem_signal_audience_structure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

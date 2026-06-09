@@ -372,9 +372,24 @@ function renderJob(job) {
 
 function renderModelCall(calls) {
   const latest = calls.length ? calls[calls.length - 1] : null;
-  $("currentModelCall").textContent = latest
+  const source = (state.currentJob && state.currentJob.narration_source) || {};
+  const narration = narrationSourceLabel(source);
+  const model = latest
     ? `model: ${latest.task} · ${latest.provider || "-"} / ${latest.model || "-"} · ${latest.status}`
     : "model: -";
+  $("currentModelCall").textContent = narration ? `${model} · ${narration}` : model;
+}
+
+function narrationSourceLabel(source) {
+  const status = source.status || "";
+  if (!status) return "";
+  const provider = source.provider || "-";
+  const model = source.model || "-";
+  const reason = source.reason ? ` (${_shortUiText(source.reason, 60)})` : "";
+  if (status === "ai_success") return `口播: AI ${provider} / ${model}`;
+  if (status === "model_skipped") return `口播: 模型跳过后模板回退${reason}`;
+  if (status === "ai_failed_fallback") return `口播: AI失败后模板回退${reason}`;
+  return `口播: ${status}`;
 }
 
 async function openJobFolder() {

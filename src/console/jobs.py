@@ -7,6 +7,7 @@ import re
 import shutil
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 from src.console.github_hotlist import collect_candidates_with_meta
 from src.console.model_router import chat_json_detail, route_snapshot
@@ -30,6 +31,9 @@ from src.models import AssetManifest, Shot, ShotPlan, VisualAsset
 from src.pipeline import run_pipeline
 from src.composer.vertical import render_vertical_previews
 from src.planner.script_v2 import generate_script_from_shot_plan
+
+
+README_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
 
 def create_hotlist_job(payload: dict[str, Any]) -> dict[str, Any]:
@@ -97,7 +101,9 @@ def save_selection(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     update_job(job_id, status="running", stage="generating_script", error="")
 
     hook = _generate_hook(job_id, selected)
-    narrations = _model_narrations(job_id, selected) or _default_narrations(selected)
+    narrations = _model_narrations(job_id, selected)
+    if narrations is None:
+        narrations = _default_narrations(selected)
     narrations = _polish_narrations(job_id, selected, narrations)
     write_json(JOBS_DIR / job_id / "narration.json", {"segments": narrations})
     append_log(job_id, "已生成初版口播脚本，等待人工确认。")
@@ -206,7 +212,7 @@ def _clear_plan_artifacts(job_id: str) -> None:
 
 def _clear_script_metadata(job_id: str) -> None:
     job_dir = JOBS_DIR / job_id
-    for name in ("quality_report.json", "publish_pack.json"):
+    for name in ("quality_report.json", "publish_pack.json", "narration_source.json"):
         path = job_dir / name
         if path.exists() and path.is_file():
             path.unlink()
@@ -435,6 +441,7 @@ def job_detail(job_id: str) -> dict[str, Any]:
         "stage_history": job.get("stage_history") or [],
         "artifacts": job_artifacts(job_id),
         "latest_model_call": model_calls[-1] if model_calls else {},
+        "narration_source": job.get("narration_source") or {},
     }
 
 
@@ -837,7 +844,9 @@ def _readiness_check(check_id: str, passed: bool, ok: str, fail: str) -> dict[st
 def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[str, str]] | None:
     route = route_snapshot("narration_generation")
     if not _route_available(route):
-        append_log(job_id, f"口播生成使用默认模板：{_route_skip_reason(route)}。")
+        reason = _route_skip_reason(route)
+        _update_narration_source(job_id, route, "model_skipped", reason)
+        append_log(job_id, f"口播生成使用默认模板：{reason}。")
         return None
     prompt = {
         "instruction": "为 GitHub 热榜竖屏短视频生成中文口播。克制、具体、面向观众价值，不要喊口号。",
@@ -874,13 +883,21 @@ def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[
         if not segments:
             _write_ai_raw_response(job_id, "narration_generation", detail)
             _record_model_call(job_id, "narration_generation", detail, "invalid_json")
+            _update_narration_source(
+                job_id,
+                detail.get("route") or route,
+                "ai_failed_fallback",
+                detail.get("error") or "模型未返回可用 JSON",
+            )
             append_log(job_id, "口播模型未返回可用 JSON，改用默认模板。")
             return None
         _record_model_call(job_id, "narration_generation", detail, "success")
+        _update_narration_source(job_id, used_route, "ai_success", "")
         append_log(job_id, f"口播生成已使用 {used_route['provider_name']} / {used_route['model']}。")
         return segments
     except Exception as exc:
         _record_model_call(job_id, "narration_generation", {"route": route, "error": str(exc)}, "failed")
+        _update_narration_source(job_id, route, "ai_failed_fallback", str(exc))
         append_log(job_id, f"口播模型失败，改用默认模板: {exc}")
         return None
 
@@ -892,7 +909,9 @@ def _polish_narrations(
 ) -> list[dict[str, str]]:
     route = route_snapshot("script_polishing")
     if not _route_available(route):
-        append_log(job_id, f"脚本润色跳过：{_route_skip_reason(route)}。")
+        reason = _route_skip_reason(route)
+        _patch_narration_source(job_id, {"polishing_status": "skipped", "polishing_reason": reason})
+        append_log(job_id, f"脚本润色跳过：{reason}。")
         return segments
     prompt = {
         "instruction": "润色 GitHub 热榜中文口播，保持 segment id 不变。只改表达，不新增输入里没有的事实。",
@@ -935,14 +954,25 @@ def _polish_narrations(
         if not polished:
             _write_ai_raw_response(job_id, "script_polishing", detail)
             _record_model_call(job_id, "script_polishing", detail, "invalid_json")
+            _patch_narration_source(job_id, {
+                "polishing_status": "invalid_json",
+                "polishing_reason": detail.get("error") or "模型未返回可用 JSON",
+            })
             append_log(job_id, "脚本润色模型未返回可用 JSON，保留原稿。")
             return segments
         _record_model_call(job_id, "script_polishing", detail, "success")
         used_route = detail["route"]
+        _patch_narration_source(job_id, {
+            "polishing_status": "success",
+            "polishing_provider": used_route.get("provider_name") or used_route.get("provider") or "",
+            "polishing_model": used_route.get("model") or "",
+            "polishing_reason": "",
+        })
         append_log(job_id, f"脚本润色已使用 {used_route['provider_name']} / {used_route['model']}。")
         return polished
     except Exception as exc:
         _record_model_call(job_id, "script_polishing", {"route": route, "error": str(exc)}, "failed")
+        _patch_narration_source(job_id, {"polishing_status": "failed", "polishing_reason": str(exc)})
         append_log(job_id, f"脚本润色失败，保留原稿: {exc}")
         return segments
 
@@ -1149,6 +1179,25 @@ def _record_model_call(job_id: str, task: str, detail: dict[str, Any], status: s
     })
 
 
+def _update_narration_source(job_id: str, route: dict[str, Any], status: str, reason: str) -> None:
+    source = {
+        "status": status,
+        "provider": route.get("provider_name") or route.get("provider") or "",
+        "model": route.get("model") or "",
+        "reason": reason,
+    }
+    write_json(JOBS_DIR / job_id / "narration_source.json", source)
+    update_job(job_id, narration_source=source)
+
+
+def _patch_narration_source(job_id: str, patch: dict[str, Any]) -> None:
+    job = read_job(job_id) or {}
+    source = dict(job.get("narration_source") or read_json(JOBS_DIR / job_id / "narration_source.json", {}))
+    source.update(patch)
+    write_json(JOBS_DIR / job_id / "narration_source.json", source)
+    update_job(job_id, narration_source=source)
+
+
 def _default_narrations(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
     segments = [
         {
@@ -1267,17 +1316,81 @@ def _viewer_audience(project: dict[str, Any]) -> str:
 def _manifest(projects: list[dict[str, Any]]) -> AssetManifest:
     assets = []
     for index, project in enumerate(projects, start=1):
-        source = str(project.get("repo_url") or "")
+        assets.extend(_project_visual_assets(index, project))
+    return AssetManifest(assets=assets)
+
+
+def _project_visual_assets(index: int, project: dict[str, Any]) -> list[VisualAsset]:
+    full_name = str(project.get("full_name") or "")
+    repo_url = str(project.get("repo_url") or "")
+    description = str(project.get("description") or project.get("description_zh") or "")[:60]
+    candidates: list[tuple[str, str, str, str, str]] = []
+
+    homepage = str(project.get("homepage") or "").strip()
+    if homepage:
+        candidates.append(("webpage", homepage, "项目官网或在线演示", "项目真实界面截图", "high"))
+    for source in _readme_image_sources(project)[:2]:
+        candidates.append(("image", source, "README 产品截图", "展示项目实际长相", "high"))
+    if repo_url:
+        candidates.append(("github_repo", repo_url, f"{full_name} - {description}", "GitHub 仓库来源页", "medium"))
+    elif full_name:
+        source = f"https://github.com/{full_name}"
+        candidates.append(("github_repo", source, f"{full_name} - {description}", "GitHub 仓库来源页", "low"))
+
+    assets = []
+    seen = set()
+    for asset_index, (type_, source, caption, use_case, quality) in enumerate(candidates, start=1):
+        if not source or source in seen:
+            continue
+        seen.add(source)
         assets.append(VisualAsset(
-            id=f"p{index}-asset-001",
-            type="github_repo",
+            id=f"p{index}-asset-{asset_index:03d}",
+            type=type_,
             source=source,
             path=source,
-            caption=f"{project.get('full_name', '')} - {str(project.get('description') or '')[:60]}",
-            use_case="热榜项目展示",
-            quality="medium",
+            caption=caption,
+            use_case=use_case,
+            quality=quality,
         ))
-    return AssetManifest(assets=assets)
+    return assets
+
+
+def _readme_image_sources(project: dict[str, Any]) -> list[str]:
+    readme = str(project.get("readme") or "")
+    if not readme:
+        screenshots = project.get("screenshots") or []
+        if isinstance(screenshots, list):
+            return [
+                source
+                for source in (str(item).strip() for item in screenshots)
+                if source.startswith(("http://", "https://"))
+            ]
+        return []
+    owner, repo = _project_owner_repo(project)
+    branch = str(project.get("default_branch") or "main")
+    base = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/" if owner and repo else ""
+    sources = []
+    for match in README_IMAGE_RE.finditer(readme):
+        source = match.group(1).strip().split()[0].strip("<>")
+        if not source:
+            continue
+        if source.startswith(("http://", "https://")):
+            sources.append(source)
+        elif base:
+            sources.append(urljoin(base, source.removeprefix("./")))
+    return sources
+
+
+def _project_owner_repo(project: dict[str, Any]) -> tuple[str, str]:
+    full_name = str(project.get("full_name") or "")
+    if "/" in full_name:
+        owner, repo = full_name.split("/", 1)
+        return owner, repo
+    path = urlparse(str(project.get("repo_url") or "")).path.strip("/")
+    if "/" in path:
+        owner, repo = path.split("/", 1)
+        return owner, repo.removesuffix(".git")
+    return "", ""
 
 
 def _shot_plan(
