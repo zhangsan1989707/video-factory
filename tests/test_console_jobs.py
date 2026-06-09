@@ -88,10 +88,20 @@ class ConsoleJobsTest(unittest.TestCase):
             self.assertEqual(attempts, [first_id, f"GH-HOTLIST-{today}-002"])
             self.assertEqual(job["id"], f"GH-HOTLIST-{today}-002")
 
-    def test_viewer_highlight_removes_visual_rating_prefix(self) -> None:
+    def test_viewer_highlight_ignores_visual_potential_for_narration(self) -> None:
         self.assertEqual(
-            console_jobs._viewer_highlight({"visual_potential": "中：可用 README、标签和仓库页做信息卡片。"}),
-            "可用 README、标签和仓库页做信息卡片",
+            console_jobs._viewer_highlight({
+                "project_highlight": "把 AI 流程接进具体开发步骤",
+                "visual_potential": "中：可用 README、标签和仓库页做信息卡片。",
+            }),
+            "把 AI 流程接进具体开发步骤",
+        )
+        self.assertNotIn(
+            "README",
+            console_jobs._viewer_highlight({
+                "description": "AI agent workflow",
+                "visual_potential": "中：可用 README、标签和仓库页做信息卡片。",
+            }),
         )
 
     def test_manifest_prefers_homepage_then_readme_image_then_repo(self) -> None:
@@ -817,6 +827,24 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertIn("请先确认项目列表", detail["job"]["error"])
 
     def test_selection_uses_model_narration_when_available(self) -> None:
+        captured = {}
+
+        def chat(task: str, system: str, prompt: str, max_tokens: int = 0):
+            captured[task] = json.loads(prompt)
+            return {
+                "data": {
+                    "segments": [
+                        {"id": "intro", "label": "开场", "text": "今天看两个真正能落地的开源项目。"},
+                        {"id": "project-1", "label": "第 1 名", "text": "alpha 适合把 AI 流程接进开发工作。"},
+                        {"id": "project-2", "label": "第 2 名", "text": "beta 更像一个减少重复命令的效率工具。"},
+                        {"id": "outro", "label": "结尾", "text": "想看实操拆解，就从你最卡的项目开始。"},
+                    ]
+                },
+                "route": {"provider_name": "Mock", "model": "mock-model"},
+                "raw": "{}",
+                "error": "",
+            }
+
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
             with (
@@ -829,25 +857,18 @@ class ConsoleJobsTest(unittest.TestCase):
                     "enabled": "1",
                     "configured": "1",
                 }),
-                patch("src.console.jobs.chat_json_detail", return_value={
-                    "data": {
-                        "segments": [
-                            {"id": "intro", "label": "开场", "text": "今天看两个真正能落地的开源项目。"},
-                            {"id": "project-1", "label": "第 1 名", "text": "alpha 适合把 AI 流程接进开发工作。"},
-                            {"id": "project-2", "label": "第 2 名", "text": "beta 更像一个减少重复命令的效率工具。"},
-                            {"id": "outro", "label": "结尾", "text": "想看实操拆解，就从你最卡的项目开始。"},
-                        ]
-                    },
-                    "route": {"provider_name": "Mock", "model": "mock-model"},
-                    "raw": "{}",
-                    "error": "",
-                }),
+                patch("src.console.jobs.chat_json_detail", side_effect=chat),
             ):
                 job = create_job("GH-HOTLIST-20990101-002", {"project_count": 2})
                 _mark_awaiting_project_confirmation(job["id"])
                 result = save_selection(job["id"], {"items": _sample_projects()})
 
                 self.assertEqual(result["segments"][0]["text"], "今天看两个真正能落地的开源项目。")
+                narration_prompt = captured["narration_generation"]
+                self.assertIn("project_highlight", narration_prompt["projects"][0])
+                self.assertIn("viewer_benefit", narration_prompt["projects"][0])
+                self.assertIn("visual_potential 是制作侧画面建议", narration_prompt["instruction"])
+                self.assertIn("README 可展示", narration_prompt["instruction"])
                 logs = (jobs_dir / job["id"] / "logs.txt").read_text(encoding="utf-8")
                 self.assertIn("口播生成已使用 Mock / mock-model", logs)
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
@@ -863,6 +884,44 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(source_file["status"], "ai_success")
                 self.assertEqual(job_detail(job["id"])["latest_model_call"], saved["model_calls"][-1])
                 self.assertEqual(job_detail(job["id"])["narration_source"]["status"], "ai_success")
+
+    def test_model_narration_with_producer_visual_jargon_falls_back(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
+                patch("src.console.jobs.chat_json_detail", return_value={
+                    "data": {
+                        "segments": [
+                            {"id": "intro", "label": "开场", "text": "今天看两个项目。"},
+                            {"id": "project-1", "label": "第 1 名", "text": "亮点是 README 可展示。"},
+                            {"id": "project-2", "label": "第 2 名", "text": "beta 能减少重复命令。"},
+                            {"id": "outro", "label": "结尾", "text": "想看哪个，评论区告诉我。"},
+                        ]
+                    },
+                    "route": {"provider_name": "Mock", "model": "mock-model"},
+                    "raw": "{}",
+                    "error": "",
+                }),
+            ):
+                job = create_job("GH-HOTLIST-20990101-NARRATION-JARGON", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                result = save_selection(job["id"], {"items": _sample_projects()})
+
+                project_line = next(segment["text"] for segment in result["segments"] if segment["id"] == "project-1")
+                self.assertNotIn("README 可展示", project_line)
+                self.assertIn("真正值得看的是，把 AI 流程接进具体开发步骤。", project_line)
+                saved = read_json(jobs_dir / job["id"] / "task.json", {})
+                self.assertEqual(saved["model_calls"][0]["status"], "invalid_json")
+                self.assertEqual(saved["narration_source"]["status"], "ai_failed_fallback")
 
     def test_invalid_model_narration_response_is_saved_for_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -947,6 +1006,8 @@ class ConsoleJobsTest(unittest.TestCase):
                             "index": 30,
                             "description_zh": "第 30 个项目也经过模型分析",
                             "recommendation": "补足 20-30 个候选的分析覆盖",
+                            "project_highlight": "自动整理开发流程",
+                            "viewer_benefit": "减少重复判断成本",
                             "risk": "仍需人工确认",
                             "audience": "开发者",
                             "visual_potential": "README 可展示",
@@ -995,7 +1056,11 @@ class ConsoleJobsTest(unittest.TestCase):
         self.assertEqual(captured["max_tokens"], 5000)
         self.assertEqual(len(captured["prompt"]["items"]), 30)
         self.assertEqual(captured["prompt"]["items"][-1]["full_name"], "demo/repo-30")
+        self.assertIn("project_highlight", captured["prompt"]["schema"]["items"][0])
+        self.assertIn("viewer_benefit", captured["prompt"]["schema"]["items"][0])
         self.assertEqual(result[29]["description_zh"], "第 30 个项目也经过模型分析")
+        self.assertEqual(result[29]["project_highlight"], "自动整理开发流程")
+        self.assertEqual(result[29]["viewer_benefit"], "减少重复判断成本")
         self.assertEqual(result[30]["description"], "project 31")
 
     def test_generate_candidates_uses_hotlist_ranking_when_available(self) -> None:
@@ -1188,9 +1253,12 @@ class ConsoleJobsTest(unittest.TestCase):
 
             project_line = next(segment["text"] for segment in result["segments"] if segment["id"] == "project-1")
 
-        self.assertIn("解决：AI 难接进真实工作流。", project_line)
-        self.assertIn("亮点：1.5K Star，加上 README 可展示。", project_line)
-        self.assertIn("适合：AI 开发者，先收藏试用。", project_line)
+        self.assertIn("它主要解决：AI 难接进真实工作流。", project_line)
+        self.assertIn("1.5K Star 说明已经有人关注", project_line)
+        self.assertIn("真正值得看的是，把 AI 流程接进具体开发步骤。", project_line)
+        self.assertIn("如果你属于AI 开发者，可以先收藏再试。", project_line)
+        self.assertNotIn("README 可展示", project_line)
+        self.assertNotIn("亮点：", project_line)
 
     def test_selection_skips_model_when_configured_provider_is_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1754,6 +1822,8 @@ def _sample_projects() -> list[dict[str, object]]:
             "description": "AI agent workflow",
             "description_zh": "AI 工作流工具",
             "recommendation": "解决重复操作",
+            "project_highlight": "把 AI 流程接进具体开发步骤",
+            "viewer_benefit": "减少从想法到执行的中间步骤",
             "visual_potential": "README 可展示",
             "audience": "AI 开发者",
         },
@@ -1765,6 +1835,8 @@ def _sample_projects() -> list[dict[str, object]]:
             "description": "CLI helper",
             "description_zh": "命令行助手",
             "recommendation": "减少切工具",
+            "project_highlight": "把重复命令收拢成更短路径",
+            "viewer_benefit": "少在终端和文档之间来回切换",
             "visual_potential": "终端截图可展示",
             "audience": "开发者",
         },

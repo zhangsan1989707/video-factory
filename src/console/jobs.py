@@ -249,7 +249,7 @@ def prepare_plan(job_id: str) -> dict[str, Any]:
         previews = render_vertical_previews(script, shot_plan, manifest, job_dir / "preview_frames")
         cover = _write_cover_frame(job_id, previews)
         readiness = _write_readiness_report(job_id, selected, segments, len(previews), bool(cover.get("path")))
-        append_log(job_id, f"计划文件已生成，并输出 {len(previews)} 张静态预览帧。")
+        append_log(job_id, f"计划文件已生成，并输出 {len(previews)} 张静态预览帧；预览帧只看版式，入场、扫光和数字动效会在正式 MP4 渲染时体现。")
         update_job(
             job_id,
             status="awaiting_validation",
@@ -451,7 +451,7 @@ def _analyze_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[d
         append_log(job_id, f"候选分析使用启发式评分：{_route_skip_reason(route)}。")
         return candidates
     prompt = {
-        "instruction": "为中文 GitHub 热榜短视频分析候选项目。只根据输入字段判断，不要夸大。",
+        "instruction": "为中文 GitHub 热榜短视频分析候选项目。只根据输入字段判断，不要夸大。区分观众听得懂的项目价值和制作侧画面建议。",
         "items": [
             {
                 "index": index,
@@ -470,9 +470,11 @@ def _analyze_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[d
                     "index": 1,
                     "description_zh": "一句中文用途解释",
                     "recommendation": "为什么值得入榜",
+                    "project_highlight": "项目最值得讲的真实能力，不写画面素材建议",
+                    "viewer_benefit": "观众为什么可能需要它",
                     "risk": "风险提示",
                     "audience": "适合谁",
-                    "visual_potential": "画面潜力",
+                    "visual_potential": "仅给视频制作使用的画面潜力，不能作为口播亮点",
                     "score": 80,
                 }
             ]
@@ -597,7 +599,7 @@ def _bgm_path(job: dict[str, Any]) -> str | None:
 
 
 def _merge_candidate_analysis(candidate: dict[str, Any], patch: dict[str, Any]) -> None:
-    for key in ("description_zh", "recommendation", "risk", "audience", "visual_potential"):
+    for key in ("description_zh", "recommendation", "project_highlight", "viewer_benefit", "risk", "audience", "visual_potential"):
         if patch.get(key):
             candidate[key] = _short_text(str(patch[key]), 120)
     try:
@@ -849,7 +851,11 @@ def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[
         append_log(job_id, f"口播生成使用默认模板：{reason}。")
         return None
     prompt = {
-        "instruction": "为 GitHub 热榜竖屏短视频生成中文口播。克制、具体、面向观众价值，不要喊口号。",
+        "instruction": (
+            "为 GitHub 热榜竖屏短视频生成中文口播。克制、具体、面向观众价值，不要喊口号。"
+            "visual_potential 是制作侧画面建议，禁止直接写入口播；不要把 README 可展示、仓库页做信息卡片、"
+            "终端截图可展示、截图可展示、画面潜力、信息卡片当成项目亮点。"
+        ),
         "projects": [
             {
                 "rank": index,
@@ -857,7 +863,10 @@ def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[
                 "full_name": project.get("full_name"),
                 "description_zh": project.get("description_zh"),
                 "recommendation": project.get("recommendation"),
+                "project_highlight": project.get("project_highlight"),
+                "viewer_benefit": project.get("viewer_benefit"),
                 "audience": project.get("audience"),
+                "visual_potential": project.get("visual_potential"),
                 "stars": project.get("stars"),
             }
             for index, project in enumerate(projects, start=1)
@@ -914,7 +923,11 @@ def _polish_narrations(
         append_log(job_id, f"脚本润色跳过：{reason}。")
         return segments
     prompt = {
-        "instruction": "润色 GitHub 热榜中文口播，保持 segment id 不变。只改表达，不新增输入里没有的事实。",
+        "instruction": (
+            "润色 GitHub 热榜中文口播，保持 segment id 不变。只改表达，不新增输入里没有的事实。"
+            "保留项目真实能力和观众收益，删除制作侧画面话术；禁止出现 README 可展示、仓库页做信息卡片、"
+            "终端截图可展示、截图可展示、画面潜力、信息卡片作为亮点。"
+        ),
         "projects": [
             {
                 "rank": index,
@@ -922,8 +935,11 @@ def _polish_narrations(
                 "full_name": project.get("full_name"),
                 "description_zh": project.get("description_zh"),
                 "recommendation": project.get("recommendation"),
+                "project_highlight": project.get("project_highlight"),
+                "viewer_benefit": project.get("viewer_benefit"),
                 "audience": project.get("audience"),
                 "risk": project.get("risk"),
+                "visual_potential": project.get("visual_potential"),
                 "stars": project.get("stars"),
             }
             for index, project in enumerate(projects, start=1)
@@ -988,7 +1004,7 @@ def _sanitize_polished_segments(
         segment_id = str(source.get("id") or "")
         segment = by_id.get(segment_id)
         text = _short_text(str(segment.get("text") or ""), 140) if segment else ""
-        if not segment_id or not text:
+        if not segment_id or not text or _contains_producer_visual_jargon(text):
             return []
         cleaned.append({
             "id": segment_id,
@@ -1137,7 +1153,7 @@ def _sanitize_model_segments(projects: list[dict[str, Any]], segments: list[dict
     for segment_id in expected:
         segment = by_id.get(segment_id)
         text = _short_text(str(segment.get("text") or ""), 120) if segment else ""
-        if not text:
+        if not text or _contains_producer_visual_jargon(text):
             return []
         cleaned.append({
             "id": segment_id,
@@ -1217,9 +1233,9 @@ def _default_narrations(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "id": f"project-{index}",
             "label": f"第 {index} 名",
             "text": (
-                f"第 {index} 个，{name}。解决：{pain}。"
-                f"亮点：{star_label}，加上 {highlight}。"
-                f"适合：{audience}，先收藏试用。"
+                f"第 {index} 个，{name}。它主要解决：{pain}。"
+                f"{star_label} 说明已经有人关注；真正值得看的是，{highlight}。"
+                f"如果你属于{audience}，可以先收藏再试。"
             ),
         })
     segments.append({
@@ -1286,15 +1302,38 @@ def _viewer_outcome(project: dict[str, Any]) -> str:
 
 
 def _viewer_highlight(project: dict[str, Any]) -> str:
-    visual = str(project.get("visual_potential") or "").strip()
-    recommendation = str(project.get("recommendation") or "").strip()
-    if visual:
-        for prefix in ("高：", "中：", "低：", "高:", "中:", "低:"):
-            visual = visual.removeprefix(prefix).strip()
-        return _short_text(visual, 24).rstrip("。")
-    if recommendation:
-        return _short_text(recommendation, 24).rstrip("。")
+    for key in ("project_highlight", "viewer_benefit", "recommendation"):
+        text = _viewer_safe_value(str(project.get(key) or ""))
+        if text:
+            return _short_text(text, 24).rstrip("。")
     return _viewer_outcome(project).rstrip("。")
+
+
+def _viewer_safe_value(text: str) -> str:
+    text = text.strip()
+    if not text:
+        return ""
+    for prefix in ("高：", "中：", "低：", "高:", "中:", "低:"):
+        text = text.removeprefix(prefix).strip()
+    blocked = (
+        "README 可展示",
+        "README可展示",
+        "仓库页做信息卡片",
+        "终端截图可展示",
+        "截图可展示",
+        "画面潜力",
+        "信息卡片",
+        "可用 README、标签和仓库页",
+    )
+    compact = text.replace(" ", "")
+    for phrase in blocked:
+        if phrase in text or phrase.replace(" ", "") in compact:
+            return ""
+    return text
+
+
+def _contains_producer_visual_jargon(text: str) -> bool:
+    return bool(text.strip()) and not _viewer_safe_value(text)
 
 
 def _viewer_audience(project: dict[str, Any]) -> str:
