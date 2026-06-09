@@ -1,86 +1,86 @@
-# Hotlist Rank Card V3 Design
+# GitHub 热榜项目卡 V3 设计
 
-## Goal
+## 目标
 
-Improve the GitHub hotlist project intro card when no project screenshot is available. The card should feel more like a polished SaaS product launch or GitHub annual ranking frame, and less like a tech PPT.
+在没有项目截图的情况下，优化 GitHub 热榜单个项目介绍卡。画面气质要从“科技感 PPT”往“精致 SaaS 产品发布页 / GitHub 年度榜单画面”靠。
 
-The change is limited to the `hotlist_rank_card` visual template and related text cleanup. It will not add screenshot capture, new plan fields, or a new editing workflow.
+本次改动只限定在 `hotlist_rank_card` 视觉模板和直接影响上屏文案的清理逻辑。不新增截图采集，不新增分镜字段，也不新增编辑流程。
 
-## Current Problem
+## 当前问题
 
-The current v2 card has better hierarchy than the original version, but its color emphasis is still too evenly distributed:
+当前 v2 卡片已经比最初版本有更好的信息层级，但配色强调仍然分散：
 
-- The background grid is visible enough to compete with foreground content.
-- Yellow appears in both the top hook and rank badge, weakening the rank badge.
-- Green appears on Star, the progress line, and bullet dots, so Star is not the only focus.
-- Body text and label text are close in brightness.
-- Motion is mostly limited to the progress bar, so a screenshot-free card can feel static.
+- 背景网格仍然偏亮，会和前景内容争夺注意力。
+- 黄色同时用于顶部 hook 和排名徽章，削弱了排名徽章的唯一性。
+- 绿色同时用于 Star、横线和要点圆点，导致 Star 不是唯一焦点。
+- 正文和标签文字亮度接近，层级不够清楚。
+- 动效主要集中在进度条上，没有截图时卡片会显得偏静态。
 
-## Design Direction
+## 设计方向
 
-Use a calmer dark-blue system with only two accents:
+使用更克制的深蓝色体系，只保留两个强调色：
 
-- Green means Star only.
-- Yellow means rank only.
+- 绿色只表示 Star。
+- 黄色只表示排名。
 
-Recommended palette:
+推荐配色：
 
-- Background: `#021426`
-- Grid: `#0B3550` at low opacity
-- Project name: `#F5F8FF`
-- Body text: `#D7E3F5`
-- Labels: `#7FA3C8`
-- Star accent: `#2EF2C2`
-- Rank accent: `#FFD84D`
-- Muted line and bullet: `#4A5D75`
+- 背景：`#021426`
+- 网格：`#0B3550`，低透明度
+- 项目名：`#F5F8FF`
+- 正文：`#D7E3F5`
+- 标签：`#7FA3C8`
+- Star 强调色：`#2EF2C2`
+- 排名强调色：`#FFD84D`
+- 横线和圆点：`#4A5D75`
 
-The top hook should become a restrained dark-blue pill with body or label-colored text, not yellow.
+顶部 hook 改成克制的深蓝色胶囊，用正文色或标签色文字，不再使用黄色。
 
-## Motion
+## 动效设计
 
-Use the existing `progress` parameter inside the PIL renderer. Do not change the video pipeline frame scheduler in this iteration.
+继续使用 PIL 渲染器里现有的 `progress` 参数。本轮不改视频管线的帧调度逻辑。
 
-The card animation should be subtle:
+卡片动效要轻：
 
-- Background grid drifts by a few pixels over the shot.
-- Project name fades in and rises slightly during the first third of the shot.
-- Project name gets a very light glow, without outline or heavy shadow.
-- Rank badge pops once, then holds still.
-- Star text fades/scales in after the title.
-- Muted line expands from center to both sides.
-- The three detail rows appear one by one with short staggered fades.
+- 背景网格在镜头内只漂移几个像素。
+- 项目名在镜头前三分之一淡入，并轻微上浮。
+- 项目名加非常轻的发光，不加描边，不加厚重阴影。
+- 排名徽章只做一次轻微弹出，之后保持稳定。
+- Star 文本在项目名之后淡入并轻微缩放。
+- 横线使用灰蓝色，从中心向两侧展开。
+- 三条详情逐条出现，每条之间做短暂错峰淡入。
 
-Avoid particle effects, strong shaking, repeated bouncing, or fast flashing.
+避免粒子特效、大幅晃动、反复弹跳和高频闪烁。
 
-## Implementation Scope
+## 实现范围
 
-Update `src/composer/vertical.py`:
+更新 `src/composer/vertical.py`：
 
-- Adjust `_hotlist_bg` colors and grid opacity.
-- Add small drawing helpers only if they reduce repeated logic.
-- Update `_render_hotlist_rank_card_frame` palette.
-- Add progress-based alpha and y-offset calculations for the title, Star, line, rank, and detail rows.
-- Keep subtitle rendering unchanged.
+- 调整 `_hotlist_bg` 的背景色和网格透明度。
+- 只在能减少重复逻辑时增加小型绘制 helper。
+- 更新 `_render_hotlist_rank_card_frame` 的配色体系。
+- 为项目名、Star、横线、排名和详情行增加基于 `progress` 的透明度与位移计算。
+- 保持底部字幕渲染逻辑不变。
 
-Update `src/console/jobs.py` only if text cleanup directly affects on-screen card copy.
+仅当文案清理会直接影响卡片上屏内容时，才更新 `src/console/jobs.py`。
 
-Update tests only for behavior that should stay stable, such as removing visual-potential rating prefixes from card text.
+测试只覆盖需要稳定保留的行为，例如清理 `visual_potential` 里的评级前缀。
 
-## Acceptance Criteria
+## 验收标准
 
-- The generated rank card preview clearly prioritizes project name, Star, and rank.
-- Green appears only on the Star text.
-- Yellow appears only on the rank badge.
-- The top hook no longer uses yellow.
-- Detail row bullets and separator line use muted gray-blue.
-- Motion is visible in the final video render without feeling noisy.
-- Existing console job tests pass.
-- `compileall` and `git diff --check` pass.
+- 生成的项目卡预览能明确突出项目名、Star 和排名。
+- 绿色只出现在 Star 文本上。
+- 黄色只出现在排名徽章上。
+- 顶部 hook 不再使用黄色。
+- 详情行圆点和横线使用灰蓝色。
+- 最终视频渲染里能看到轻微动效，但不显得吵。
+- 现有控制台任务测试通过。
+- `compileall` 和 `git diff --check` 通过。
 
-## Out Of Scope
+## 不做范围
 
-- Project screenshots.
-- README or homepage capture improvements.
-- New shot plan schema.
-- New UI controls for theme configuration.
-- Full redesign of opening, ranking overview, closing, or subtitle templates.
+- 项目截图。
+- README 或官网截图采集优化。
+- 新增分镜结构字段。
+- 新增主题配置 UI。
+- 重设计开场、榜单总览、结尾或字幕模板。
