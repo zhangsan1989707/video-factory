@@ -461,13 +461,15 @@ def job_artifacts(job_id: str) -> dict[str, Any]:
             try:
                 is_file = path.is_file()
                 is_symlink = path.is_symlink()
-                size = path.stat().st_size if is_file and not is_symlink else 0
+                stat = path.stat() if is_file and not is_symlink else None
+                size = stat.st_size if stat else 0
+                mtime = int(stat.st_mtime) if stat else 0
             except OSError:
                 continue
             if is_file and not is_symlink:
                 name = str(path.relative_to(job_dir))
                 if not _is_hidden_artifact(name):
-                    files.append({"name": name, "path": str(path), "size": size})
+                    files.append({"name": name, "path": str(path), "size": size, "mtime": mtime})
     return {"job_id": job_id, "job_dir": str(job_dir), "files": files}
 
 

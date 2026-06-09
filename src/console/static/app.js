@@ -712,14 +712,14 @@ function renderArtifacts(artifacts) {
   const others = files.filter((file) => !previews.includes(file));
   list.innerHTML = [
     ...previews.map((file) => `
-      <a class="preview-thumb" href="${escapeAttr(artifactHref(artifacts.job_id, file.name))}" target="_blank" rel="noreferrer">
-        <img src="${escapeAttr(artifactHref(artifacts.job_id, file.name))}" alt="${escapeAttr(file.name)}">
+      <a class="preview-thumb" href="${escapeAttr(artifactHref(artifacts.job_id, file.name, file))}" target="_blank" rel="noreferrer">
+        <img src="${escapeAttr(artifactHref(artifacts.job_id, file.name, file))}" alt="${escapeAttr(file.name)}">
         <code>${escapeHtml(file.name.replace("preview_frames/", ""))}</code>
       </a>
     `),
     ...others.map((file) => `
       <div class="artifact">
-        <a href="${escapeAttr(artifactHref(artifacts.job_id, file.name))}" target="_blank" rel="noreferrer">
+        <a href="${escapeAttr(artifactHref(artifacts.job_id, file.name, file))}" target="_blank" rel="noreferrer">
         <code>${escapeHtml(file.name)}</code>
         </a>
         <span>${officialVideoLabel(artifacts.job_id, file.name)}${Math.ceil((file.size || 0) / 1024)} KB</span>
@@ -739,7 +739,7 @@ function renderArtifactSummary(detail) {
   const summaryJobId = detail.job?.id || detail.artifacts?.job_id || "";
   const latestVideoMarkup = latestVideo
     ? (summaryJobId
-      ? `<a href="${escapeAttr(artifactHref(summaryJobId, latestVideo.name))}" target="_blank" rel="noreferrer">${escapeHtml(latestVideo.name)}</a>`
+      ? `<a href="${escapeAttr(artifactHref(summaryJobId, latestVideo.name, latestVideo))}" target="_blank" rel="noreferrer">${escapeHtml(latestVideo.name)}</a>`
       : escapeHtml(latestVideo.name))
     : "-";
   const hasSummary = readiness.status || publish.title || cover.status || versions.length;
@@ -774,8 +774,10 @@ function officialVideoLabel(jobId, fileName) {
   return fileName.startsWith(`${jobId}-`) && fileName.endsWith(".mp4") ? "正式版本 · " : "";
 }
 
-function artifactHref(jobId, fileName) {
-  return `/api/jobs/${encodeURIComponent(jobId)}/artifacts/${fileName.split("/").map(encodeURIComponent).join("/")}`;
+function artifactHref(jobId, fileName, file = {}) {
+  const path = `/api/jobs/${encodeURIComponent(jobId)}/artifacts/${fileName.split("/").map(encodeURIComponent).join("/")}`;
+  const version = [file.mtime, file.size].filter(Boolean).join("-");
+  return version ? `${path}?v=${encodeURIComponent(version)}` : path;
 }
 
 function openSettings() {
