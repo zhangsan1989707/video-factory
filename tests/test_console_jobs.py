@@ -339,6 +339,8 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(result["cover_frame"]["status"], "ready")
 
                 shot_plan = read_json(jobs_dir / job["id"] / "shot_plan.json", {})
+                self.assertNotIn("alpha", shot_plan["shots"][1]["subtitle"])
+                self.assertIn("整体趋势", shot_plan["shots"][1]["subtitle"])
                 rank_cards = [
                     shot["visual_treatment"]
                     for shot in shot_plan["shots"]
@@ -920,6 +922,11 @@ class ConsoleJobsTest(unittest.TestCase):
                 narration_prompt = captured["narration_generation"]
                 self.assertIn("project_highlight", narration_prompt["projects"][0])
                 self.assertIn("viewer_benefit", narration_prompt["projects"][0])
+                self.assertEqual(narration_prompt["projects"][0]["viewer_pain"], "AI 难接进真实工作流")
+                self.assertEqual(narration_prompt["projects"][0]["safe_highlight"], "把 AI 流程接进具体开发步骤")
+                self.assertIn("content_strategy", narration_prompt)
+                self.assertIn("不复述第 1 名详情", narration_prompt["content_strategy"]["opening"])
+                self.assertIn("榜单总览只讲整体趋势", narration_prompt["instruction"])
                 self.assertIn("visual_potential 是制作侧画面建议", narration_prompt["instruction"])
                 self.assertIn("README 可展示", narration_prompt["instruction"])
                 logs = (jobs_dir / job["id"] / "logs.txt").read_text(encoding="utf-8")
@@ -971,7 +978,7 @@ class ConsoleJobsTest(unittest.TestCase):
 
                 project_line = next(segment["text"] for segment in result["segments"] if segment["id"] == "project-1")
                 self.assertNotIn("README 可展示", project_line)
-                self.assertIn("真正值得看的是，把 AI 流程接进具体开发步骤。", project_line)
+                self.assertIn("先看它怎么做：把 AI 流程接进具体开发步骤。", project_line)
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"][0]["status"], "invalid_json")
                 self.assertEqual(saved["narration_source"]["status"], "ai_failed_fallback")
@@ -1000,7 +1007,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 _mark_awaiting_project_confirmation(job["id"])
                 result = save_selection(job["id"], {"items": _sample_projects()})
 
-                self.assertIn("别再只收藏 GitHub 项目了", result["segments"][0]["text"])
+                self.assertIn("别再只按 Star 收藏项目了", result["segments"][0]["text"])
                 raw = read_json(jobs_dir / job["id"] / "ai-response-narration_generation.json", {})
                 self.assertEqual(raw["raw"], "不是 JSON")
                 self.assertEqual(raw["model"], "mock-model")
@@ -1289,7 +1296,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 _mark_awaiting_project_confirmation(job["id"])
                 result = save_selection(job["id"], {"items": _sample_projects()})
 
-                self.assertIn("别再只收藏 GitHub 项目了", result["segments"][0]["text"])
+                self.assertIn("别再只按 Star 收藏项目了", result["segments"][0]["text"])
                 logs = (jobs_dir / job["id"] / "logs.txt").read_text(encoding="utf-8")
                 self.assertIn("口播生成使用默认模板", logs)
                 detail = job_detail(job["id"])
@@ -1306,10 +1313,10 @@ class ConsoleJobsTest(unittest.TestCase):
 
             project_line = next(segment["text"] for segment in result["segments"] if segment["id"] == "project-1")
 
-        self.assertIn("它主要解决：AI 难接进真实工作流。", project_line)
-        self.assertIn("1.5K Star 说明已经有人关注", project_line)
-        self.assertIn("真正值得看的是，把 AI 流程接进具体开发步骤。", project_line)
-        self.assertIn("如果你属于AI 开发者，可以先收藏再试。", project_line)
+        self.assertIn("如果你卡在AI 难接进真实工作流", project_line)
+        self.assertIn("先看它怎么做：把 AI 流程接进具体开发步骤。", project_line)
+        self.assertIn("1.5K Star 是热度信号", project_line)
+        self.assertIn("适合AI 开发者先判断值不值得上手。", project_line)
         self.assertNotIn("README 可展示", project_line)
         self.assertNotIn("亮点：", project_line)
 
@@ -1334,7 +1341,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 _mark_awaiting_project_confirmation(job["id"])
                 result = save_selection(job["id"], {"items": _sample_projects()})
 
-                self.assertIn("别再只收藏 GitHub 项目了", result["segments"][0]["text"])
+                self.assertIn("别再只按 Star 收藏项目了", result["segments"][0]["text"])
                 chat.assert_not_called()
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"], [])
@@ -1507,7 +1514,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 _mark_awaiting_project_confirmation(job["id"])
                 result = save_selection(job["id"], {"items": _sample_projects()})
 
-                self.assertIn("别再只收藏 GitHub 项目了", result["segments"][0]["text"])
+                self.assertIn("别再只按 Star 收藏项目了", result["segments"][0]["text"])
                 raw = read_json(jobs_dir / job["id"] / "ai-response-script_polishing.json", {})
                 self.assertEqual(raw["model"], "polish-model")
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
@@ -1525,7 +1532,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 _mark_awaiting_project_confirmation(job["id"])
                 result = save_selection(job["id"], {"items": _sample_projects()})
 
-                self.assertIn("别再只收藏 GitHub 项目了", result["segments"][0]["text"])
+                self.assertIn("别再只按 Star 收藏项目了", result["segments"][0]["text"])
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"], [])
                 logs = (jobs_dir / job["id"] / "logs.txt").read_text(encoding="utf-8")

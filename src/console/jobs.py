@@ -656,6 +656,44 @@ def _route_skip_reason(route: dict[str, Any]) -> str:
     return "模型供应商尚未通过连接测试"
 
 
+def _narration_project_context(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "rank": index,
+            "name": project.get("name"),
+            "full_name": project.get("full_name"),
+            "description_zh": project.get("description_zh"),
+            "recommendation": project.get("recommendation"),
+            "project_highlight": project.get("project_highlight"),
+            "viewer_benefit": project.get("viewer_benefit"),
+            "audience": project.get("audience"),
+            "visual_potential": project.get("visual_potential"),
+            "stars": project.get("stars"),
+            "viewer_pain": _viewer_pain(project),
+            "viewer_outcome": _viewer_outcome(project),
+            "safe_highlight": _viewer_highlight(project),
+            "safe_audience": _viewer_audience(project),
+            "risk": project.get("risk"),
+        }
+        for index, project in enumerate(projects, start=1)
+    ]
+
+
+def _ranking_overview_line(projects: list[dict[str, Any]]) -> str:
+    if not projects:
+        return "先看榜单：这期按真实使用价值来拆。"
+    count = len(projects)
+    audiences = []
+    for project in projects:
+        audience = _viewer_audience(project)
+        if audience and audience not in audiences:
+            audiences.append(audience)
+        if len(audiences) == 2:
+            break
+    audience_text = "、".join(audiences) if audiences else "开发者"
+    return f"先看整体趋势：这 {count} 个项目分别在帮{audience_text}缩短上手路径。"
+
+
 def _generate_hook(job_id: str, projects: list[dict[str, Any]]) -> dict[str, Any]:
     route = route_snapshot("hook_generation")
     hook_path = JOBS_DIR / job_id / "hook.json"
@@ -882,27 +920,23 @@ def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[
         _update_narration_source(job_id, route, "model_skipped", reason)
         append_log(job_id, f"口播生成使用默认模板：{reason}。")
         return None
+    project_context = _narration_project_context(projects)
     prompt = {
         "instruction": (
-            "为 GitHub 热榜竖屏短视频生成中文口播。克制、具体、面向观众价值，不要喊口号。"
+            "为 GitHub 热榜竖屏短视频生成中文口播。先做内容策略，再写口播；克制、具体、面向观众价值，不要喊口号。"
+            "开场必须在 3 秒内抓住人，用一个本期判断或反常识观点切入，不要直接复述第一名项目名。"
+            "榜单总览只讲整体趋势和选择标准，不展开第 1 名细节；每个项目详情再按痛点、项目怎么解决、适合谁、为什么值得看展开。"
+            "结尾要留下讨论空间或下一期期待，不要只说点赞关注。"
             "visual_potential 是制作侧画面建议，禁止直接写入口播；不要把 README 可展示、仓库页做信息卡片、"
             "终端截图可展示、截图可展示、画面潜力、信息卡片当成项目亮点。"
         ),
-        "projects": [
-            {
-                "rank": index,
-                "name": project.get("name"),
-                "full_name": project.get("full_name"),
-                "description_zh": project.get("description_zh"),
-                "recommendation": project.get("recommendation"),
-                "project_highlight": project.get("project_highlight"),
-                "viewer_benefit": project.get("viewer_benefit"),
-                "audience": project.get("audience"),
-                "visual_potential": project.get("visual_potential"),
-                "stars": project.get("stars"),
-            }
-            for index, project in enumerate(projects, start=1)
-        ],
+        "projects": project_context,
+        "content_strategy": {
+            "opening": "一句 20 到 45 字的钩子，讲本期判断，不复述第 1 名详情",
+            "overview": "榜单总览负责建立选择标准和整体趋势，不能重复 project-1 的项目介绍",
+            "per_project": "每个项目按 viewer_pain -> safe_highlight 或 viewer_outcome -> safe_audience 组织",
+            "closing": "留下讨论钩子，让观众选择想看哪个项目的实操拆解",
+        },
         "schema": {
             "segments": [
                 {"id": "intro", "label": "开场", "text": "20 到 45 字"},
@@ -1260,14 +1294,15 @@ def _default_narrations(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
         star_label = _star_label(stars)
         pain = _viewer_pain(project)
         highlight = _viewer_highlight(project)
+        outcome = _viewer_outcome(project).rstrip("。")
         audience = _viewer_audience(project)
         segments.append({
             "id": f"project-{index}",
             "label": f"第 {index} 名",
             "text": (
-                f"第 {index} 个，{name}。它主要解决：{pain}。"
-                f"{star_label} 说明已经有人关注；真正值得看的是，{highlight}。"
-                f"如果你属于{audience}，可以先收藏再试。"
+                f"第 {index} 个看 {name}。如果你卡在{pain}，先看它怎么做：{highlight}。"
+                f"{star_label} 是热度信号，但关键是，{outcome}。"
+                f"适合{audience}先判断值不值得上手。"
             ),
         })
     segments.append({
@@ -1280,10 +1315,9 @@ def _default_narrations(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _intro_line(projects: list[dict[str, Any]]) -> str:
     count = len(projects)
-    top = projects[0].get("name") if projects else "第一个项目"
     return (
-        f"别再只收藏 GitHub 项目了。今天这 {count} 个新项目，我只看一件事："
-        f"它到底能不能帮你少走弯路。尤其第一个 {top}，不是单纯热闹，是真的有使用场景。"
+        f"别再只按 Star 收藏项目了。今天这 {count} 个 GitHub 项目，"
+        f"我只看它能不能帮你少走一步弯路。"
     )
 
 
@@ -1490,7 +1524,7 @@ def _shot_plan(
             visual_asset="",
             visual_treatment=f"hotlist_ranking:{row_payload}",
             narration_intent="真实榜单总览",
-            subtitle=f"先看榜单：{rows[0] if rows else 'GitHub 热榜'}。",
+            subtitle=_ranking_overview_line(projects),
         ),
     ]
     start = 10.0
