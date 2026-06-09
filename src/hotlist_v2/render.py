@@ -6,11 +6,12 @@ import asyncio
 import json
 import subprocess
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 from rich.console import Console
 
 from src.hotlist_v2.fetch import fetch_trending
-from src.hotlist_v2.template import render_composition
+from src.hotlist_v2.template import DEFAULT_STYLE, render_composition
 from src.tts.edge_tts import generate_all_audio
 from src.models import VideoScript, ScriptSegment
 
@@ -26,6 +27,7 @@ async def render_hotlist_v2(
     token: str = "",
     limit: int = 10,
     durations: dict[str, int] | None = None,
+    style: str = DEFAULT_STYLE,
 ) -> Path:
     """Full pipeline: fetch → template → HyperFrames → TTS → final video.
 
@@ -39,13 +41,33 @@ async def render_hotlist_v2(
     Returns:
         Path to final video
     """
+    console.print("[bold cyan]Step 1/5:[/] Fetching GitHub trending data...")
+    data = await fetch_trending(time_window, token=token, limit=limit)
+    return await render_hotlist_v2_from_data(data, output_path=output_path, durations=durations, style=style)
+
+
+async def render_hotlist_v2_from_projects(
+    projects: list[dict],
+    output_path: Path | None = None,
+    durations: dict[str, int] | None = None,
+    style: str = DEFAULT_STYLE,
+) -> Path:
+    """Render a hotlist v2 video from already selected console project data."""
+    data = _data_from_projects(projects)
+    return await render_hotlist_v2_from_data(data, output_path=output_path, durations=durations, style=style)
+
+
+async def render_hotlist_v2_from_data(
+    data: dict,
+    output_path: Path | None = None,
+    durations: dict[str, int] | None = None,
+    style: str = DEFAULT_STYLE,
+) -> Path:
+    """Render a hotlist v2 video from normalized template data."""
     out = output_path or OUTPUT_DIR / "final.mp4"
     work_dir = out.parent
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: Fetch trending data
-    console.print("[bold cyan]Step 1/5:[/] Fetching GitHub trending data...")
-    data = await fetch_trending(time_window, token=token, limit=limit)
     data_path = work_dir / "trending-data.json"
     data_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     console.print(f"  ✓ Found {data['total_projects']} projects, {data['total_languages']} languages")
@@ -53,7 +75,7 @@ async def render_hotlist_v2(
     # Step 2: Render HTML composition
     console.print("[bold cyan]Step 2/5:[/] Rendering HTML composition...")
     html_path = work_dir / "composition.html"
-    render_composition(data, html_path, durations)
+    render_composition(data, html_path, durations, style=style)
     console.print(f"  ✓ HTML composition: {html_path}")
 
     # Step 3: Generate TTS narration
@@ -77,6 +99,115 @@ async def render_hotlist_v2(
     console.print(f"  ✓ [bold green]Final video:[/] {out}")
 
     return out
+
+
+def _data_from_projects(projects: list[dict]) -> dict:
+    """Normalize console selected projects to the hotlist v2 template shape."""
+    normalized = []
+    languages_seen: dict[str, str] = {}
+    total_stars = 0
+    for index, item in enumerate(projects, start=1):
+        stars = int(item.get("stars") or item.get("stargazers_count") or 0)
+        total_stars += stars
+        language = str(item.get("language") or "")
+        language_color = str(item.get("language_color") or _language_color(language))
+        if language and language not in languages_seen:
+            languages_seen[language] = language_color
+        full_name = str(item.get("full_name") or item.get("name") or "")
+        owner, name = _split_full_name(full_name)
+        name = str(item.get("name") or name or full_name)
+        topics = [str(topic) for topic in (item.get("topics") or [])[:8]]
+        normalized.append({
+            "rank": index,
+            "name": name,
+            "owner": owner,
+            "owner_initial": owner[:1].upper() if owner else "?",
+            "tagline": str(item.get("tagline") or item.get("audience") or "开源热点"),
+            "description": str(item.get("description_zh") or item.get("description") or ""),
+            "language": language,
+            "language_color": language_color,
+            "stars": stars,
+            "stars_display": _star_display(stars),
+            "daily_growth": str(item.get("daily_growth") or item.get("stars_delta") or "热度上升"),
+            "forks": int(item.get("forks") or item.get("forks_count") or 0),
+            "issues": int(item.get("issues") or item.get("open_issues_count") or 0),
+            "topics": topics,
+            "tech_tags": _tech_tags(topics, language),
+            "star_history": _star_history(stars, index),
+            "reason": str(item.get("project_highlight") or item.get("viewer_benefit") or item.get("recommendation") or item.get("ranking_reason") or ""),
+            "repo_url": str(item.get("repo_url") or item.get("html_url") or ""),
+        })
+
+    now = datetime.now(timezone(timedelta(hours=8)))
+    languages = [{"name": name, "color": color} for name, color in list(languages_seen.items())[:6]]
+    return {
+        "date": f"{now.year} 年 {now.month} 月 {now.day} 日",
+        "issue": now.isocalendar()[1],
+        "total_projects": len(normalized),
+        "total_languages": len(languages),
+        "total_new_stars": _star_display(total_stars),
+        "languages": languages,
+        "theme_highlight": _theme_highlight(normalized),
+        "theme_tags": _theme_tags(normalized),
+        "projects": normalized,
+    }
+
+
+def _split_full_name(full_name: str) -> tuple[str, str]:
+    if "/" not in full_name:
+        return "", full_name
+    owner, name = full_name.split("/", 1)
+    return owner, name
+
+
+def _star_display(stars: int) -> str:
+    if stars >= 10000:
+        return f"{stars / 10000:.1f} 万"
+    if stars >= 1000:
+        return f"{stars / 1000:.1f}k"
+    return str(stars)
+
+
+def _language_color(language: str) -> str:
+    colors = {
+        "TypeScript": "#3b82f6",
+        "Python": "#f59e0b",
+        "Rust": "#f97316",
+        "Go": "#10b981",
+        "JavaScript": "#f7df1e",
+    }
+    return colors.get(language, "#8899bb")
+
+
+def _tech_tags(topics: list[str], language: str) -> list[str]:
+    tags = [language] if language else []
+    for topic in topics:
+        if topic and topic not in tags:
+            tags.append(topic)
+    return tags[:4]
+
+
+def _star_history(stars: int, index: int) -> list[int]:
+    base = max(24, 70 - index * 4)
+    return [min(100, base + step * 5 + (stars % 7)) for step in range(14)]
+
+
+def _theme_highlight(projects: list[dict]) -> str:
+    text = " ".join(f"{p.get('description', '')} {' '.join(p.get('topics') or [])}".lower() for p in projects)
+    if any(key in text for key in ("ai", "agent", "llm", "claude")):
+        return "AI 开源工具"
+    if any(key in text for key in ("framework", "runtime")):
+        return "开发框架"
+    return "技术热点"
+
+
+def _theme_tags(projects: list[dict]) -> list[str]:
+    tags = []
+    for project in projects:
+        for tag in project.get("tech_tags") or []:
+            if tag and tag not in tags:
+                tags.append(tag)
+    return tags[:4] or ["GitHub", "开源", "热点"]
 
 
 def _build_script(data: dict, durations: dict[str, int] | None = None) -> VideoScript:

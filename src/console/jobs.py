@@ -29,7 +29,9 @@ from src.console.store import (
 )
 from src.models import AssetManifest, Shot, ShotPlan, VisualAsset
 from src.pipeline import run_pipeline
+from src.composer.bgm import post_process_video
 from src.composer.vertical import render_vertical_previews
+from src.hotlist_v2.render import render_hotlist_v2_from_projects
 from src.planner.script_v2 import generate_script_from_shot_plan
 
 
@@ -332,24 +334,38 @@ async def render_video(job_id: str) -> dict[str, Any]:
             await validate_plan(job_id)
             job = read_job(job_id)
 
-        append_log(job_id, "开始生成最终视频。这个阶段会采集素材、生成语音并合成 mp4。")
+        append_log(job_id, "开始生成最终视频。这个阶段会生成语音并合成 mp4。")
         update_job(job_id, status="running", stage="capturing_assets", failed_stage="", error="")
 
         def on_pipeline_stage(stage: str, message: str) -> None:
             update_job(job_id, status="running", stage=stage)
             append_log(job_id, message)
 
+        selected = read_json(job_dir / "selected_projects.json", {}).get("items") or []
         output_path = job_dir / "final.mp4"
-        await run_pipeline(
-            url="",
-            output=str(output_path),
-            orientation="vertical",
-            from_plan=str(job_dir),
-            style="hotlist",
-            no_bgm=_no_bgm(job),
-            bgm_path=_bgm_path(job),
-            stage_callback=on_pipeline_stage,
-        )
+        if _visual_style(job) == "tech_hotspot":
+            update_job(job_id, status="running", stage="generating_tts")
+            append_log(job_id, "默认使用 HyperFrames 科技热点风模板。")
+            update_job(job_id, status="running", stage="composing_video")
+            await render_hotlist_v2_from_projects(
+                selected,
+                output_path=output_path,
+                style="tech_hotspot",
+            )
+            update_job(job_id, status="running", stage="post_processing")
+            append_log(job_id, "开始执行视频后处理。")
+            post_process_video(output_path, no_bgm=_no_bgm(job), bgm_path=_bgm_path(job))
+        else:
+            await run_pipeline(
+                url="",
+                output=str(output_path),
+                orientation="vertical",
+                from_plan=str(job_dir),
+                style="hotlist",
+                no_bgm=_no_bgm(job),
+                bgm_path=_bgm_path(job),
+                stage_callback=on_pipeline_stage,
+            )
         update_job(job_id, status="running", stage="post_processing")
         append_log(job_id, f"视频合成完成: {output_path}")
         return finalize_numbered_output(job_id, str(job.get("title") or "GitHub热榜视频"))
@@ -596,6 +612,11 @@ def _bgm_path(job: dict[str, Any]) -> str | None:
     if path.suffix.lower() not in {".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac"}:
         raise ValueError(f"不支持的 BGM 文件格式: {path.suffix}")
     return str(path)
+
+
+def _visual_style(job: dict[str, Any]) -> str:
+    params = job.get("template_params") or {}
+    return str(params.get("style") or params.get("visual_style") or "tech_hotspot")
 
 
 def _merge_candidate_analysis(candidate: dict[str, Any], patch: dict[str, Any]) -> None:

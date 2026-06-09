@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.hotlist_v2.render import render_hotlist_v2
+from src.hotlist_v2.template import DEFAULT_STYLE
 
 
 def main():
@@ -28,6 +29,7 @@ def main():
     parser.add_argument("--list-duration", type=int, default=4, help="List screen duration (seconds)")
     parser.add_argument("--detail-duration", type=int, default=4, help="Detail screen duration (seconds)")
     parser.add_argument("--hook-duration", type=int, default=4, help="Hook screen duration (seconds)")
+    parser.add_argument("--style", type=str, default=DEFAULT_STYLE, choices=[DEFAULT_STYLE], help="Visual style")
     args = parser.parse_args()
 
     token = args.token or os.environ.get("GITHUB_TOKEN", "")
@@ -46,6 +48,7 @@ def main():
         token=token,
         limit=args.limit,
         durations=durations,
+        style=args.style,
     ))
 
 

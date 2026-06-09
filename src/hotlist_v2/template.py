@@ -7,7 +7,10 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent.parent / "assets" / "templates"
-TEMPLATE_NAME = "hotlist-v2.html"
+STYLE_TEMPLATES = {
+    "tech_hotspot": "hotlist-v2.html",
+}
+DEFAULT_STYLE = "tech_hotspot"
 
 DEFAULT_DURATIONS = {
     "intro_duration": 4,
@@ -21,6 +24,7 @@ def render_composition(
     data: dict,
     output_path: Path,
     durations: dict[str, int] | None = None,
+    style: str = DEFAULT_STYLE,
 ) -> Path:
     """Render the hotlist v2 HTML composition from data.
 
@@ -28,6 +32,7 @@ def render_composition(
         data: Trending data dict from fetch.py
         output_path: Where to write the rendered HTML
         durations: Optional overrides for screen durations (seconds)
+        style: Visual style key
 
     Returns:
         Path to the rendered HTML file
@@ -36,7 +41,7 @@ def render_composition(
         loader=FileSystemLoader(str(TEMPLATE_DIR)),
         autoescape=False,
     )
-    template = env.get_template(TEMPLATE_NAME)
+    template = env.get_template(STYLE_TEMPLATES.get(style, STYLE_TEMPLATES[DEFAULT_STYLE]))
 
     merged = {**DEFAULT_DURATIONS, **(durations or {})}
     html = template.render(**data, **merged)

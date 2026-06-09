@@ -1,6 +1,6 @@
 # GitHub Video Maker
 
-本地 GitHub 视频工厂。当前主流程是用浏览器控制台生成 GitHub 热榜竖屏视频草稿，人工确认项目和口播后再渲染最终视频。
+本地 GitHub 视频工厂。当前主流程是用浏览器控制台生成 GitHub 热榜竖屏视频草稿，人工确认项目和口播后默认用 HyperFrames 的“科技热点风”模板渲染最终视频。
 
 ## 启动控制台
 
@@ -30,6 +30,7 @@ http://127.0.0.1:8765
 ```bash
 .venv/bin/python -m src.cli https://github.com/owner/repo --style desktop-review --vertical --dry-run -o output/dir/final.mp4
 .venv/bin/python -m src.cli --from-plan output/dir -o output/dir/final.mp4 --vertical
+.venv/bin/python scripts/render_hotlist_v2.py --style tech_hotspot --token "$GITHUB_TOKEN" -o output/hotlist-v2/final.mp4
 ```
 
 ## 验证

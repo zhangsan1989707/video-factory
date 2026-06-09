@@ -87,7 +87,7 @@ DEFAULT_TEMPLATES = {
     "active_template": "github_hotlist_vertical_v1",
     "github_hotlist_vertical_v1": {
         "project_count": 10,
-        "style": "tech_dark",
+        "style": "tech_hotspot",
         "subtitle_mode": "large_hook",
         "bgm": "default",
         "narration_tone": "professional_review",
@@ -601,7 +601,7 @@ def _normalize_templates(data: dict[str, Any]) -> dict[str, Any]:
         if key in template:
             merged[key] = template[key]
     merged["project_count"] = normalize_project_count(merged.get("project_count"))
-    if merged.get("style") not in {"tech_dark", "minimal_white", "black_gold"}:
+    if merged.get("style") not in {"tech_hotspot", "tech_dark", "minimal_white", "black_gold"}:
         merged["style"] = DEFAULT_TEMPLATES[active]["style"]
     if merged.get("subtitle_mode") not in {"large_hook", "standard"}:
         merged["subtitle_mode"] = DEFAULT_TEMPLATES[active]["subtitle_mode"]

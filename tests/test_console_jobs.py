@@ -716,19 +716,23 @@ class ConsoleJobsTest(unittest.TestCase):
     def test_render_video_auto_validates_unchecked_plan(self) -> None:
         async def pipeline(**kwargs):
             calls.append(kwargs)
-            output = kwargs.get("output")
-            if kwargs.get("dry_run"):
-                return Path(kwargs["from_plan"])
-            Path(output).write_bytes(b"video")
-            return Path(output)
+            return Path(kwargs["from_plan"])
+
+        async def hyperframes(projects, output_path=None, **kwargs):
+            render_calls.append({"projects": projects, "output_path": output_path, **kwargs})
+            Path(output_path).write_bytes(b"video")
+            return Path(output_path)
 
         calls = []
+        render_calls = []
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
             with (
                 patch("src.console.store.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.run_pipeline", side_effect=pipeline),
+                patch("src.console.jobs.render_hotlist_v2_from_projects", side_effect=hyperframes),
+                patch("src.console.jobs.post_process_video", return_value=None),
             ):
                 job = create_job("GH-HOTLIST-20990101-009", {
                     "project_count": 2,
@@ -743,22 +747,23 @@ class ConsoleJobsTest(unittest.TestCase):
                 result = asyncio.run(render_video(job["id"]))
 
                 self.assertEqual(result["job"]["status"], "completed")
-                self.assertEqual(len(calls), 2)
+                self.assertEqual(len(calls), 1)
                 self.assertTrue(calls[0]["dry_run"])
-                self.assertFalse(calls[1].get("dry_run", False))
-                self.assertTrue(calls[1]["no_bgm"])
+                self.assertEqual(len(render_calls), 1)
+                self.assertEqual(render_calls[0]["style"], "tech_hotspot")
                 self.assertEqual(result["job"]["plan_validation"]["status"], "passed")
 
     def test_render_video_passes_custom_bgm_path(self) -> None:
         async def pipeline(**kwargs):
             calls.append(kwargs)
-            output = kwargs.get("output")
-            if kwargs.get("dry_run"):
-                return Path(kwargs["from_plan"])
-            Path(output).write_bytes(b"video")
-            return Path(output)
+            return Path(kwargs["from_plan"])
+
+        async def hyperframes(projects, output_path=None, **kwargs):
+            Path(output_path).write_bytes(b"video")
+            return Path(output_path)
 
         calls = []
+        post_calls = []
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp) / "jobs"
             bgm_file = Path(tmp) / "custom.mp3"
@@ -767,6 +772,8 @@ class ConsoleJobsTest(unittest.TestCase):
                 patch("src.console.store.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.run_pipeline", side_effect=pipeline),
+                patch("src.console.jobs.render_hotlist_v2_from_projects", side_effect=hyperframes),
+                patch("src.console.jobs.post_process_video", side_effect=lambda *args, **kwargs: post_calls.append((args, kwargs)) or Path(args[0])),
             ):
                 job = create_job("GH-HOTLIST-20990101-BGM", {
                     "project_count": 2,
@@ -780,16 +787,22 @@ class ConsoleJobsTest(unittest.TestCase):
                 result = asyncio.run(render_video(job["id"]))
 
                 self.assertEqual(result["job"]["status"], "completed")
-                self.assertEqual(calls[1]["bgm_path"], str(bgm_file))
-                self.assertFalse(calls[1]["no_bgm"])
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(post_calls[0][1]["bgm_path"], str(bgm_file))
+                self.assertFalse(post_calls[0][1]["no_bgm"])
 
     def test_render_video_fails_for_missing_custom_bgm_path(self) -> None:
+        async def hyperframes(projects, output_path=None, **kwargs):
+            Path(output_path).write_bytes(b"video")
+            return Path(output_path)
+
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp) / "jobs"
             missing = Path(tmp) / "missing.mp3"
             with (
                 patch("src.console.store.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.render_hotlist_v2_from_projects", side_effect=hyperframes),
             ):
                 job = create_job("GH-HOTLIST-20990101-BGM-MISSING", {
                     "project_count": 2,
@@ -1757,7 +1770,7 @@ class ConsoleJobsTest(unittest.TestCase):
             self.assertEqual(job["time_window"], "weekly")
             params = job["template_params"]
             self.assertEqual(params["project_count"], 10)
-            self.assertEqual(params["style"], "tech_dark")
+            self.assertEqual(params["style"], "tech_hotspot")
             self.assertEqual(params["subtitle_mode"], "large_hook")
             self.assertEqual(params["bgm"], "default")
             self.assertEqual(params["narration_tone"], "professional_review")
@@ -1790,7 +1803,10 @@ class ConsoleJobsTest(unittest.TestCase):
                 patch("src.console.jobs.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.run_pipeline", side_effect=failing_pipeline),
             ):
-                job = create_job("GH-HOTLIST-20990101-007", {"project_count": 2})
+                job = create_job("GH-HOTLIST-20990101-007", {
+                    "project_count": 2,
+                    "template_params": {"style": "tech_dark"},
+                })
                 _mark_awaiting_project_confirmation(job["id"])
                 selection = save_selection(job["id"], {"items": _sample_projects()})
                 save_script(job["id"], {"segments": selection["segments"]})
