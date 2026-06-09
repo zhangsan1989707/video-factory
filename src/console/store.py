@@ -217,6 +217,17 @@ def update_configs(items: dict[str, dict[str, Any]]) -> dict[str, Any]:
     return config_snapshot()
 
 
+def normalize_model_name(provider_id: str, model: str) -> str:
+    value = str(model or "").strip()
+    if provider_id != "xiaomi":
+        return value
+    aliases = {
+        "MiMo-V2.5-Pro": "mimo-v2.5-pro",
+        "mimo-v2-pro": "mimo-v2.5-pro",
+    }
+    return aliases.get(value, value)
+
+
 def _normalized_config_update(name: str, data: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     _validate_config_update_shape(name, data)
     if name == "providers":
@@ -513,7 +524,10 @@ def _merge_provider_secrets(data: dict[str, Any]) -> dict[str, Any]:
             **default_provider,
             "api_key": incoming_key,
             "base_url": incoming.get("base_url", previous.get("base_url", default_provider.get("base_url", ""))),
-            "default_model": incoming.get("default_model", previous.get("default_model", default_provider.get("default_model", ""))),
+            "default_model": normalize_model_name(
+                str(provider_id or ""),
+                incoming.get("default_model", previous.get("default_model", default_provider.get("default_model", ""))),
+            ),
             "enabled": bool_value(incoming.get("enabled", previous.get("enabled", default_provider.get("enabled", False)))),
             "last_test": incoming.get("last_test", previous.get("last_test", default_provider.get("last_test", "未测试"))),
         }
@@ -621,7 +635,7 @@ def _normalize_model_routing(data: dict[str, Any]) -> dict[str, dict[str, str]]:
     for task, default_route in DEFAULT_MODEL_ROUTING.items():
         candidate = data.get(task) if isinstance(data, dict) else {}
         provider_id = str((candidate or {}).get("provider") or "")
-        model = str((candidate or {}).get("model") or "").strip()
+        model = normalize_model_name(provider_id, str((candidate or {}).get("model") or ""))
         if provider_id in provider_ids and model:
             routing[task] = {"provider": provider_id, "model": model}
         else:

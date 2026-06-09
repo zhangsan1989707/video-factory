@@ -119,6 +119,22 @@ class ConsoleProvidersTest(unittest.TestCase):
             self.assertNotIn("unknown_task", routing)
             self.assertEqual(set(routing), set(DEFAULT_MODEL_ROUTING))
 
+    def test_model_routing_normalizes_xiaomi_model_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "providers.json", DEFAULT_PROVIDERS)
+
+            with patch("src.console.store.CONFIG_DIR", config_dir), patch("src.console.store.JOBS_DIR", jobs_dir):
+                update_config("model-routing", {
+                    "candidate_analysis": {"provider": "xiaomi", "model": "mimo-v2-pro"},
+                    "hotlist_ranking": {"provider": "xiaomi", "model": "MiMo-V2.5-Pro"},
+                })
+                routing = read_json(config_dir / "model-routing.json", {})
+
+            self.assertEqual(routing["candidate_analysis"], {"provider": "xiaomi", "model": "mimo-v2.5-pro"})
+            self.assertEqual(routing["hotlist_ranking"], {"provider": "xiaomi", "model": "mimo-v2.5-pro"})
+
     def test_template_config_normalizes_supported_parameters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)
@@ -630,6 +646,27 @@ class ConsoleProvidersTest(unittest.TestCase):
 
             self.assertEqual(providers[0]["api_key"], "sk-secret")
             self.assertEqual(providers[0]["last_test"], "未测试")
+
+    def test_provider_config_normalizes_xiaomi_default_model_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            write_json(config_dir / "providers.json", DEFAULT_PROVIDERS)
+
+            with patch("src.console.store.CONFIG_DIR", config_dir):
+                update_config("providers", {
+                    "providers": [
+                        {
+                            **DEFAULT_PROVIDERS["providers"][3],
+                            "api_key": "tp-test",
+                            "default_model": "MiMo-V2.5-Pro",
+                            "enabled": True,
+                        }
+                    ]
+                })
+                providers = read_json(config_dir / "providers.json", {})["providers"]
+
+            self.assertEqual(providers[3]["default_model"], "mimo-v2.5-pro")
+            self.assertEqual(providers[3]["last_test"], "未测试")
 
     def test_provider_config_normalizes_enabled_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
