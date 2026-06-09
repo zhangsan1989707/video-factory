@@ -1,0 +1,28 @@
+{
+  "name": "github-video",
+  "version": "1.0.0",
+  "description": "本地 GitHub 视频工厂。当前主流程是用浏览器控制台生成 GitHub 热榜竖屏视频草稿，人工确认项目和口播后再渲染最终视频。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "example",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhangsan1989707/video-factory.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/zhangsan1989707/video-factory/issues"
+  },
+  "homepage": "https://github.com/zhangsan1989707/video-factory#readme",
+  "dependencies": {
+    "hyperframes": "^0.6.84"
+  }
+}
