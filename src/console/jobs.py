@@ -343,7 +343,7 @@ async def render_video(job_id: str) -> dict[str, Any]:
 
         selected = read_json(job_dir / "selected_projects.json", {}).get("items") or []
         output_path = job_dir / "final.mp4"
-        if _visual_style(job) == "tech_hotspot":
+        if _render_engine(job) == "hyperframes" and _visual_style(job) == "tech_hotspot":
             update_job(job_id, status="running", stage="generating_tts")
             append_log(job_id, "默认使用 HyperFrames 科技热点风模板。")
             update_job(job_id, status="running", stage="composing_video")
@@ -617,6 +617,14 @@ def _bgm_path(job: dict[str, Any]) -> str | None:
 def _visual_style(job: dict[str, Any]) -> str:
     params = job.get("template_params") or {}
     return str(params.get("style") or params.get("visual_style") or "tech_hotspot")
+
+
+def _render_engine(job: dict[str, Any]) -> str:
+    params = job.get("template_params") or {}
+    engine = str(params.get("render_engine") or "").strip()
+    if engine in {"hyperframes", "pil"}:
+        return engine
+    return "hyperframes" if _visual_style(job) == "tech_hotspot" else "pil"
 
 
 def _merge_candidate_analysis(candidate: dict[str, Any], patch: dict[str, Any]) -> None:

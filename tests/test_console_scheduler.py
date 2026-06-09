@@ -440,6 +440,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
             self.assertTrue(result["started"])
             self.assertEqual(result["job"]["time_window"], "daily")
             self.assertEqual(result["job"]["template_params"]["style"], "tech_hotspot")
+            self.assertEqual(result["job"]["template_params"]["render_engine"], "hyperframes")
             self.assertEqual(result["job"]["template_params"]["orientation"], "vertical")
 
     def test_scheduler_uses_active_template_params_with_schedule_overrides(self) -> None:
@@ -555,6 +556,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
             params = result["job"]["template_params"]
             self.assertEqual(params["project_count"], 10)
             self.assertEqual(params["style"], "tech_hotspot")
+            self.assertEqual(params["render_engine"], "hyperframes")
             self.assertEqual(params["subtitle_mode"], "large_hook")
             self.assertEqual(params["bgm"], "none")
             self.assertEqual(params["narration_tone"], "professional_review")
@@ -592,6 +594,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
             self.assertTrue(result["started"])
             self.assertEqual(result["job"]["template"], "github_hotlist_vertical_v1")
             self.assertEqual(result["job"]["template_params"]["style"], "tech_hotspot")
+            self.assertEqual(result["job"]["template_params"]["render_engine"], "hyperframes")
             self.assertEqual(result["job"]["template_params"]["orientation"], "vertical")
 
 

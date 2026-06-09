@@ -88,6 +88,7 @@ DEFAULT_TEMPLATES = {
     "github_hotlist_vertical_v1": {
         "project_count": 10,
         "style": "tech_hotspot",
+        "render_engine": "hyperframes",
         "subtitle_mode": "large_hook",
         "bgm": "default",
         "narration_tone": "professional_review",
@@ -596,13 +597,20 @@ def _normalize_templates(data: dict[str, Any]) -> dict[str, Any]:
     template = data.get(active) if isinstance(data.get(active), dict) else {}
     if "style" not in template and template.get("visual_style"):
         template = {**template, "style": template.get("visual_style")}
+    if template.get("style") == "tech_dark" and not template.get("render_engine"):
+        template = {**template, "style": "tech_hotspot"}
+    has_render_engine = "render_engine" in template
     merged = dict(DEFAULT_TEMPLATES[active])
-    for key in ("project_count", "style", "subtitle_mode", "bgm", "narration_tone", "orientation", "bgm_path"):
+    for key in ("project_count", "style", "render_engine", "subtitle_mode", "bgm", "narration_tone", "orientation", "bgm_path"):
         if key in template:
             merged[key] = template[key]
     merged["project_count"] = normalize_project_count(merged.get("project_count"))
     if merged.get("style") not in {"tech_hotspot", "tech_dark", "minimal_white", "black_gold"}:
         merged["style"] = DEFAULT_TEMPLATES[active]["style"]
+    if not has_render_engine:
+        merged["render_engine"] = "hyperframes" if merged.get("style") == "tech_hotspot" else "pil"
+    elif merged.get("render_engine") not in {"hyperframes", "pil"}:
+        merged["render_engine"] = "hyperframes" if merged.get("style") == "tech_hotspot" else "pil"
     if merged.get("subtitle_mode") not in {"large_hook", "standard"}:
         merged["subtitle_mode"] = DEFAULT_TEMPLATES[active]["subtitle_mode"]
     if merged.get("bgm") not in {"default", "none", "custom"}:

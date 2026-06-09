@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -16,6 +16,7 @@ async function run() {
   testBusyRestoreKeepsLatestJobActionState();
   testSyncDetailStateReplacesCandidateAndScriptSnapshots();
   testSelectionButtonStateShowsLimit();
+  testCandidateDefaultsUseProjectCount();
 }
 
 async function testJsonSuccess() {
@@ -122,6 +123,7 @@ function testTemplatePayloadUsesActiveTemplate() {
   const values = {
     projectCount: { value: "5" },
     visualStyle: { value: "black_gold" },
+    renderEngine: { value: "pil" },
     subtitleMode: { value: "standard" },
     tone: { value: "short_video_hook" },
     bgmMode: { value: "none" },
@@ -143,6 +145,7 @@ function testTemplatePayloadUsesActiveTemplate() {
 
   assert.deepEqual(activeTemplateParams(payload), {
     style: "black_gold",
+    render_engine: "pil",
     orientation: "vertical",
     project_count: 5,
     subtitle_mode: "standard",
@@ -246,6 +249,7 @@ function testRenderJobRefreshesEmbeddedStageHistory() {
     currentError: { hidden: true, textContent: "" },
     currentDiagnostics: { hidden: false, textContent: "stale" },
     visualStyle: { value: "" },
+    renderEngine: { value: "" },
     subtitleMode: { value: "" },
     tone: { value: "" },
     bgmMode: { value: "" },
@@ -289,6 +293,7 @@ function testBusyRestoreKeepsLatestJobActionState() {
     currentError: { hidden: true, textContent: "" },
     currentDiagnostics: { hidden: true, textContent: "" },
     visualStyle: { value: "" },
+    renderEngine: { value: "" },
     subtitleMode: { value: "" },
     tone: { value: "" },
     bgmMode: { value: "" },
@@ -355,6 +360,23 @@ function testSelectionButtonStateShowsLimit() {
     label: "已选 6 / 最多 5",
     disabled: false,
   });
+}
+
+function testCandidateDefaultsUseProjectCount() {
+  const values = { projectCount: { value: "5" } };
+  global.document = {
+    getElementById(id) {
+      return values[id];
+    },
+  };
+  state.currentJob = { project_count: 5 };
+
+  assert.equal(candidateChecked({}, 0), true);
+  assert.equal(candidateChecked({}, 4), true);
+  assert.equal(candidateChecked({}, 5), false);
+  assert.equal(candidateOrder({}, 0), 1);
+  assert.equal(candidateOrder({}, 5), "");
+  assert.equal(candidateChecked({ selected: false }, 0), false);
 }
 
 run().catch((error) => {

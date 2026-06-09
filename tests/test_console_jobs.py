@@ -1732,6 +1732,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 job = create_job("GH-HOTLIST-20990101-004", {"template_params": params})
 
             self.assertEqual(job["template_params"]["style"], "black_gold")
+            self.assertEqual(job["template_params"]["render_engine"], "pil")
             self.assertEqual(job["template_params"]["orientation"], "vertical")
             saved = read_json(jobs_dir / job["id"] / "task.json", {})
             self.assertEqual(saved["template_params"], job["template_params"])
@@ -1749,6 +1750,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 })
 
             self.assertEqual(job["template_params"]["style"], "black_gold")
+            self.assertEqual(job["template_params"]["render_engine"], "pil")
             self.assertNotIn("visual_style", job["template_params"])
 
     def test_create_job_normalizes_time_window_and_template_params(self) -> None:
@@ -1771,6 +1773,7 @@ class ConsoleJobsTest(unittest.TestCase):
             params = job["template_params"]
             self.assertEqual(params["project_count"], 10)
             self.assertEqual(params["style"], "tech_hotspot")
+            self.assertEqual(params["render_engine"], "hyperframes")
             self.assertEqual(params["subtitle_mode"], "large_hook")
             self.assertEqual(params["bgm"], "default")
             self.assertEqual(params["narration_tone"], "professional_review")
@@ -1805,7 +1808,7 @@ class ConsoleJobsTest(unittest.TestCase):
             ):
                 job = create_job("GH-HOTLIST-20990101-007", {
                     "project_count": 2,
-                    "template_params": {"style": "tech_dark"},
+                    "template_params": {"style": "tech_dark", "render_engine": "pil"},
                 })
                 _mark_awaiting_project_confirmation(job["id"])
                 selection = save_selection(job["id"], {"items": _sample_projects()})

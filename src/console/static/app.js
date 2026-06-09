@@ -59,6 +59,8 @@ function bindEvents() {
   $("saveSettingsBtn").addEventListener("click", saveSettings);
   $("providerEditor").addEventListener("click", testProviderFromButton);
   $("openJobFolderBtn").addEventListener("click", openJobFolder);
+  $("visualStyle").addEventListener("change", syncRenderEngineForStyle);
+  $("renderEngine").addEventListener("change", syncStyleForRenderEngine);
 }
 
 function switchTab(name) {
@@ -433,6 +435,7 @@ function renderDiagnostics(detail) {
 function currentTemplateParams() {
   return {
     visual_style: $("visualStyle").value,
+    render_engine: $("renderEngine").value,
     subtitle_mode: $("subtitleMode").value,
     narration_tone: $("tone").value,
     bgm: $("bgmMode").value,
@@ -443,10 +446,20 @@ function currentTemplateParams() {
 function applyTemplateParams(params) {
   if (params.visual_style) $("visualStyle").value = params.visual_style;
   if (params.style) $("visualStyle").value = params.style;
+  if (params.render_engine) $("renderEngine").value = params.render_engine;
+  if (!params.render_engine) syncRenderEngineForStyle();
   if (params.subtitle_mode) $("subtitleMode").value = params.subtitle_mode;
   if (params.narration_tone) $("tone").value = params.narration_tone;
   if (params.bgm) $("bgmMode").value = params.bgm;
   $("bgmPath").value = params.bgm_path || "";
+}
+
+function syncRenderEngineForStyle() {
+  $("renderEngine").value = $("visualStyle").value === "tech_hotspot" ? "hyperframes" : "pil";
+}
+
+function syncStyleForRenderEngine() {
+  if ($("renderEngine").value === "hyperframes") $("visualStyle").value = "tech_hotspot";
 }
 
 function activeTemplateParams(templates) {
@@ -465,6 +478,7 @@ function templatePayload(current) {
       ...(templates[active] || {}),
       project_count: Number($("projectCount").value),
       style: params.visual_style,
+      render_engine: params.render_engine,
       subtitle_mode: params.subtitle_mode,
       bgm: params.bgm,
       bgm_path: params.bgm_path,
@@ -540,8 +554,8 @@ function renderCandidates() {
   }
   body.innerHTML = state.candidates.map((item, index) => `
     <tr>
-      <td><input type="checkbox" data-index="${index}" ${item.selected ? "checked" : ""}></td>
-      <td><input class="order-input" type="number" min="1" max="30" data-order-index="${index}" value="${item.order || ""}" aria-label="选择顺序"></td>
+      <td><input type="checkbox" data-index="${index}" ${candidateChecked(item, index) ? "checked" : ""}></td>
+      <td><input class="order-input" type="number" min="1" max="30" data-order-index="${index}" value="${candidateOrder(item, index)}" aria-label="选择顺序"></td>
       <td>
         <strong>${escapeHtml(item.full_name || item.name)}</strong>
         <small>${escapeHtml(item.description_zh || "需要打开仓库确认用途")}</small>
@@ -559,6 +573,20 @@ function renderCandidates() {
     input.addEventListener("change", updateSelectionState);
   });
   updateSelectionState();
+}
+
+function candidateAutoLimit() {
+  return Number((state.currentJob && state.currentJob.project_count) || $("projectCount").value || 10);
+}
+
+function candidateChecked(item, index) {
+  if (item.selected !== undefined) return Boolean(item.selected);
+  return index < candidateAutoLimit();
+}
+
+function candidateOrder(item, index) {
+  if (item.order) return item.order;
+  return index < candidateAutoLimit() ? index + 1 : "";
 }
 
 function renderScript() {
@@ -995,5 +1023,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload };
+  module.exports = { activeTemplateParams, api, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload };
 }
