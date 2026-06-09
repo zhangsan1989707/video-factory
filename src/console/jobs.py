@@ -1,0 +1,1396 @@
+"""Console job orchestration."""
+
+from __future__ import annotations
+
+import json
+import re
+import shutil
+from pathlib import Path
+from typing import Any
+
+from src.console.github_hotlist import collect_candidates_with_meta
+from src.console.model_router import chat_json_detail, route_snapshot
+from src.console.store import (
+    JOBS_DIR,
+    append_model_call,
+    append_log,
+    create_job,
+    job_artifacts,
+    next_job_id,
+    read_github_token,
+    read_job,
+    read_json,
+    read_log,
+    read_log_tail,
+    update_github_rate_limit,
+    update_job,
+    write_json,
+)
+from src.models import AssetManifest, Shot, ShotPlan, VisualAsset
+from src.pipeline import run_pipeline
+from src.composer.vertical import render_vertical_previews
+from src.planner.script_v2 import generate_script_from_shot_plan
+
+
+def create_hotlist_job(payload: dict[str, Any]) -> dict[str, Any]:
+    last_error: ValueError | None = None
+    for _attempt in range(5):
+        job_id = next_job_id("GH-HOTLIST")
+        try:
+            return create_job(job_id, payload)
+        except ValueError as exc:
+            if "任务目录已存在" not in str(exc):
+                raise
+            last_error = exc
+    raise last_error or ValueError("无法创建任务")
+
+
+async def generate_candidates(job_id: str) -> dict[str, Any]:
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    _require_stage(job, {"draft_pending", "collecting_candidates", "analyzing_candidates"}, "当前阶段不能生成候选项目")
+
+    _clear_candidate_artifacts(job_id)
+    update_job(job_id, status="running", stage="collecting_candidates", failed_stage="", error="")
+    append_log(job_id, f"开始拉取 {job.get('time_window', 'weekly')} 候选项目。")
+    try:
+        result = await collect_candidates_with_meta(
+            time_window=str(job.get("time_window") or "weekly"),
+            token=read_github_token(),
+            limit=30,
+        )
+        candidates = result["items"]
+        update_github_rate_limit(str(result.get("rate_limit") or "未检测"))
+        append_log(job_id, f"GitHub API 额度: {result.get('rate_limit') or '未检测'}。")
+        update_job(job_id, status="running", stage="analyzing_candidates")
+        candidates = _analyze_candidates(job_id, candidates)
+        candidates = _rank_candidates(job_id, candidates)
+        write_json(JOBS_DIR / job_id / "candidates.json", {"items": candidates})
+        append_log(job_id, f"候选项目拉取完成，共 {len(candidates)} 个。")
+        update_job(job_id, status="awaiting_input", stage="awaiting_project_confirmation")
+        return {"job": read_job(job_id), "candidates": candidates}
+    except Exception as exc:
+        append_log(job_id, f"候选项目拉取失败: {exc}")
+        failed_stage = str(read_job(job_id).get("stage") or "collecting_candidates")
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc))
+        raise
+
+
+def save_selection(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    _require_stage(job, {"awaiting_project_confirmation", "generating_script"}, "当前阶段不能确认项目")
+    items = payload.get("items") or []
+    if not items:
+        raise ValueError("至少需要选择 1 个项目")
+
+    project_count = int(job.get("project_count") or 10)
+    if len(items) > project_count:
+        raise ValueError(f"最多只能选择 {project_count} 个项目，当前选择 {len(items)} 个")
+    selected = _selected_from_candidate_snapshot(job_id, items)
+    _clear_plan_artifacts(job_id)
+    _clear_script_metadata(job_id)
+    write_json(JOBS_DIR / job_id / "selected_projects.json", {"items": selected})
+    append_log(job_id, f"已确认 {len(selected)} 个入选项目。")
+    update_job(job_id, status="running", stage="generating_script", error="")
+
+    hook = _generate_hook(job_id, selected)
+    narrations = _model_narrations(job_id, selected) or _default_narrations(selected)
+    narrations = _polish_narrations(job_id, selected, narrations)
+    write_json(JOBS_DIR / job_id / "narration.json", {"segments": narrations})
+    append_log(job_id, "已生成初版口播脚本，等待人工确认。")
+    update_job(job_id, status="awaiting_input", stage="awaiting_script_confirmation", plan_validation={"status": "not_run", "error": ""})
+    return {"job": read_job(job_id), "segments": narrations, "hook": hook}
+
+
+def save_script(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    _require_stage(job, {"awaiting_script_confirmation", "preparing_plan"}, "当前阶段不能确认口播")
+    selected = read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items") or []
+    if not selected:
+        raise ValueError("请先确认项目列表")
+    segments = payload.get("segments") or []
+    if not segments:
+        raise ValueError("口播脚本不能为空")
+    _validate_script_segments(selected, segments)
+    _clear_plan_artifacts(job_id)
+    write_json(JOBS_DIR / job_id / "narration.json", {"segments": segments})
+    append_log(job_id, "口播脚本已确认。")
+    _quality_check_script(job_id, segments, selected)
+    publish_pack = _write_publish_pack(job_id, selected, segments)
+    update_job(job_id, status="awaiting_render", stage="preparing_plan", error="", plan_validation={"status": "not_run", "error": ""})
+    return {
+        "job": read_job(job_id),
+        "segments": segments,
+        "quality_report": read_json(JOBS_DIR / job_id / "quality_report.json", {}),
+        "publish_pack": publish_pack,
+    }
+
+
+def _require_stage(job: dict[str, Any], allowed: set[str], message: str) -> None:
+    if str(job.get("stage") or "") not in allowed:
+        raise ValueError(f"{message}: {job.get('stage') or 'unknown'}")
+
+
+def _validate_script_segments(projects: list[dict[str, Any]], segments: list[dict[str, Any]]) -> None:
+    expected = ["intro", *[f"project-{index}" for index in range(1, len(projects) + 1)], "outro"]
+    by_id = {str(segment.get("id") or ""): segment for segment in segments if isinstance(segment, dict)}
+    missing = [segment_id for segment_id in expected if not str((by_id.get(segment_id) or {}).get("text") or "").strip()]
+    if missing:
+        raise ValueError(f"口播脚本缺少段落: {', '.join(missing)}")
+
+
+def _selected_from_candidate_snapshot(job_id: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidates = read_json(JOBS_DIR / job_id / "candidates.json", {}).get("items") or []
+    by_key = {}
+    for candidate in candidates:
+        key = _candidate_key(candidate)
+        if key:
+            by_key[key] = candidate
+    if not by_key:
+        raise ValueError("候选快照不存在，请先生成候选项目")
+    selected = []
+    seen = set()
+    for item in items:
+        key = _candidate_key(item)
+        if not key or key not in by_key:
+            raise ValueError(f"候选快照中不存在: {item.get('full_name') or item.get('name') or 'unknown'}")
+        if key in seen:
+            raise ValueError(f"不能重复选择同一个项目: {item.get('full_name') or item.get('name') or key}")
+        seen.add(key)
+        selected.append(dict(by_key[key]))
+    return selected
+
+
+def _candidate_key(item: dict[str, Any]) -> str:
+    return str(item.get("full_name") or item.get("repo_url") or "").strip()
+
+
+def _clear_candidate_artifacts(job_id: str) -> None:
+    job_dir = JOBS_DIR / job_id
+    for name in ("candidates.json", "selected_projects.json", "narration.json", "hook.json"):
+        path = job_dir / name
+        if path.exists() and path.is_file():
+            path.unlink()
+    _clear_script_metadata(job_id)
+    _clear_plan_artifacts(job_id)
+
+
+def _clear_plan_artifacts(job_id: str) -> None:
+    job_dir = JOBS_DIR / job_id
+    for name in (
+        "asset_manifest.json",
+        "shot_plan.json",
+        "script.json",
+        "info.json",
+        "cover_frame.png",
+        "cover_frame.json",
+        "readiness_report.json",
+        "final.mp4",
+    ):
+        path = job_dir / name
+        if path.exists() and path.is_file():
+            path.unlink()
+    for path in job_dir.glob(f"{job_id}-*.mp4"):
+        if path.exists() and path.is_file():
+            path.unlink()
+    preview_dir = job_dir / "preview_frames"
+    if preview_dir.exists() and preview_dir.is_dir():
+        shutil.rmtree(preview_dir)
+    update_job(job_id, official_video="")
+
+
+def _clear_script_metadata(job_id: str) -> None:
+    job_dir = JOBS_DIR / job_id
+    for name in ("quality_report.json", "publish_pack.json"):
+        path = job_dir / name
+        if path.exists() and path.is_file():
+            path.unlink()
+
+
+def prepare_plan(job_id: str) -> dict[str, Any]:
+    """Prepare current pipeline files without starting expensive rendering."""
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    _require_stage(job, {"preparing_plan"}, "当前阶段不能生成计划文件")
+    if str(job.get("status") or "") not in {"awaiting_render", "awaiting_validation", "ready_to_render", "failed"}:
+        raise ValueError(f"当前状态不能生成计划文件: {job.get('status') or 'unknown'}")
+    selected = read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items") or []
+    segments = read_json(JOBS_DIR / job_id / "narration.json", {}).get("segments") or []
+    if not selected:
+        raise ValueError("请先确认项目列表")
+    if not segments:
+        raise ValueError("请先确认口播脚本")
+
+    update_job(job_id, status="running", stage="preparing_plan", failed_stage="", error="")
+    append_log(job_id, "开始生成流水线计划文件。")
+
+    job_dir = JOBS_DIR / job_id
+    try:
+        manifest = _manifest(selected)
+        shot_plan = _shot_plan(job, selected, segments)
+        script = generate_script_from_shot_plan(shot_plan)
+
+        write_json(job_dir / "asset_manifest.json", manifest.to_dict())
+        write_json(job_dir / "shot_plan.json", shot_plan.to_dict())
+        write_json(job_dir / "script.json", script.to_dict())
+        write_json(job_dir / "info.json", {"projects": selected})
+        previews = render_vertical_previews(script, shot_plan, manifest, job_dir / "preview_frames")
+        cover = _write_cover_frame(job_id, previews)
+        readiness = _write_readiness_report(job_id, selected, segments, len(previews), bool(cover.get("path")))
+        append_log(job_id, f"计划文件已生成，并输出 {len(previews)} 张静态预览帧。")
+        update_job(
+            job_id,
+            status="awaiting_validation",
+            stage="preparing_plan",
+            plan_validation={"status": "not_run", "error": ""},
+        )
+        return {
+            "job": read_job(job_id),
+            "artifacts": job_artifacts(job_id),
+            "plan_validation": {"status": "not_run", "error": ""},
+            "cover_frame": cover,
+            "readiness_report": readiness,
+            "render_command": f".venv/bin/python -m src.cli --from-plan {job_dir} -o {job_dir / 'final.mp4'} --vertical",
+        }
+    except Exception as exc:
+        append_log(job_id, f"计划文件生成失败: {exc}")
+        _clear_plan_artifacts(job_id)
+        update_job(job_id, status="failed", stage="preparing_plan", failed_stage="preparing_plan", error=str(exc))
+        raise
+
+
+async def validate_plan(job_id: str) -> dict[str, Any]:
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    _require_stage(job, {"preparing_plan"}, "当前阶段不能校验计划文件")
+
+    job_dir = JOBS_DIR / job_id
+    if not (job_dir / "shot_plan.json").exists():
+        prepare_plan(job_id)
+
+    append_log(job_id, "开始校验 --from-plan dry run。")
+    update_job(
+        job_id,
+        status="running",
+        stage="preparing_plan",
+        failed_stage="",
+        error="",
+        plan_validation={"status": "running", "error": ""},
+    )
+    try:
+        await run_pipeline(
+            url="",
+            output=str(job_dir / "final.mp4"),
+            orientation="vertical",
+            from_plan=str(job_dir),
+            style="hotlist",
+            dry_run=True,
+        )
+        append_log(job_id, "计划文件校验通过，可进入最终渲染。")
+        validation = {"status": "passed", "error": ""}
+        update_job(job_id, status="ready_to_render", stage="preparing_plan", plan_validation=validation)
+        return {"job": read_job(job_id), "plan_validation": validation, "artifacts": job_artifacts(job_id)}
+    except Exception as exc:
+        append_log(job_id, f"计划文件校验失败: {exc}")
+        validation = {"status": "failed", "error": str(exc)}
+        update_job(
+            job_id,
+            status="failed",
+            stage="preparing_plan",
+            failed_stage="preparing_plan",
+            error=str(exc),
+            plan_validation=validation,
+        )
+        raise
+
+
+async def render_video(job_id: str) -> dict[str, Any]:
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    _require_stage(job, {"preparing_plan", "capturing_assets", "generating_tts", "composing_video", "post_processing"}, "当前阶段不能生成最终视频")
+
+    job_dir = JOBS_DIR / job_id
+    try:
+        if not (job_dir / "shot_plan.json").exists():
+            prepare_plan(job_id)
+        job = read_job(job_id)
+        if (job.get("plan_validation") or {}).get("status") != "passed":
+            await validate_plan(job_id)
+            job = read_job(job_id)
+
+        append_log(job_id, "开始生成最终视频。这个阶段会采集素材、生成语音并合成 mp4。")
+        update_job(job_id, status="running", stage="capturing_assets", failed_stage="", error="")
+
+        def on_pipeline_stage(stage: str, message: str) -> None:
+            update_job(job_id, status="running", stage=stage)
+            append_log(job_id, message)
+
+        output_path = job_dir / "final.mp4"
+        await run_pipeline(
+            url="",
+            output=str(output_path),
+            orientation="vertical",
+            from_plan=str(job_dir),
+            style="hotlist",
+            no_bgm=_no_bgm(job),
+            bgm_path=_bgm_path(job),
+            stage_callback=on_pipeline_stage,
+        )
+        update_job(job_id, status="running", stage="post_processing")
+        append_log(job_id, f"视频合成完成: {output_path}")
+        return finalize_numbered_output(job_id, str(job.get("title") or "GitHub热榜视频"))
+    except Exception as exc:
+        failed_stage = str(read_job(job_id).get("stage") or "composing_video")
+        append_log(job_id, f"视频生成失败: {exc}")
+        _clear_video_outputs(job_id)
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc))
+        raise
+
+
+def finalize_numbered_output(job_id: str, title: str = "") -> dict[str, Any]:
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    stage = str(job.get("stage") or "")
+    status = str(job.get("status") or "")
+    if stage not in {"post_processing", "completed"} and status != "completed":
+        raise ValueError(f"当前阶段不能生成带编号正式文件: {stage or 'unknown'}")
+    job_dir = JOBS_DIR / job_id
+    source = job_dir / "final.mp4"
+    if not source.exists():
+        raise ValueError("final.mp4 不存在，无法生成带编号正式文件")
+    safe_title = _safe_filename(title or str(job.get("title") or "GitHub热榜视频"))
+    target = _available_video_path(job_dir, f"{job_id}-{safe_title}")
+    shutil.copy2(source, target)
+    append_log(job_id, f"正式视频文件已生成: {target.name}")
+    update_job(job_id, status="completed", stage="completed", official_video=str(target))
+    return {"job": read_job(job_id), "artifacts": job_artifacts(job_id)}
+
+
+def _video_versions(job_id: str) -> list[dict[str, Any]]:
+    job_dir = JOBS_DIR / job_id
+    if not job_dir.exists():
+        return []
+    versions = []
+    for path in job_dir.glob(f"{job_id}-*.mp4"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        versions.append({
+            "name": path.name,
+            "path": str(path),
+            "size": stat.st_size,
+            "updated_at": int(stat.st_mtime),
+        })
+    return sorted(versions, key=lambda item: (item["updated_at"], _version_index(str(item["name"]))))
+
+
+def _clear_video_outputs(job_id: str) -> None:
+    job_dir = JOBS_DIR / job_id
+    final = job_dir / "final.mp4"
+    if final.exists() and final.is_file():
+        final.unlink()
+    for path in job_dir.glob(f"{job_id}-*.mp4"):
+        if path.exists() and path.is_file():
+            path.unlink()
+    update_job(job_id, official_video="")
+
+
+def _version_index(name: str) -> int:
+    match = re.search(r"-v(\d+)\.mp4$", name)
+    return int(match.group(1)) if match else 1
+
+
+def job_detail(job_id: str) -> dict[str, Any]:
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    model_calls = job.get("model_calls") or []
+    return {
+        "job": job,
+        "candidates": read_json(JOBS_DIR / job_id / "candidates.json", {}).get("items", []),
+        "selected": read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items", []),
+        "segments": read_json(JOBS_DIR / job_id / "narration.json", {}).get("segments", []),
+        "hook": read_json(JOBS_DIR / job_id / "hook.json", {}),
+        "publish_pack": read_json(JOBS_DIR / job_id / "publish_pack.json", {}),
+        "cover_frame": read_json(JOBS_DIR / job_id / "cover_frame.json", {}),
+        "logs": read_log(job_id),
+        "log_tail": read_log_tail(job_id),
+        "failed_stage": job.get("failed_stage") or (job.get("stage") if job.get("status") == "failed" else ""),
+        "plan_validation": job.get("plan_validation") or {"status": "not_run", "error": ""},
+        "quality_report": read_json(JOBS_DIR / job_id / "quality_report.json", {}),
+        "video_versions": _video_versions(job_id),
+        "readiness_report": read_json(JOBS_DIR / job_id / "readiness_report.json", {}),
+        "stage_history": job.get("stage_history") or [],
+        "artifacts": job_artifacts(job_id),
+        "latest_model_call": model_calls[-1] if model_calls else {},
+    }
+
+
+def _analyze_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    route = route_snapshot("candidate_analysis")
+    if not _route_available(route):
+        append_log(job_id, f"候选分析使用启发式评分：{_route_skip_reason(route)}。")
+        return candidates
+    prompt = {
+        "instruction": "为中文 GitHub 热榜短视频分析候选项目。只根据输入字段判断，不要夸大。",
+        "items": [
+            {
+                "index": index,
+                "full_name": item.get("full_name"),
+                "description": item.get("description"),
+                "stars": item.get("stars"),
+                "language": item.get("language"),
+                "topics": item.get("topics"),
+                "homepage": item.get("homepage"),
+            }
+            for index, item in enumerate(candidates[:30])
+        ],
+        "schema": {
+            "items": [
+                {
+                    "index": 1,
+                    "description_zh": "一句中文用途解释",
+                    "recommendation": "为什么值得入榜",
+                    "risk": "风险提示",
+                    "audience": "适合谁",
+                    "visual_potential": "画面潜力",
+                    "score": 80,
+                }
+            ]
+        },
+    }
+    try:
+        detail = chat_json_detail(
+            "candidate_analysis",
+            "你是克制的中文短视频选题编辑，只输出 JSON。",
+            json.dumps(prompt, ensure_ascii=False),
+            max_tokens=5000,
+        )
+        data = detail["data"]
+        used_route = detail["route"]
+        items = data.get("items", []) if data else []
+        by_index = {int(item.get("index") or 0): item for item in items}
+        if not by_index:
+            _write_ai_raw_response(job_id, "candidate_analysis", detail)
+            _record_model_call(job_id, "candidate_analysis", detail, "invalid_json")
+            append_log(job_id, f"候选分析模型未返回可用 JSON，保留启发式结果。")
+            return candidates
+        for index, candidate in enumerate(candidates, start=1):
+            patch = by_index.get(index)
+            if patch:
+                _merge_candidate_analysis(candidate, patch)
+        _record_model_call(job_id, "candidate_analysis", detail, "success")
+        append_log(job_id, f"候选分析已使用 {used_route['provider_name']} / {used_route['model']}。")
+    except Exception as exc:
+        _record_model_call(job_id, "candidate_analysis", {"route": route, "error": str(exc)}, "failed")
+        append_log(job_id, f"候选分析模型失败，保留启发式结果: {exc}")
+    return candidates
+
+
+def _rank_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    route = route_snapshot("hotlist_ranking")
+    if not _route_available(route):
+        append_log(job_id, f"热榜排序使用默认顺序：{_route_skip_reason(route)}。")
+        return candidates
+    prompt = {
+        "instruction": "为中文 GitHub 热榜短视频给候选项目排序。优先考虑观众价值、可解释性、画面潜力和事实稳妥性。",
+        "items": [
+            {
+                "index": index,
+                "full_name": item.get("full_name"),
+                "description_zh": item.get("description_zh"),
+                "recommendation": item.get("recommendation"),
+                "risk": item.get("risk"),
+                "visual_potential": item.get("visual_potential"),
+                "stars": item.get("stars"),
+                "score": item.get("score"),
+            }
+            for index, item in enumerate(candidates[:30])
+        ],
+        "schema": {
+            "items": [
+                {"index": 1, "rank": 1, "reason": "为什么排在这个位置"}
+            ]
+        },
+    }
+    try:
+        detail = chat_json_detail(
+            "hotlist_ranking",
+            "你是克制的中文选题排序编辑，只输出 JSON。",
+            json.dumps(prompt, ensure_ascii=False),
+            max_tokens=2600,
+        )
+        data = detail["data"]
+        ranked = _apply_candidate_ranking(candidates, data.get("items", []) if data else [])
+        if not ranked:
+            _write_ai_raw_response(job_id, "hotlist_ranking", detail)
+            _record_model_call(job_id, "hotlist_ranking", detail, "invalid_json")
+            append_log(job_id, "热榜排序模型未返回可用 JSON，保留默认顺序。")
+            return candidates
+        _record_model_call(job_id, "hotlist_ranking", detail, "success")
+        used_route = detail["route"]
+        append_log(job_id, f"热榜排序已使用 {used_route['provider_name']} / {used_route['model']}。")
+        return ranked
+    except Exception as exc:
+        _record_model_call(job_id, "hotlist_ranking", {"route": route, "error": str(exc)}, "failed")
+        append_log(job_id, f"热榜排序模型失败，保留默认顺序: {exc}")
+        return candidates
+
+
+def _apply_candidate_ranking(candidates: list[dict[str, Any]], items: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+    ranks: dict[int, tuple[int, str]] = {}
+    for item in items:
+        try:
+            index = int(item.get("index"))
+            rank = int(item.get("rank"))
+        except Exception:
+            continue
+        if index < 1 or index > len(candidates) or rank < 1:
+            continue
+        ranks[index - 1] = (rank, _short_text(str(item.get("reason") or ""), 140))
+    if not ranks:
+        return None
+    ranked = []
+    for index, candidate in enumerate(candidates):
+        patched = dict(candidate)
+        if index in ranks:
+            patched["ai_rank"] = ranks[index][0]
+            patched["ranking_reason"] = ranks[index][1]
+        ranked.append(patched)
+    return sorted(ranked, key=lambda item: (int(item.get("ai_rank") or 9999), -int(item.get("score") or 0)))
+
+
+def _no_bgm(job: dict[str, Any]) -> bool:
+    params = job.get("template_params") or {}
+    return params.get("bgm") == "none"
+
+
+def _bgm_path(job: dict[str, Any]) -> str | None:
+    params = job.get("template_params") or {}
+    if params.get("bgm") != "custom":
+        return None
+    path = Path(str(params.get("bgm_path") or "")).expanduser()
+    if not path.exists() or not path.is_file():
+        raise ValueError(f"自定义 BGM 文件不存在: {path}")
+    if path.suffix.lower() not in {".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac"}:
+        raise ValueError(f"不支持的 BGM 文件格式: {path.suffix}")
+    return str(path)
+
+
+def _merge_candidate_analysis(candidate: dict[str, Any], patch: dict[str, Any]) -> None:
+    for key in ("description_zh", "recommendation", "risk", "audience", "visual_potential"):
+        if patch.get(key):
+            candidate[key] = _short_text(str(patch[key]), 120)
+    try:
+        score = int(patch.get("score"))
+        candidate["score"] = max(0, min(100, score))
+    except Exception:
+        pass
+
+
+def _route_available(route: dict[str, Any]) -> bool:
+    if "available" not in route:
+        return bool(route.get("provider") and route.get("model") and route.get("enabled") and route.get("configured"))
+    return bool(route.get("provider") and route.get("model") and route.get("available"))
+
+
+def _route_skip_reason(route: dict[str, Any]) -> str:
+    if not route.get("provider") or not route.get("model") or not route.get("enabled") or not route.get("configured"):
+        return "未配置模型路由"
+    last_test = str(route.get("last_test") or "")
+    if last_test.startswith("连接失败"):
+        return "模型供应商最近连接测试失败"
+    return "模型供应商尚未通过连接测试"
+
+
+def _generate_hook(job_id: str, projects: list[dict[str, Any]]) -> dict[str, Any]:
+    route = route_snapshot("hook_generation")
+    hook_path = JOBS_DIR / job_id / "hook.json"
+    if not _route_available(route):
+        reason = _route_skip_reason(route)
+        hook = _default_hook(projects, route, "skipped", reason)
+        write_json(hook_path, hook)
+        append_log(job_id, f"标题钩子生成跳过：{reason}。")
+        return hook
+    prompt = {
+        "instruction": "为 GitHub 热榜竖屏短视频生成克制标题和开场钩子。不要夸大，不要承诺收益，只基于输入项目。",
+        "projects": [
+            {
+                "rank": index,
+                "name": project.get("name"),
+                "full_name": project.get("full_name"),
+                "description_zh": project.get("description_zh"),
+                "recommendation": project.get("recommendation"),
+                "audience": project.get("audience"),
+                "stars": project.get("stars"),
+            }
+            for index, project in enumerate(projects, start=1)
+        ],
+        "schema": {
+            "title": "适合文件名和视频标题的中文标题，12 到 28 字",
+            "opening_hook": "开头 1 句话，20 到 45 字",
+            "closing_cta": "结尾互动提示，15 到 40 字",
+        },
+    }
+    try:
+        detail = chat_json_detail(
+            "hook_generation",
+            "你是克制的中文短视频标题编辑，只输出 JSON。",
+            json.dumps(prompt, ensure_ascii=False),
+            max_tokens=1000,
+        )
+        hook = _sanitize_hook(detail["data"], detail.get("route") or {}, "", "success")
+        if not hook:
+            _write_ai_raw_response(job_id, "hook_generation", detail)
+            _record_model_call(job_id, "hook_generation", detail, "invalid_json")
+            hook = _default_hook(projects, detail.get("route") or {}, "invalid_json", detail.get("error") or "模型未返回可用 JSON")
+            write_json(hook_path, hook)
+            append_log(job_id, "标题钩子模型未返回可用 JSON，保留默认标题。")
+            return hook
+        write_json(hook_path, hook)
+        update_job(job_id, title=hook["title"])
+        _record_model_call(job_id, "hook_generation", detail, "success")
+        append_log(job_id, f"标题钩子已使用 {hook['provider']} / {hook['model']}。")
+        return hook
+    except Exception as exc:
+        _record_model_call(job_id, "hook_generation", {"route": route, "error": str(exc)}, "failed")
+        hook = _default_hook(projects, route, "failed", str(exc))
+        write_json(hook_path, hook)
+        append_log(job_id, f"标题钩子生成失败，保留默认标题: {exc}")
+        return hook
+
+
+def _sanitize_hook(
+    data: dict[str, Any] | None,
+    route: dict[str, Any],
+    error: str,
+    status: str,
+) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
+        return None
+    title = _short_text(str(data.get("title") or ""), 36)
+    opening_hook = _short_text(str(data.get("opening_hook") or ""), 90)
+    closing_cta = _short_text(str(data.get("closing_cta") or ""), 80)
+    if not title or not opening_hook:
+        return None
+    return {
+        "status": status,
+        "title": title,
+        "opening_hook": opening_hook,
+        "closing_cta": closing_cta,
+        "provider": route.get("provider_name") or route.get("provider") or "",
+        "model": route.get("model") or "",
+        "error": error,
+    }
+
+
+def _default_hook(
+    projects: list[dict[str, Any]],
+    route: dict[str, Any],
+    status: str,
+    error: str,
+) -> dict[str, Any]:
+    title = f"GitHub热榜{len(projects)}个项目" if projects else "GitHub热榜视频"
+    names = "、".join(str(project.get("name") or project.get("full_name") or "这个项目") for project in projects[:3])
+    return {
+        "status": status,
+        "title": title,
+        "opening_hook": f"这期看 {names or 'GitHub 热榜'}，只挑真正值得停下来的项目。",
+        "closing_cta": "想看哪个项目实操拆解，评论区直接留名字。",
+        "provider": route.get("provider_name") or route.get("provider") or "",
+        "model": route.get("model") or "",
+        "error": error,
+    }
+
+
+def _write_publish_pack(
+    job_id: str,
+    projects: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    hook = read_json(JOBS_DIR / job_id / "hook.json", {})
+    title = _short_text(str(hook.get("title") or read_job(job_id).get("title") or "GitHub 热榜视频"), 40)
+    opening = _short_text(str(hook.get("opening_hook") or (segments[0].get("text") if segments else "")), 90)
+    closing = _short_text(str(hook.get("closing_cta") or _outro_line(projects)), 80)
+    project_names = [str(project.get("full_name") or project.get("name") or "") for project in projects if project.get("full_name") or project.get("name")]
+    description_lines = [
+        opening or title,
+        "",
+        "本期项目：",
+        *[f"{index}. {name}" for index, name in enumerate(project_names, start=1)],
+        "",
+        closing,
+    ]
+    pack = {
+        "title": title,
+        "description": _clip_multiline("\n".join(description_lines), 900),
+        "hashtags": _hashtags(projects),
+        "cover_text": _cover_text(title, projects),
+        "source_projects": project_names,
+    }
+    write_json(JOBS_DIR / job_id / "publish_pack.json", pack)
+    append_log(job_id, "发布辅助包已生成。")
+    return pack
+
+
+def _hashtags(projects: list[dict[str, Any]]) -> list[str]:
+    tags = ["GitHub", "开源项目", "开发者工具"]
+    text = _project_text({"topics": [], "description": " ".join(_project_text(project) for project in projects)})
+    if _has_keyword(text, ("ai", "agent", "llm", "rag", "model")):
+        tags.append("AI工具")
+    if _has_keyword(text, ("cli", "terminal", "shell", "developer")):
+        tags.append("效率工具")
+    if _has_keyword(text, ("react", "vue", "frontend", "ui", "css")):
+        tags.append("前端开发")
+    if _has_keyword(text, ("data", "database", "analytics", "sql")):
+        tags.append("数据工具")
+    seen = set()
+    return [tag for tag in tags if not (tag in seen or seen.add(tag))]
+
+
+def _cover_text(title: str, projects: list[dict[str, Any]]) -> dict[str, str]:
+    top = str((projects[0] or {}).get("name") or (projects[0] or {}).get("full_name") or "开源项目") if projects else "开源项目"
+    return {
+        "headline": title,
+        "subhead": f"{len(projects)} 个项目 / 重点看 {top}",
+    }
+
+
+def _write_cover_frame(job_id: str, previews: list[Any]) -> dict[str, Any]:
+    job_dir = JOBS_DIR / job_id
+    source = Path(previews[0]) if previews else Path()
+    if not source.exists() or not source.is_file():
+        cover = {"status": "missing", "path": "", "source": "", "note": "没有可用预览帧。"}
+        write_json(job_dir / "cover_frame.json", cover)
+        append_log(job_id, "封面帧生成跳过：没有可用预览帧。")
+        return cover
+    target = job_dir / "cover_frame.png"
+    shutil.copy2(source, target)
+    cover = {
+        "status": "ready",
+        "path": str(target),
+        "source": str(source),
+        "note": "第一版封面帧复用首张静态预览。",
+    }
+    write_json(job_dir / "cover_frame.json", cover)
+    append_log(job_id, "封面帧已生成。")
+    return cover
+
+
+def _write_readiness_report(
+    job_id: str,
+    projects: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+    preview_count: int,
+    has_cover: bool,
+) -> dict[str, Any]:
+    quality = read_json(JOBS_DIR / job_id / "quality_report.json", {})
+    publish_pack = read_json(JOBS_DIR / job_id / "publish_pack.json", {})
+    checks = [
+        _readiness_check("projects", bool(projects), "已确认项目", "缺少已确认项目"),
+        _readiness_check("script", bool(segments), "已确认口播脚本", "缺少口播脚本"),
+        _readiness_check("preview_frames", preview_count >= max(1, len(projects) + 3), f"已生成 {preview_count} 张预览帧", "预览帧数量不足"),
+        _readiness_check("cover_frame", has_cover, "已生成封面帧", "缺少封面帧"),
+        _readiness_check("publish_pack", bool(publish_pack.get("title") and publish_pack.get("description")), "已生成发布辅助包", "缺少发布辅助包"),
+    ]
+    if quality:
+        checks.append(_readiness_check(
+            "fact_check",
+            quality.get("status") in {"pass", "skipped"},
+            f"质检状态: {quality.get('status')}",
+            f"质检需要复核: {quality.get('status')}",
+        ))
+    score = int(sum(item["score"] for item in checks) / max(1, len(checks)))
+    status = "ready" if score >= 85 and all(item["passed"] for item in checks if item["id"] != "fact_check") else "review"
+    report = {
+        "status": status,
+        "score": score,
+        "checks": checks,
+        "summary": "可以进入最终渲染。" if status == "ready" else "进入最终渲染前建议复核未通过项。",
+    }
+    write_json(JOBS_DIR / job_id / "readiness_report.json", report)
+    append_log(job_id, f"发布准备度评分: {score} / 100，状态 {status}。")
+    return report
+
+
+def _readiness_check(check_id: str, passed: bool, ok: str, fail: str) -> dict[str, Any]:
+    return {
+        "id": check_id,
+        "passed": passed,
+        "score": 100 if passed else 0,
+        "message": ok if passed else fail,
+    }
+
+
+def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[str, str]] | None:
+    route = route_snapshot("narration_generation")
+    if not _route_available(route):
+        append_log(job_id, f"口播生成使用默认模板：{_route_skip_reason(route)}。")
+        return None
+    prompt = {
+        "instruction": "为 GitHub 热榜竖屏短视频生成中文口播。克制、具体、面向观众价值，不要喊口号。",
+        "projects": [
+            {
+                "rank": index,
+                "name": project.get("name"),
+                "full_name": project.get("full_name"),
+                "description_zh": project.get("description_zh"),
+                "recommendation": project.get("recommendation"),
+                "audience": project.get("audience"),
+                "stars": project.get("stars"),
+            }
+            for index, project in enumerate(projects, start=1)
+        ],
+        "schema": {
+            "segments": [
+                {"id": "intro", "label": "开场", "text": "20 到 45 字"},
+                {"id": "project-1", "label": "第 1 名", "text": "35 到 70 字"},
+                {"id": "outro", "label": "结尾", "text": "20 到 45 字"},
+            ]
+        },
+    }
+    try:
+        detail = chat_json_detail(
+            "narration_generation",
+            "你是中文短视频口播编辑，只输出 JSON。",
+            json.dumps(prompt, ensure_ascii=False),
+            max_tokens=2600,
+        )
+        data = detail["data"]
+        used_route = detail["route"]
+        segments = _sanitize_model_segments(projects, data.get("segments", []) if data else [])
+        if not segments:
+            _write_ai_raw_response(job_id, "narration_generation", detail)
+            _record_model_call(job_id, "narration_generation", detail, "invalid_json")
+            append_log(job_id, "口播模型未返回可用 JSON，改用默认模板。")
+            return None
+        _record_model_call(job_id, "narration_generation", detail, "success")
+        append_log(job_id, f"口播生成已使用 {used_route['provider_name']} / {used_route['model']}。")
+        return segments
+    except Exception as exc:
+        _record_model_call(job_id, "narration_generation", {"route": route, "error": str(exc)}, "failed")
+        append_log(job_id, f"口播模型失败，改用默认模板: {exc}")
+        return None
+
+
+def _polish_narrations(
+    job_id: str,
+    projects: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    route = route_snapshot("script_polishing")
+    if not _route_available(route):
+        append_log(job_id, f"脚本润色跳过：{_route_skip_reason(route)}。")
+        return segments
+    prompt = {
+        "instruction": "润色 GitHub 热榜中文口播，保持 segment id 不变。只改表达，不新增输入里没有的事实。",
+        "projects": [
+            {
+                "rank": index,
+                "name": project.get("name"),
+                "full_name": project.get("full_name"),
+                "description_zh": project.get("description_zh"),
+                "recommendation": project.get("recommendation"),
+                "audience": project.get("audience"),
+                "risk": project.get("risk"),
+                "stars": project.get("stars"),
+            }
+            for index, project in enumerate(projects, start=1)
+        ],
+        "segments": [
+            {
+                "id": segment.get("id"),
+                "label": segment.get("label"),
+                "text": segment.get("text"),
+            }
+            for segment in segments
+        ],
+        "schema": {
+            "segments": [
+                {"id": "intro", "label": "开场", "text": "保留信息、节奏更顺的中文口播"}
+            ]
+        },
+    }
+    try:
+        detail = chat_json_detail(
+            "script_polishing",
+            "你是克制的中文短视频脚本润色编辑，只输出 JSON。",
+            json.dumps(prompt, ensure_ascii=False),
+            max_tokens=2600,
+        )
+        data = detail["data"]
+        polished = _sanitize_polished_segments(segments, data.get("segments", []) if data else [])
+        if not polished:
+            _write_ai_raw_response(job_id, "script_polishing", detail)
+            _record_model_call(job_id, "script_polishing", detail, "invalid_json")
+            append_log(job_id, "脚本润色模型未返回可用 JSON，保留原稿。")
+            return segments
+        _record_model_call(job_id, "script_polishing", detail, "success")
+        used_route = detail["route"]
+        append_log(job_id, f"脚本润色已使用 {used_route['provider_name']} / {used_route['model']}。")
+        return polished
+    except Exception as exc:
+        _record_model_call(job_id, "script_polishing", {"route": route, "error": str(exc)}, "failed")
+        append_log(job_id, f"脚本润色失败，保留原稿: {exc}")
+        return segments
+
+
+def _sanitize_polished_segments(
+    original: list[dict[str, Any]],
+    polished: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    expected = [str(segment.get("id") or "") for segment in original]
+    by_id = {str(segment.get("id")): segment for segment in polished}
+    cleaned = []
+    for source in original:
+        segment_id = str(source.get("id") or "")
+        segment = by_id.get(segment_id)
+        text = _short_text(str(segment.get("text") or ""), 140) if segment else ""
+        if not segment_id or not text:
+            return []
+        cleaned.append({
+            "id": segment_id,
+            "label": str(segment.get("label") or source.get("label") or _segment_label(segment_id)),
+            "text": text,
+        })
+    return cleaned if [segment["id"] for segment in cleaned] == expected else []
+
+
+def _quality_check_script(
+    job_id: str,
+    segments: list[dict[str, Any]],
+    projects: list[dict[str, Any]],
+) -> None:
+    route = route_snapshot("fact_check")
+    report_path = JOBS_DIR / job_id / "quality_report.json"
+    if not _route_available(route):
+        reason = _route_skip_reason(route)
+        write_json(report_path, {
+            "status": "skipped",
+            "summary": reason,
+            "risk_flags": [],
+            "factual_notes": [],
+            "overclaim_notes": [],
+            "readability_score": None,
+            "provider": route.get("provider_name") or route.get("provider") or "",
+            "model": route.get("model") or "",
+            "error": "",
+        })
+        append_log(job_id, f"脚本质检跳过：{reason}。")
+        return
+
+    prompt = {
+        "instruction": "检查 GitHub 热榜短视频中文口播是否存在事实风险、夸大承诺、表达不清。只根据输入字段判断，不能补充外部事实。",
+        "projects": [
+            {
+                "rank": index,
+                "name": project.get("name"),
+                "full_name": project.get("full_name"),
+                "description": project.get("description"),
+                "description_zh": project.get("description_zh"),
+                "recommendation": project.get("recommendation"),
+                "risk": project.get("risk"),
+                "stars": project.get("stars"),
+            }
+            for index, project in enumerate(projects, start=1)
+        ],
+        "segments": [
+            {
+                "id": segment.get("id"),
+                "label": segment.get("label"),
+                "text": segment.get("text"),
+            }
+            for segment in segments
+        ],
+        "schema": {
+            "status": "pass | caution",
+            "summary": "一句中文结论",
+            "risk_flags": ["需要人工复核的风险点"],
+            "factual_notes": ["事实或来源不足的句子"],
+            "overclaim_notes": ["过度承诺或夸大的句子"],
+            "readability_score": 85,
+        },
+    }
+    try:
+        detail = chat_json_detail(
+            "fact_check",
+            "你是克制的中文视频脚本质检编辑，只输出 JSON。",
+            json.dumps(prompt, ensure_ascii=False),
+            max_tokens=1800,
+        )
+        data = detail["data"]
+        report = _sanitize_quality_report(data, detail.get("route") or {}, "")
+        if not report:
+            _write_ai_raw_response(job_id, "fact_check", detail)
+            _record_model_call(job_id, "fact_check", detail, "invalid_json")
+            write_json(report_path, _quality_report_error("invalid_json", detail.get("route") or {}, detail.get("error") or "模型未返回可用 JSON"))
+            append_log(job_id, "脚本质检模型未返回可用 JSON，已保留原始响应。")
+            return
+        write_json(report_path, report)
+        _record_model_call(job_id, "fact_check", detail, "success")
+        append_log(job_id, f"脚本质检完成：{report['summary']}")
+    except Exception as exc:
+        _record_model_call(job_id, "fact_check", {"route": route, "error": str(exc)}, "failed")
+        write_json(report_path, _quality_report_error("failed", route, str(exc)))
+        append_log(job_id, f"脚本质检失败，继续进入出片准备: {exc}")
+
+
+def _sanitize_quality_report(
+    data: dict[str, Any] | None,
+    route: dict[str, Any],
+    error: str,
+) -> dict[str, Any] | None:
+    if not isinstance(data, dict):
+        return None
+    summary = _short_text(str(data.get("summary") or ""), 160)
+    if not summary:
+        return None
+    status = str(data.get("status") or "caution").strip().lower()
+    if status not in {"pass", "caution"}:
+        status = "caution"
+    return {
+        "status": status,
+        "summary": summary,
+        "risk_flags": _short_list(data.get("risk_flags"), 8, 160),
+        "factual_notes": _short_list(data.get("factual_notes"), 8, 180),
+        "overclaim_notes": _short_list(data.get("overclaim_notes"), 8, 180),
+        "readability_score": _score_or_none(data.get("readability_score")),
+        "provider": route.get("provider_name") or route.get("provider") or "",
+        "model": route.get("model") or "",
+        "error": error,
+    }
+
+
+def _quality_report_error(status: str, route: dict[str, Any], error: str) -> dict[str, Any]:
+    return {
+        "status": status,
+        "summary": "脚本质检未完成，请人工检查事实和夸大表达。",
+        "risk_flags": [],
+        "factual_notes": [],
+        "overclaim_notes": [],
+        "readability_score": None,
+        "provider": route.get("provider_name") or route.get("provider") or "",
+        "model": route.get("model") or "",
+        "error": error,
+    }
+
+
+def _short_list(value: Any, limit: int, text_limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [_short_text(str(item), text_limit) for item in value[:limit] if str(item).strip()]
+
+
+def _score_or_none(value: Any) -> int | None:
+    try:
+        return max(0, min(100, int(value)))
+    except Exception:
+        return None
+
+
+def _sanitize_model_segments(projects: list[dict[str, Any]], segments: list[dict[str, Any]]) -> list[dict[str, str]]:
+    expected = ["intro", *[f"project-{index}" for index in range(1, len(projects) + 1)], "outro"]
+    by_id = {str(segment.get("id")): segment for segment in segments}
+    cleaned = []
+    for segment_id in expected:
+        segment = by_id.get(segment_id)
+        text = _short_text(str(segment.get("text") or ""), 120) if segment else ""
+        if not text:
+            return []
+        cleaned.append({
+            "id": segment_id,
+            "label": str(segment.get("label") or _segment_label(segment_id)),
+            "text": text,
+        })
+    return cleaned
+
+
+def _segment_label(segment_id: str) -> str:
+    if segment_id == "intro":
+        return "开场"
+    if segment_id == "outro":
+        return "结尾"
+    return f"第 {segment_id.removeprefix('project-')} 名"
+
+
+def _write_ai_raw_response(job_id: str, task: str, detail: dict[str, Any]) -> None:
+    raw = str(detail.get("raw") or "")
+    if not raw:
+        return
+    route = detail.get("route") or {}
+    payload = {
+        "task": task,
+        "provider": route.get("provider_name") or route.get("provider") or "",
+        "model": route.get("model") or "",
+        "error": detail.get("error") or "",
+        "raw": raw,
+    }
+    write_json(JOBS_DIR / job_id / f"ai-response-{task}.json", payload)
+
+
+def _record_model_call(job_id: str, task: str, detail: dict[str, Any], status: str) -> None:
+    append_model_call(job_id, {
+        "task": task,
+        "route": detail.get("route") or {},
+        "status": status,
+        "error": detail.get("error") or "",
+    })
+
+
+def _default_narrations(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    segments = [
+        {
+            "id": "intro",
+            "label": "开场",
+            "text": _intro_line(projects),
+        }
+    ]
+    for index, project in enumerate(projects, start=1):
+        name = project.get("name") or project.get("full_name") or "这个项目"
+        stars = int(project.get("stars") or 0)
+        star_label = _star_label(stars)
+        pain = _viewer_pain(project)
+        highlight = _viewer_highlight(project)
+        audience = _viewer_audience(project)
+        segments.append({
+            "id": f"project-{index}",
+            "label": f"第 {index} 名",
+            "text": (
+                f"第 {index} 个，{name}。解决：{pain}。"
+                f"亮点：{star_label}，加上 {highlight}。"
+                f"适合：{audience}，先收藏试用。"
+            ),
+        })
+    segments.append({
+        "id": "outro",
+        "label": "结尾",
+        "text": _outro_line(projects),
+    })
+    return segments
+
+
+def _intro_line(projects: list[dict[str, Any]]) -> str:
+    count = len(projects)
+    top = projects[0].get("name") if projects else "第一个项目"
+    return (
+        f"别再只收藏 GitHub 项目了。今天这 {count} 个新项目，我只看一件事："
+        f"它到底能不能帮你少走弯路。尤其第一个 {top}，不是单纯热闹，是真的有使用场景。"
+    )
+
+
+def _outro_line(projects: list[dict[str, Any]]) -> str:
+    names = "、".join(str(project.get("name") or "这个项目") for project in projects[:3])
+    return (
+        f"这期最值得回看的，不是排名，而是你现在卡在哪一步。"
+        f"如果你想让我把 {names} 里面某一个拆成实操教程，评论区直接打项目名；"
+        f"我下一期就按真实使用场景拆给你看。"
+    )
+
+
+def _viewer_pain(project: dict[str, Any]) -> str:
+    text = _project_text(project)
+    if _has_keyword(text, ("aircraft", "flight", "hardware", "raspberry", "sdr")):
+        return "开源硬件难快速跑起来"
+    if _has_keyword(text, ("ai", "agent", "llm", "model", "rag")):
+        return "AI 难接进真实工作流"
+    if _has_keyword(text, ("video", "image", "audio", "visual", "3d")):
+        return "生成流程要来回切工具"
+    if _has_keyword(text, ("react", "vue", "frontend", "ui", "css")):
+        return "界面从零搭太慢"
+    if _has_keyword(text, ("data", "database", "analytics", "sql")):
+        return "数据分析前置流程太重"
+    if _has_keyword(text, ("cli", "terminal", "shell", "developer")):
+        return "重复命令吃掉效率"
+    return "很难判断哪个值得花时间"
+
+
+def _viewer_outcome(project: dict[str, Any]) -> str:
+    text = _project_text(project)
+    fallback = str(project.get("description_zh") or "")
+    if not fallback or "描述较少" in fallback:
+        fallback = "它的热度已经起来了，但真正值不值得用，要看 README 里的真实场景和上手成本。"
+    if _has_keyword(text, ("aircraft", "flight", "hardware", "raspberry", "sdr")):
+        return "它把技术玩具变成了更容易演示的真实场景。"
+    if _has_keyword(text, ("ai", "agent", "llm", "model", "rag")):
+        return "它不是再给你一个聊天窗口，而是把 AI 变成具体步骤。"
+    if _has_keyword(text, ("video", "image", "audio", "visual", "3d")):
+        return "它把多步视觉流程压缩成更容易复用的结果。"
+    if _has_keyword(text, ("react", "vue", "frontend", "ui", "css")):
+        return "它能更快做出可见效果，少在样式细节里试错。"
+    if _has_keyword(text, ("data", "database", "analytics", "sql")):
+        return "它把杂乱数据变成可继续分析的结构。"
+    if _has_keyword(text, ("cli", "terminal", "shell", "developer")):
+        return "它把重复操作收拢成更短路径。"
+    return fallback
+
+
+def _viewer_highlight(project: dict[str, Any]) -> str:
+    visual = str(project.get("visual_potential") or "").strip()
+    recommendation = str(project.get("recommendation") or "").strip()
+    if visual:
+        for prefix in ("高：", "中：", "低：", "高:", "中:", "低:"):
+            visual = visual.removeprefix(prefix).strip()
+        return _short_text(visual, 24).rstrip("。")
+    if recommendation:
+        return _short_text(recommendation, 24).rstrip("。")
+    return _viewer_outcome(project).rstrip("。")
+
+
+def _viewer_audience(project: dict[str, Any]) -> str:
+    audience = str(project.get("audience") or "").strip()
+    if audience:
+        return _short_text(audience, 18)
+    text = _project_text(project)
+    if _has_keyword(text, ("ai", "agent", "llm", "model", "rag")):
+        return "AI 开发者或自动化工作流用户"
+    if _has_keyword(text, ("react", "vue", "frontend", "ui", "css")):
+        return "前端开发者"
+    if _has_keyword(text, ("data", "database", "analytics", "sql")):
+        return "数据开发和分析用户"
+    if _has_keyword(text, ("cli", "terminal", "shell", "developer")):
+        return "经常写脚本和命令行的人"
+    return "想快速筛开源工具的人"
+
+
+def _manifest(projects: list[dict[str, Any]]) -> AssetManifest:
+    assets = []
+    for index, project in enumerate(projects, start=1):
+        source = str(project.get("repo_url") or "")
+        assets.append(VisualAsset(
+            id=f"p{index}-asset-001",
+            type="github_repo",
+            source=source,
+            path=source,
+            caption=f"{project.get('full_name', '')} - {str(project.get('description') or '')[:60]}",
+            use_case="热榜项目展示",
+            quality="medium",
+        ))
+    return AssetManifest(assets=assets)
+
+
+def _shot_plan(
+    job: dict[str, Any],
+    projects: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> ShotPlan:
+    rows = [
+        f"#{index} {project.get('name') or project.get('full_name')} {_star_label(int(project.get('stars') or 0))}"
+        for index, project in enumerate(projects, start=1)
+    ]
+    row_payload = ";".join(rows)
+    by_id = {segment.get("id"): segment.get("text", "") for segment in segments}
+    shots = [
+        Shot(
+            start=0,
+            duration=5.0,
+            visual_asset="",
+            visual_treatment="hotlist_opening",
+            narration_intent="多项目热榜开场",
+            subtitle=str(by_id.get("intro") or ""),
+        ),
+        Shot(
+            start=5.0,
+            duration=5.0,
+            visual_asset="",
+            visual_treatment=f"hotlist_ranking:{row_payload}",
+            narration_intent="真实榜单总览",
+            subtitle=f"先看榜单：{rows[0] if rows else 'GitHub 热榜'}。",
+        ),
+    ]
+    start = 10.0
+    for index, project in enumerate(projects, start=1):
+        hook = str(project.get("description_zh") or project.get("name") or "GitHub 项目")[:28]
+        detail = "|".join([
+            _short_text(_viewer_pain(project), 24),
+            _short_text(_viewer_highlight(project), 24),
+            _short_text(_viewer_audience(project), 18),
+        ])
+        safe_detail = "|".join(_safe_part(part) for part in detail.split("|"))
+        shots.append(Shot(
+            start=start,
+            duration=5.0,
+            visual_asset=f"p{index}-asset-001",
+            visual_treatment=(
+                f"hotlist_rank_card:{index}:{_safe_part(str(project.get('name') or 'GitHub 项目'))}:"
+                f"{_star_label(int(project.get('stars') or 0))}:{_safe_part(hook)}:{safe_detail}"
+            ),
+            narration_intent=f"热榜项目 {index}",
+            subtitle=str(by_id.get(f"project-{index}") or ""),
+        ))
+        start += 5.0
+    shots.append(Shot(
+        start=start,
+        duration=5.0,
+        visual_asset="",
+        visual_treatment=f"hotlist_closing:{row_payload}",
+        narration_intent="多项目趋势总结",
+        subtitle=str(by_id.get("outro") or ""),
+    ))
+    return ShotPlan(title=str(job.get("title") or "GitHub 本期热榜"), shots=shots)
+
+
+def _star_label(stars: int) -> str:
+    if stars >= 1000:
+        return f"{stars / 1000:.1f}K Star"
+    return f"{stars:,} Star" if stars else "GitHub 项目"
+
+
+def _safe_part(text: str) -> str:
+    return text.replace(":", " ").replace("|", " ").replace(";", " ").strip()
+
+
+def _safe_filename(text: str) -> str:
+    text = re.sub(r"[\\/:*?\"<>|\s]+", "-", text).strip("-")
+    return text[:40] or "GitHub热榜视频"
+
+
+def _available_video_path(directory: Path, stem: str) -> Path:
+    target = directory / f"{stem}.mp4"
+    if not target.exists():
+        return target
+    index = 2
+    while True:
+        candidate = directory / f"{stem}-v{index}.mp4"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def _short_text(text: str, limit: int) -> str:
+    text = " ".join(text.split()).strip()
+    if len(text) <= limit:
+        return text
+    clipped = text[:limit].rsplit(" ", 1)[0].strip()
+    return (clipped or text[:limit]).rstrip("，。,.") + "..."
+
+
+def _clip_multiline(text: str, limit: int) -> str:
+    text = "\n".join(line.rstrip() for line in str(text).splitlines()).strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip("，。,. \n") + "..."
+
+
+def _project_text(project: dict[str, Any]) -> str:
+    return " ".join([
+        str(project.get("description") or ""),
+        str(project.get("description_zh") or ""),
+        " ".join(str(topic) for topic in project.get("topics") or []),
+        str(project.get("language") or ""),
+    ]).lower()
+
+
+def _has_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(re.search(rf"(^|[^a-z0-9]){re.escape(keyword)}([^a-z0-9]|$)", text) for keyword in keywords)

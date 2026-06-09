@@ -1,0 +1,34 @@
+# Environment / secrets
+.env
+.config/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Output (generated videos, large files)
+output/
+analysis_frames/
+example/
+bgm/
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+*.m4v
+*.mp3
+*.m4a
+*.wav
+
+# Superpowers (temp state)
+.superpowers/
+
+# macOS
+.DS_Store
+
+# Node
+node_modules/

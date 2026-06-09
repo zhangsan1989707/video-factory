@@ -1,0 +1,351 @@
+"""Local HTTP server for the video factory console."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import mimetypes
+import subprocess
+import webbrowser
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
+
+from src.console.background import active_job, is_active, start_async_job
+from src.console.model_router import test_provider
+from src.console.preflight import preflight_snapshot
+from src.console.scheduler import run_due_scheduled_draft, start_scheduler_loop
+from src.console.jobs import (
+    create_hotlist_job,
+    finalize_numbered_output,
+    generate_candidates,
+    job_detail,
+    prepare_plan,
+    render_video,
+    save_script,
+    save_selection,
+    validate_plan,
+)
+from src.console.store import (
+    JOBS_DIR,
+    append_log,
+    config_snapshot,
+    ensure_storage,
+    job_artifacts,
+    list_jobs,
+    provider_connection_matches_saved,
+    read_job,
+    read_log,
+    update_config,
+    update_configs,
+    update_job,
+    update_provider_test_result,
+)
+
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+def run_server(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
+    ensure_storage()
+    start_scheduler_loop()
+    server = ThreadingHTTPServer((host, port), ConsoleHandler)
+    url = f"http://{host}:{port}"
+    print(f"Video Factory Console running at {url}")
+    if open_browser:
+        webbrowser.open(url)
+    server.serve_forever()
+
+
+class ConsoleHandler(BaseHTTPRequestHandler):
+    server_version = "VideoFactoryConsole/0.1"
+
+    def do_HEAD(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/jobs/"):
+            parts = parsed.path.strip("/").split("/")
+            if len(parts) >= 5 and parts[3] == "artifacts":
+                path = self._job_artifact_path(parts[2], "/".join(parts[4:]))
+                if path and path.exists() and path.is_file():
+                    self.send_response(200)
+                    self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+                    self.send_header("Content-Length", str(path.stat().st_size))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    return
+        path = self._static_path(parsed.path)
+        if path:
+            if path.exists() and path.is_file():
+                self.send_response(200)
+                self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+                self.send_header("Content-Length", str(path.stat().st_size))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
+        self.send_response(404)
+        self.end_headers()
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/":
+            self._send_file(STATIC_DIR / "index.html")
+            return
+        static_path = self._static_path(parsed.path)
+        if static_path:
+            self._send_file(static_path)
+            return
+        if parsed.path == "/api/health":
+            self._json({"ok": True, "service": "video-factory-console"})
+            return
+        if parsed.path == "/api/preflight":
+            self._json(preflight_snapshot())
+            return
+        if parsed.path == "/api/config":
+            self._json(config_snapshot())
+            return
+        if parsed.path == "/api/jobs":
+            self._json({"jobs": reconcile_running_jobs(list_jobs())})
+            return
+        if parsed.path.startswith("/api/jobs/"):
+            parts = parsed.path.strip("/").split("/")
+            if len(parts) >= 3:
+                job_id = parts[2]
+                if len(parts) == 3:
+                    if not self._job_exists(job_id):
+                        self._not_found()
+                        return
+                    reconcile_running_job(job_id)
+                    self._json(job_detail(job_id))
+                    return
+                if len(parts) == 4 and parts[3] == "logs":
+                    if not self._job_exists(job_id):
+                        self._not_found()
+                        return
+                    self._json({"job_id": job_id, "logs": read_log(job_id)})
+                    return
+                if len(parts) == 4 and parts[3] == "artifacts":
+                    if not self._job_exists(job_id):
+                        self._not_found()
+                        return
+                    self._json(job_artifacts(job_id))
+                    return
+                if len(parts) >= 5 and parts[3] == "artifacts":
+                    self._send_job_artifact(job_id, "/".join(parts[4:]))
+                    return
+        self._not_found()
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        try:
+            payload = self._read_json()
+            if parsed.path == "/api/config":
+                name = parse_qs(parsed.query).get("name", [""])[0]
+                self._json(update_config(name, payload) if name else update_configs(payload))
+                return
+            if parsed.path == "/api/jobs":
+                self._json({"job": create_hotlist_job(payload)})
+                return
+            if parsed.path == "/api/scheduler/run-due":
+                self._json(run_due_scheduled_draft())
+                return
+            if parsed.path.startswith("/api/providers/"):
+                parts = parsed.path.strip("/").split("/")
+                if len(parts) == 4 and parts[3] == "test":
+                    provider = payload.get("provider") or None
+                    ok, message = test_provider(parts[2], str(payload.get("model") or ""), provider)
+                    status_text = f"{'连接成功' if ok else '连接失败'}: {_short_message(message)}"
+                    saved = provider_connection_matches_saved(parts[2], provider)
+                    config = update_provider_test_result(parts[2], status_text) if saved else config_snapshot()
+                    self._json({
+                        "ok": ok,
+                        "message": status_text,
+                        "saved": saved,
+                        "config": config,
+                    })
+                    return
+            if parsed.path.startswith("/api/jobs/"):
+                parts = parsed.path.strip("/").split("/")
+                if len(parts) == 4:
+                    job_id = parts[2]
+                    action = parts[3]
+                    if action == "candidates":
+                        with active_job(job_id):
+                            self._json(asyncio.run(generate_candidates(job_id)))
+                        return
+                    if action == "selection":
+                        with active_job(job_id):
+                            self._json(save_selection(job_id, payload))
+                        return
+                    if action == "script":
+                        with active_job(job_id):
+                            self._json(save_script(job_id, payload))
+                        return
+                    if action == "prepare-plan":
+                        with active_job(job_id):
+                            self._json(prepare_plan(job_id))
+                        return
+                    if action == "validate-plan":
+                        with active_job(job_id):
+                            self._json(asyncio.run(validate_plan(job_id)))
+                        return
+                    if action == "render-video":
+                        self._json(start_render_job(job_id))
+                        return
+                    if action == "open-folder":
+                        self._json(open_job_folder(job_id))
+                        return
+                    if action == "finalize":
+                        self._json(finalize_numbered_output(job_id, str(payload.get("title") or "")))
+                        return
+            self._not_found()
+        except (json.JSONDecodeError, ValueError) as exc:
+            self._json({"error": str(exc)}, status=_error_status(exc))
+        except Exception as exc:
+            self._json({"error": str(exc)}, status=500)
+
+    def log_message(self, format: str, *args) -> None:  # noqa: A003
+        print(f"{self.address_string()} - {format % args}")
+
+    def _read_json(self) -> dict:
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            raise ValueError("Content-Length must be a non-negative integer")
+        if length < 0:
+            raise ValueError("Content-Length must be a non-negative integer")
+        if not length:
+            return {}
+        try:
+            raw = self.rfile.read(length).decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError("JSON body must be UTF-8 encoded") from None
+        payload = json.loads(raw) if raw else {}
+        if not isinstance(payload, dict):
+            raise ValueError("JSON body must be an object")
+        return payload
+
+    def _json(self, data: dict, status: int = 200) -> None:
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_file(self, path: Path) -> None:
+        if not path.exists() or not path.is_file():
+            self._not_found()
+            return
+        body = path.read_bytes()
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_job_artifact(self, job_id: str, encoded_name: str) -> None:
+        path = self._job_artifact_path(job_id, encoded_name)
+        if not path:
+            self._not_found()
+            return
+        self._send_file(path)
+
+    def _job_artifact_path(self, job_id: str, encoded_name: str) -> Path | None:
+        if not self._job_exists(job_id):
+            return None
+        name = unquote(encoded_name)
+        if "\\" in name or any(part.startswith(".") for part in Path(name).parts):
+            return None
+        job_dir = (JOBS_DIR / job_id).resolve()
+        candidate = job_dir / name
+        if candidate.is_symlink():
+            return None
+        path = candidate.resolve()
+        if job_dir not in path.parents or not path.is_file():
+            return None
+        return path
+
+    def _not_found(self) -> None:
+        self._json({"error": "not found"}, status=404)
+
+    def _job_exists(self, job_id: str) -> bool:
+        job = read_job(job_id)
+        return str(job.get("id") or "") == job_id
+
+    def _static_path(self, request_path: str) -> Path | None:
+        if request_path == "/":
+            return STATIC_DIR / "index.html"
+        if request_path.startswith("/static/"):
+            return self._safe_static_file(request_path.removeprefix("/static/"))
+        if request_path in ("/styles.css", "/app.js"):
+            return self._safe_static_file(request_path.removeprefix("/"))
+        return None
+
+    def _safe_static_file(self, name: str) -> Path | None:
+        raw_candidate = STATIC_DIR / unquote(name)
+        if raw_candidate.is_symlink():
+            return None
+        candidate = raw_candidate.resolve()
+        static_root = STATIC_DIR.resolve()
+        if candidate == static_root or static_root not in candidate.parents:
+            return None
+        return candidate
+
+
+def _short_message(message: str, limit: int = 160) -> str:
+    text = " ".join(str(message).split())
+    return text if len(text) <= limit else text[: limit - 1] + "..."
+
+
+def _error_status(exc: Exception) -> int:
+    message = str(exc)
+    return 404 if message.startswith(("任务不存在:", "任务目录不存在:")) else 400
+
+
+def start_render_job(job_id: str) -> dict:
+    job = job_detail(job_id)["job"]
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    if str(job.get("stage") or "") not in {"preparing_plan", "capturing_assets", "generating_tts", "composing_video", "post_processing"}:
+        raise ValueError(f"当前阶段不能生成最终视频: {job.get('stage') or 'unknown'}")
+    started = start_async_job(job_id, render_video, on_error=record_render_background_failure)
+    if not started:
+        raise ValueError("已有渲染任务正在运行")
+    job = job_detail(job_id)["job"]
+    return {"started": started, "active": is_active(job_id), "job": job}
+
+
+def record_render_background_failure(job_id: str, exc: Exception) -> None:
+    job = read_job(job_id)
+    if not job or str(job.get("status") or "") == "failed":
+        return
+    failed_stage = str(job.get("stage") or "preparing_plan")
+    message = f"后台渲染任务失败: {exc}"
+    append_log(job_id, message)
+    update_job(job_id, status="failed", failed_stage=failed_stage, error=str(exc))
+
+
+def reconcile_running_jobs(jobs: list[dict]) -> list[dict]:
+    return [reconcile_running_job(str(job.get("id") or "")) for job in jobs if job.get("id")]
+
+
+def reconcile_running_job(job_id: str) -> dict:
+    job = read_job(job_id)
+    if not job or job.get("status") != "running" or is_active(job_id):
+        return job
+    failed_stage = str(job.get("stage") or "unknown")
+    message = "控制台重启或后台任务已停止，运行中的任务已标记为失败，可从当前阶段重试。"
+    append_log(job_id, message)
+    return update_job(job_id, status="failed", failed_stage=failed_stage, error=message)
+
+
+def open_job_folder(job_id: str) -> dict:
+    job_dir = (JOBS_DIR / job_id).resolve()
+    jobs_root = JOBS_DIR.resolve()
+    if jobs_root not in job_dir.parents or not job_dir.exists() or not job_dir.is_dir():
+        raise ValueError(f"任务目录不存在: {job_id}")
+    if subprocess.run(["open", str(job_dir)], check=False).returncode != 0:
+        raise ValueError(f"无法打开任务目录: {job_dir}")
+    return {"ok": True, "job_id": job_id, "path": str(job_dir)}
