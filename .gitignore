@@ -24,6 +24,10 @@ bgm/
 *.m4a
 *.wav
 
+# Dev server runtime
+.dev.log
+.dev.pid
+
 # Superpowers (temp state)
 .superpowers/
 
