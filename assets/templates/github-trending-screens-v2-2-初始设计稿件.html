@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub 热榜视频竖屏设计 · 中文版</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&family=Orbitron:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+/* ============================
+   RESET + BASE
+   ============================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-deep: #050810;
+  --bg-card: #0c1020;
+  --bg-panel: #0f1628;
+  --accent-cyan: #00d4ff;
+  --accent-blue: #3b82f6;
+  --accent-purple: #8b5cf6;
+  --accent-green: #10b981;
+  --accent-amber: #f59e0b;
+  --text-primary: #f0f4ff;
+  --text-secondary: #8899bb;
+  --text-dim: #6677aa;
+  --border-cyan: rgba(0, 212, 255, 0.25);
+  --border-blue: rgba(59, 130, 246, 0.3);
+  --font-display: 'Orbitron', monospace;
+  --font-body: 'Space Grotesk', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  background: #03060f;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  overflow-x: hidden;
+}
+
+/* ============================
+   GALLERY LAYOUT
+   ============================ */
+.gallery {
+  display: flex; flex-wrap: wrap; gap: 40px;
+  justify-content: center; align-items: flex-start;
+  padding: 60px 40px 80px; min-height: 100vh;
+}
+
+.screen-wrapper {
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+}
+
+.screen-label {
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 0.1em; color: var(--accent-cyan); opacity: 0.8;
+}
+
+/* Phone Frame */
+.phone-frame {
+  width: 375px; height: 812px; background: var(--bg-deep);
+  border-radius: 44px; border: 1.5px solid rgba(0, 212, 255, 0.3);
+  overflow: hidden; position: relative;
+  box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.08),
+              0 0 60px rgba(0, 212, 255, 0.06),
+              inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.phone-frame::before {
+  content: ''; position: absolute; top: 14px; left: 50%;
+  transform: translateX(-50%); width: 120px; height: 34px;
+  background: #000; border-radius: 20px; z-index: 100;
+}
+
+.status-bar {
+  height: 52px; display: flex; align-items: flex-end;
+  justify-content: space-between; padding: 0 28px 8px;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-secondary); position: relative; z-index: 10;
+  flex-shrink: 0;
+}
+.status-time { color: var(--text-primary); font-weight: 500; }
+.status-icons { display: flex; gap: 5px; align-items: center; }
+.status-icons svg { opacity: 0.8; }
+
+.screen-content {
+  height: calc(100% - 52px - 34px); overflow: hidden; position: relative; padding: 0;
+}
+
+.scanline {
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px,
+    rgba(0, 212, 255, 0.015) 2px, rgba(0, 212, 255, 0.015) 4px);
+  pointer-events: none; z-index: 50;
+}
+
+/* ============================
+   SCREEN 1: INTRO
+   ============================ */
+.intro-screen {
+  height: 100%;
+  background: linear-gradient(160deg, #050810 0%, #0a0f1e 50%, #060b14 100%);
+  display: flex; flex-direction: column; position: relative; overflow: hidden;
+}
+
+.grid-bg {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 212, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.06) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black, transparent);
+}
+
+.orbit-rings {
+  position: absolute; top: -40px; left: 50%; transform: translateX(-50%);
+  width: 500px; height: 500px; pointer-events: none;
+}
+
+.orbit-ring {
+  position: absolute; border-radius: 50%; border: 1px solid;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+}
+.orbit-ring:nth-child(1) {
+  width: 200px; height: 200px; border-color: rgba(0, 212, 255, 0.10);
+  animation: orbitSpin 12s linear infinite;
+}
+.orbit-ring:nth-child(2) {
+  width: 300px; height: 300px; border-color: rgba(139, 92, 246, 0.08);
+  animation: orbitSpin 18s linear infinite reverse;
+}
+.orbit-ring:nth-child(3) {
+  width: 420px; height: 420px; border-color: rgba(59, 130, 246, 0.08);
+  animation: orbitSpin 25s linear infinite;
+}
+.orbit-ring::after {
+  content: ''; position: absolute; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent-cyan); top: 50%; right: -3px;
+  transform: translateY(-50%); box-shadow: 0 0 10px var(--accent-cyan);
+}
+
+@keyframes orbitSpin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+.intro-hero {
+  padding: 28px 24px 0; position: relative; z-index: 10;
+  text-align: center; flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 0; padding-top: 90px;
+}
+
+.intro-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(0, 212, 255, 0.1); border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 20px; padding: 5px 14px; font-family: var(--font-mono);
+  font-size: 10px; color: var(--accent-cyan); letter-spacing: 0.1em;
+  margin-bottom: 24px; animation: pulseGlow 2.5s ease-in-out infinite;
+}
+
+.badge-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent-cyan);
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
+@keyframes pulseGlow { 0%,100%{box-shadow:0 0 0 0 rgba(0,212,255,0.15);} 50%{box-shadow:0 0 0 6px rgba(0,212,255,0);} }
+
+.intro-eyebrow {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.25em;
+  color: var(--accent-purple); margin-bottom: 12px;
+}
+
+.intro-title {
+  font-family: var(--font-display); font-size: 32px; font-weight: 700;
+  line-height: 1.15; color: var(--text-primary); margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+.intro-title .highlight { color: var(--accent-cyan); position: relative; }
+.intro-title .highlight::after {
+  content: ''; position: absolute; bottom: -2px; left: 0; right: 0;
+  height: 2px; background: var(--accent-cyan); opacity: 0.5; border-radius: 1px;
+}
+
+.intro-sub {
+  font-size: 13px; color: var(--text-secondary); line-height: 1.6;
+  margin-bottom: 28px; padding: 0 8px;
+}
+
+.stats-row {
+  display: flex; gap: 12px; justify-content: center;
+  margin-bottom: 28px; width: 100%;
+}
+
+.stat-chip {
+  flex: 1; background: var(--bg-panel); border: 1px solid var(--border-blue);
+  border-radius: 12px; padding: 10px 8px; text-align: center;
+}
+
+.stat-num {
+  font-family: var(--font-display); font-size: 18px; font-weight: 700;
+  color: var(--accent-cyan); display: block; line-height: 1; margin-bottom: 4px;
+}
+
+.stat-lbl {
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
+  letter-spacing: 0.08em;
+}
+
+.lang-tags {
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 28px;
+}
+
+.lang-tag {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px; padding: 4px 10px; font-size: 11px;
+  color: var(--text-secondary); font-family: var(--font-mono);
+}
+.lang-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+.intro-date {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px; padding: 6px 14px;
+}
+
+.intro-bottom {
+  padding: 0 24px calc(24px + env(safe-area-inset-bottom, 34px)); position: relative; z-index: 10;
+}
+
+.intro-cta {
+  width: 100%; background: linear-gradient(90deg, rgba(0,212,255,0.15), rgba(139,92,246,0.15));
+  border: 1px solid rgba(0,212,255,0.4); border-radius: 14px; padding: 14px;
+  display: flex; align-items: center; gap: 12px; text-align: left;
+}
+
+.cta-icon {
+  width: 40px; height: 40px; background: rgba(0,212,255,0.1);
+  border: 1px solid rgba(0,212,255,0.3); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-size: 18px;
+}
+
+.cta-text-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.cta-text-sub { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); }
+
+/* ============================
+   SCREEN 2: TRENDING LIST
+   ============================ */
+.list-screen {
+  height: 100%; background: var(--bg-deep);
+  display: flex; flex-direction: column; position: relative; overflow: hidden;
+}
+
+.list-header {
+  padding: 16px 20px 12px; border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+  position: relative; z-index: 10; flex-shrink: 0;
+}
+
+.list-header-top {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
+}
+
+.list-header-title {
+  font-family: var(--font-display); font-size: 15px; font-weight: 700;
+  color: var(--text-primary); letter-spacing: 0.05em;
+}
+
+.header-badge {
+  background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35);
+  color: var(--accent-green); font-family: var(--font-mono); font-size: 9px;
+  padding: 3px 8px; border-radius: 6px; letter-spacing: 0.1em;
+}
+
+.list-meta {
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.list-date-chip { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); }
+
+.filter-pills { display: flex; gap: 6px; }
+
+.filter-pill {
+  font-family: var(--font-mono); font-size: 9px; padding: 2px 8px;
+  border-radius: 6px; border: 1px solid; cursor: pointer;
+}
+.filter-pill.active {
+  background: rgba(0,212,255,0.1); border-color: rgba(0,212,255,0.4); color: var(--accent-cyan);
+}
+.filter-pill.inactive {
+  background: transparent; border-color: rgba(255,255,255,0.1); color: var(--text-dim);
+}
+
+/* Rank items */
+.rank-list {
+  flex: 1; overflow: hidden; padding: 12px 16px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+.rank-item {
+  background: var(--bg-card); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px; padding: 12px 14px;
+  display: flex; align-items: flex-start; gap: 12px;
+  position: relative; overflow: hidden; transition: border-color 0.2s;
+}
+
+.rank-item.top-1 {
+  border-color: rgba(0,212,255,0.3);
+  background: linear-gradient(135deg, rgba(0,212,255,0.06) 0%, var(--bg-card) 60%);
+}
+.rank-item.top-2 {
+  border-color: rgba(139,92,246,0.25);
+  background: linear-gradient(135deg, rgba(139,92,246,0.05) 0%, var(--bg-card) 60%);
+}
+.rank-item.top-3 {
+  border-color: rgba(245,158,11,0.2);
+  background: linear-gradient(135deg, rgba(245,158,11,0.04) 0%, var(--bg-card) 60%);
+}
+
+.rank-num {
+  font-family: var(--font-display); font-size: 20px; font-weight: 700;
+  min-width: 28px; line-height: 1; margin-top: 2px;
+}
+.rank-item.top-1 .rank-num { color: var(--accent-cyan); }
+.rank-item.top-2 .rank-num { color: var(--accent-purple); }
+.rank-item.top-3 .rank-num { color: var(--accent-amber); }
+.rank-item:not(.top-1):not(.top-2):not(.top-3) .rank-num { color: var(--text-dim); font-size: 16px; }
+
+.rank-content { flex: 1; min-width: 0; }
+
+.rank-repo {
+  font-size: 13px; font-weight: 600; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-bottom: 3px; font-family: var(--font-mono);
+}
+
+.rank-owner {
+  font-size: 10px; color: var(--text-secondary);
+  font-family: var(--font-mono); margin-bottom: 5px;
+}
+
+.rank-desc {
+  font-size: 11px; color: var(--text-secondary); line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+  overflow: hidden; margin-bottom: 7px;
+}
+
+.rank-footer { display: flex; align-items: center; gap: 10px; }
+
+.rank-lang {
+  display: flex; align-items: center; gap: 4px;
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
+}
+.rank-lang-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+.rank-stars {
+  display: flex; align-items: center; gap: 3px;
+  font-family: var(--font-mono); font-size: 9px; color: var(--accent-amber);
+}
+
+.rank-new {
+  font-family: var(--font-mono); font-size: 9px; color: var(--accent-green); margin-left: auto;
+}
+
+.rank-item.top-1::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--accent-cyan); border-radius: 14px 0 0 14px;
+}
+
+.list-bottom {
+  padding: 10px 16px; border-top: 1px solid rgba(255,255,255,0.05);
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+
+.list-total { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+.list-nav { display: flex; gap: 6px; }
+
+.list-nav-btn {
+  width: 28px; height: 28px; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--text-secondary); background: var(--bg-panel);
+}
+
+/* ============================
+   SCREEN 3: PROJECT DETAIL
+   ============================ */
+.detail-screen {
+  height: 100%; background: var(--bg-deep);
+  display: flex; flex-direction: column; overflow: hidden; position: relative;
+}
+
+.detail-back {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--accent-cyan); margin-bottom: 12px; opacity: 0.8;
+}
+
+.detail-hero-card {
+  position: relative; z-index: 1;
+  background:
+    linear-gradient(135deg, rgba(0,212,255,0.09), rgba(12,16,32,0.96) 48%),
+    var(--bg-card);
+  border: 1px solid rgba(0,212,255,0.26);
+  border-radius: 12px; padding: 13px 14px 14px;
+  box-shadow: inset 3px 0 0 rgba(0,212,255,0.72);
+}
+
+.hero-top {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 10px;
+}
+
+.detail-rank-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.25);
+  border-radius: 8px; padding: 4px 10px; font-family: var(--font-mono);
+  font-size: 9px; color: var(--accent-cyan);
+}
+
+.hero-meta-chip {
+  font-family: var(--font-mono); font-size: 9px; color: var(--accent-green);
+  border: 1px solid rgba(16,185,129,0.28); border-radius: 7px;
+  padding: 4px 8px; background: rgba(16,185,129,0.06);
+}
+
+.detail-repo-name {
+  font-family: var(--font-mono); font-size: 18px; font-weight: 700;
+  color: var(--text-primary); line-height: 1.18; margin-bottom: 8px; word-break: break-all;
+}
+
+.detail-owner-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 11px;
+}
+
+.owner-avatar {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: white; font-weight: 600; flex-shrink: 0;
+}
+
+.detail-owner {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
+}
+
+.detail-body {
+  flex: 1; overflow: hidden; padding: 14px 18px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+.hero-desc {
+  font-size: 12px; color: var(--text-secondary); line-height: 1.6;
+  border-top: 1px solid rgba(255,255,255,0.07); padding-top: 10px;
+}
+
+.metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.metric-card {
+  background: var(--bg-card); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px; padding: 12px; text-align: center;
+}
+.metric-card.hot {
+  border-color: rgba(0,212,255,0.3);
+  background: linear-gradient(135deg, rgba(0,212,255,0.07), var(--bg-card));
+}
+
+.metric-icon { font-size: 14px; margin-bottom: 5px; display: block; }
+
+.metric-val {
+  font-family: var(--font-display); font-size: 18px; font-weight: 700;
+  color: var(--text-primary); display: block; line-height: 1; margin-bottom: 3px;
+}
+.metric-card.hot .metric-val { color: var(--accent-cyan); }
+
+.metric-lbl {
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
+  letter-spacing: 0.06em;
+}
+
+.section-label {
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-dim);
+  letter-spacing: 0.15em; margin-bottom: 6px;
+}
+
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.tech-tag {
+  font-family: var(--font-mono); font-size: 10px; padding: 4px 10px;
+  border-radius: 6px; border: 1px solid; background: rgba(255,255,255,0.02);
+}
+.tech-tag.ts { color: #3b82f6; border-color: rgba(59,130,246,0.3); background: rgba(59,130,246,0.07); }
+.tech-tag.py { color: #f59e0b; border-color: rgba(245,158,11,0.3); background: rgba(245,158,11,0.07); }
+.tech-tag.rs { color: #f97316; border-color: rgba(249,115,22,0.3); background: rgba(249,115,22,0.07); }
+.tech-tag.go { color: #10b981; border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.07); }
+.tech-tag.ai { color: #8b5cf6; border-color: rgba(139,92,246,0.3); background: rgba(139,92,246,0.07); }
+
+.activity-chart {
+  display: flex; align-items: flex-end; gap: 3px; height: 36px;
+}
+
+.bar {
+  flex: 1; border-radius: 3px 3px 0 0;
+  background: rgba(0,212,255,0.25); transition: background 0.2s;
+}
+.bar.peak { background: var(--accent-cyan); }
+.bar.high { background: rgba(0,212,255,0.55); }
+.bar.mid { background: rgba(0,212,255,0.35); }
+.bar.low { background: rgba(0,212,255,0.15); }
+
+/* ============================
+   SCREEN 4: ENDING HOOK
+   ============================ */
+.hook-screen {
+  height: 100%; background: var(--bg-deep);
+  display: flex; flex-direction: column; position: relative; overflow: hidden;
+}
+
+.hook-bg-deco {
+  position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+}
+
+.hex-grid {
+  position: absolute; top: -60px; left: -40px; right: -40px; height: 300px; opacity: 0.08;
+  background-image:
+    linear-gradient(rgba(0,212,255,1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,1) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(to bottom, black 20%, transparent 100%);
+}
+
+.glow-orb { position: absolute; border-radius: 50%; filter: blur(60px); }
+.glow-orb-1 { width: 200px; height: 200px; background: rgba(0,212,255,0.12); top: 5%; left: -10%; }
+.glow-orb-2 { width: 180px; height: 180px; background: rgba(139,92,246,0.1); top: 10%; right: -5%; }
+
+.hook-header {
+  padding: 20px 22px 16px; position: relative; z-index: 10; flex-shrink: 0;
+}
+
+.hook-ep-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono); font-size: 9px; color: var(--accent-cyan);
+  border: 1px solid rgba(0,212,255,0.25); border-radius: 6px;
+  padding: 3px 10px; margin-bottom: 16px; letter-spacing: 0.1em;
+}
+
+.hook-title {
+  font-family: var(--font-display); font-size: 22px; font-weight: 700;
+  color: var(--text-primary); line-height: 1.2; margin-bottom: 6px;
+}
+.hook-title .em { color: var(--accent-cyan); }
+
+.hook-subtitle {
+  font-size: 12px; color: var(--text-secondary); line-height: 1.5;
+}
+
+.hook-body {
+  flex: 1; overflow: hidden; padding: 8px 22px;
+  display: flex; flex-direction: column; gap: 10px;
+  position: relative; z-index: 10;
+}
+
+.hook-highlight-card {
+  background: var(--bg-card); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px; padding: 14px; display: flex; align-items: center; gap: 12px;
+}
+.hook-highlight-card.featured {
+  border-color: rgba(0,212,255,0.3);
+  background: linear-gradient(135deg, rgba(0,212,255,0.07), var(--bg-card));
+}
+
+.hook-rank-chip {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-size: 13px; font-weight: 700; flex-shrink: 0;
+}
+.hook-rank-chip.r1 { background: rgba(0,212,255,0.12); color: var(--accent-cyan); border: 1px solid rgba(0,212,255,0.3); }
+.hook-rank-chip.r2 { background: rgba(139,92,246,0.1); color: var(--accent-purple); border: 1px solid rgba(139,92,246,0.25); }
+.hook-rank-chip.r3 { background: rgba(245,158,11,0.1); color: var(--accent-amber); border: 1px solid rgba(245,158,11,0.25); }
+
+.hook-card-content { flex: 1; min-width: 0; }
+
+.hook-card-name {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--text-primary); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; margin-bottom: 3px;
+}
+
+.hook-card-stat {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);
+}
+
+.hook-star {
+  font-family: var(--font-mono); font-size: 11px; color: var(--accent-amber); white-space: nowrap;
+}
+
+.hook-divider {
+  display: flex; align-items: center; gap: 10px; padding: 0 22px;
+  position: relative; z-index: 10; flex-shrink: 0;
+}
+.hook-divider-line { flex: 1; height: 1px; background: rgba(255,255,255,0.06); }
+.hook-divider-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-cyan); opacity: 0.5; }
+
+.hook-cta-area {
+  padding: 10px 22px calc(24px + env(safe-area-inset-bottom, 34px)); position: relative; z-index: 10; flex-shrink: 0;
+}
+
+.hook-question {
+  font-size: 13px; color: var(--text-secondary); text-align: center;
+  margin-bottom: 14px; line-height: 1.5;
+}
+.hook-question span { color: var(--accent-cyan); font-weight: 600; }
+
+.hook-action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+
+.hook-btn {
+  border-radius: 12px; padding: 12px 10px; font-family: var(--font-mono);
+  font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+  text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.hook-btn.primary {
+  background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(139,92,246,0.2));
+  border: 1px solid rgba(0,212,255,0.4); color: var(--accent-cyan);
+}
+.hook-btn.secondary {
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary);
+}
+
+.hook-btn-icon { font-size: 16px; }
+
+.hook-follow-text {
+  text-align: center; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
+}
+.hook-follow-text span { color: var(--accent-purple); }
+
+/* ============================
+   ANIMATIONS
+   ============================ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.anim-delay-1 { animation: fadeInUp 0.6s ease both; animation-delay: 0.1s; }
+.anim-delay-2 { animation: fadeInUp 0.6s ease both; animation-delay: 0.25s; }
+.anim-delay-3 { animation: fadeInUp 0.6s ease both; animation-delay: 0.4s; }
+.anim-delay-4 { animation: fadeInUp 0.6s ease both; animation-delay: 0.55s; }
+.anim-delay-5 { animation: fadeInUp 0.6s ease both; animation-delay: 0.7s; }
+
+.rank-item { animation: slideInLeft 0.5s ease both; }
+.rank-item:nth-child(1) { animation-delay: 0.1s; }
+.rank-item:nth-child(2) { animation-delay: 0.12s; }
+.rank-item:nth-child(3) { animation-delay: 0.19s; }
+.rank-item:nth-child(4) { animation-delay: 0.26s; }
+.rank-item:nth-child(5) { animation-delay: 0.33s; }
+
+.page-title {
+  text-align: center; padding: 40px 20px 10px;
+  font-family: var(--font-display); font-size: 11px;
+  letter-spacing: 0.3em; color: rgba(0,212,255,0.5);
+}
+</style>
+</head>
+<body>
+
+<p class="page-title">GitHub 热榜 · 竖屏视频设计稿 · 中文版</p>
+
+<div class="gallery">
+
+  <!-- ======================================
+       SCREEN 1: 片头介绍页
+       ====================================== -->
+  <div class="screen-wrapper">
+    <div class="screen-label">01 · 片头介绍</div>
+    <div class="phone-frame">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div class="status-icons">
+          <svg width="15" height="11" viewBox="0 0 15 11" fill="none">
+            <rect x="0" y="3" width="3" height="8" rx="1" fill="currentColor" opacity="0.4"/>
+            <rect x="4" y="2" width="3" height="9" rx="1" fill="currentColor" opacity="0.6"/>
+            <rect x="8" y="0" width="3" height="11" rx="1" fill="currentColor" opacity="0.8"/>
+            <rect x="12" y="0" width="3" height="11" rx="1" fill="currentColor"/>
+          </svg>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
+            <path d="M8 3C5.6 3 3.4 3.9 1.8 5.4L0 3.6C2.1 1.4 5 0 8 0s5.9 1.4 8 3.6L14.2 5.4C12.6 3.9 10.4 3 8 3z" fill="currentColor" opacity="0.5"/>
+            <path d="M8 7c-1.4 0-2.6.5-3.6 1.4L2.8 6.8C4.2 5.7 6 5 8 5s3.8.7 5.2 1.8L11.6 8.4C10.6 7.5 9.4 7 8 7z" fill="currentColor" opacity="0.7"/>
+            <circle cx="8" cy="11" r="1.5" fill="currentColor"/>
+          </svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none">
+            <rect x="0.5" y="0.5" width="21" height="11" rx="3.5" stroke="currentColor" opacity="0.4"/>
+            <rect x="2" y="2" width="16" height="8" rx="2" fill="currentColor"/>
+            <path d="M23 4v4c1.1-.5 1.8-1.2 1.8-2S24.1 4.5 23 4z" fill="currentColor" opacity="0.5"/>
+          </svg>
+        </div>
+      </div>
+      <div class="screen-content">
+        <div class="scanline"></div>
+        <div class="intro-screen">
+          <div class="grid-bg"></div>
+          <div class="orbit-rings">
+            <div class="orbit-ring"></div>
+            <div class="orbit-ring"></div>
+            <div class="orbit-ring"></div>
+          </div>
+
+          <div class="intro-hero">
+            <div class="intro-badge anim-delay-1">
+              <div class="badge-dot"></div>
+              GitHub 热榜速递
+            </div>
+
+            <div class="intro-eyebrow anim-delay-2">每周精选 · 开源风向标</div>
+
+            <h1 class="intro-title anim-delay-2">
+              <span class="highlight">TOP 10</span><br>
+              热榜速报
+            </h1>
+
+            <p class="intro-sub anim-delay-3">
+              精选本周 GitHub 热度飙升的开源项目<br>一分钟掌握技术圈最新动态
+            </p>
+
+            <div class="stats-row anim-delay-3">
+              <div class="stat-chip">
+                <span class="stat-num">10</span>
+                <span class="stat-lbl">精选项目</span>
+              </div>
+              <div class="stat-chip">
+                <span class="stat-num">4</span>
+                <span class="stat-lbl">编程语言</span>
+              </div>
+              <div class="stat-chip">
+                <span class="stat-num">48K+</span>
+                <span class="stat-lbl">新增星标</span>
+              </div>
+            </div>
+
+            <div class="lang-tags anim-delay-4">
+              <div class="lang-tag">
+                <div class="lang-dot" style="background:#3b82f6"></div>
+                TypeScript
+              </div>
+              <div class="lang-tag">
+                <div class="lang-dot" style="background:#f59e0b"></div>
+                Python
+              </div>
+              <div class="lang-tag">
+                <div class="lang-dot" style="background:#f97316"></div>
+                Rust
+              </div>
+              <div class="lang-tag">
+                <div class="lang-dot" style="background:#10b981"></div>
+                Go
+              </div>
+            </div>
+
+            <div class="intro-date anim-delay-4">2026 年 6 月 9 日 · 第 24 期</div>
+          </div>
+
+          <div class="intro-bottom anim-delay-5">
+            <div class="intro-cta">
+              <div class="cta-icon">⚡</div>
+              <div>
+                <div class="cta-text-title">本期重磅：AI 工具链大爆发</div>
+                <div class="cta-text-sub">智能体 · 大模型 · 开发工具 · 基础设施</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================
+       SCREEN 2: 热榜列表页
+       ====================================== -->
+  <div class="screen-wrapper">
+    <div class="screen-label">02 · 热榜列表</div>
+    <div class="phone-frame">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div class="status-icons">
+          <svg width="15" height="11" viewBox="0 0 15 11" fill="none"><rect x="0" y="3" width="3" height="8" rx="1" fill="currentColor" opacity="0.4"/><rect x="4" y="2" width="3" height="9" rx="1" fill="currentColor" opacity="0.6"/><rect x="8" y="0" width="3" height="11" rx="1" fill="currentColor" opacity="0.8"/><rect x="12" y="0" width="3" height="11" rx="1" fill="currentColor"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" stroke="currentColor" opacity="0.4"/><rect x="2" y="2" width="16" height="8" rx="2" fill="currentColor"/><path d="M23 4v4c1.1-.5 1.8-1.2 1.8-2S24.1 4.5 23 4z" fill="currentColor" opacity="0.5"/></svg>
+        </div>
+      </div>
+      <div class="screen-content">
+        <div class="scanline"></div>
+        <div class="list-screen">
+          <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(0,212,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,0.03) 1px,transparent 1px);background-size:24px 24px;pointer-events:none;"></div>
+
+          <div class="list-header">
+            <div class="list-header-top">
+              <div class="list-header-title">GitHub 开源热榜</div>
+              <div class="header-badge">● 实时</div>
+            </div>
+            <div class="list-meta">
+              <span class="list-date-chip">2026.06.09 · 本周</span>
+              <div class="filter-pills">
+                <div class="filter-pill active">全部</div>
+                <div class="filter-pill inactive">AI</div>
+                <div class="filter-pill inactive">工具</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rank-list">
+            <div class="rank-item top-1">
+              <div class="rank-num">01</div>
+              <div class="rank-content">
+                <div class="rank-repo">claude-code-action</div>
+                <div class="rank-owner">anthropics · 完全工具调用</div>
+                <div class="rank-desc">AI 自动化编程助手，全面接入 GitHub Actions 工作流</div>
+                <div class="rank-footer">
+                  <div class="rank-lang"><div class="rank-lang-dot" style="background:#3b82f6"></div>TypeScript</div>
+                  <div class="rank-stars">★ 1.2 万</div>
+                  <div class="rank-new">+2.1k 今日</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rank-item top-2">
+              <div class="rank-num">02</div>
+              <div class="rank-content">
+                <div class="rank-repo">hyperframe</div>
+                <div class="rank-owner">frameai · 动效即代码</div>
+                <div class="rank-desc">设计师友好型动效框架，design-to-code 新标杆</div>
+                <div class="rank-footer">
+                  <div class="rank-lang"><div class="rank-lang-dot" style="background:#f97316"></div>Rust</div>
+                  <div class="rank-stars">★ 9.8k</div>
+                  <div class="rank-new">+1.8k 今日</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rank-item top-3">
+              <div class="rank-num">03</div>
+              <div class="rank-content">
+                <div class="rank-repo">openai-agents-sdk</div>
+                <div class="rank-owner">openai · 官方多智能体框架</div>
+                <div class="rank-desc">OpenAI 官方多智能体协同开发工具包</div>
+                <div class="rank-footer">
+                  <div class="rank-lang"><div class="rank-lang-dot" style="background:#f59e0b"></div>Python</div>
+                  <div class="rank-stars">★ 8.2k</div>
+                  <div class="rank-new">+1.3k 今日</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rank-item">
+              <div class="rank-num" style="font-size:15px;color:var(--text-dim)">04</div>
+              <div class="rank-content">
+                <div class="rank-repo">zed-editor</div>
+                <div class="rank-owner">zed-industries · 高性能编辑器</div>
+                <div class="rank-desc">新一代高性能协作代码编辑器，极速启动体验</div>
+                <div class="rank-footer">
+                  <div class="rank-lang"><div class="rank-lang-dot" style="background:#f97316"></div>Rust</div>
+                  <div class="rank-stars">★ 7.6k</div>
+                  <div class="rank-new">+980 今日</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rank-item">
+              <div class="rank-num" style="font-size:15px;color:var(--text-dim)">05</div>
+              <div class="rank-content">
+                <div class="rank-repo">dify-plugins</div>
+                <div class="rank-owner">langgenius · 插件生态</div>
+                <div class="rank-desc">Dify AI 平台官方插件市场，一站式扩展 AI 能力</div>
+                <div class="rank-footer">
+                  <div class="rank-lang"><div class="rank-lang-dot" style="background:#f59e0b"></div>Python</div>
+                  <div class="rank-stars">★ 6.1k</div>
+                  <div class="rank-new">+760 今日</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="list-bottom">
+            <span class="list-total">共 287 个热门仓库 · TOP 10</span>
+            <div class="list-nav">
+              <div class="list-nav-btn">‹</div>
+              <div class="list-nav-btn">›</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================
+       SCREEN 3: 项目详情页
+       ====================================== -->
+  <div class="screen-wrapper">
+    <div class="screen-label">03 · 项目详情</div>
+    <div class="phone-frame">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div class="status-icons">
+          <svg width="15" height="11" viewBox="0 0 15 11" fill="none"><rect x="0" y="3" width="3" height="8" rx="1" fill="currentColor" opacity="0.4"/><rect x="4" y="2" width="3" height="9" rx="1" fill="currentColor" opacity="0.6"/><rect x="8" y="0" width="3" height="11" rx="1" fill="currentColor" opacity="0.8"/><rect x="12" y="0" width="3" height="11" rx="1" fill="currentColor"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" stroke="currentColor" opacity="0.4"/><rect x="2" y="2" width="16" height="8" rx="2" fill="currentColor"/><path d="M23 4v4c1.1-.5 1.8-1.2 1.8-2S24.1 4.5 23 4z" fill="currentColor" opacity="0.5"/></svg>
+        </div>
+      </div>
+      <div class="screen-content">
+        <div class="scanline"></div>
+        <div class="detail-screen">
+          <div style="position:absolute;top:0;right:0;width:120px;height:120px;background:radial-gradient(circle at top right, rgba(0,212,255,0.08), transparent 70%);pointer-events:none;"></div>
+
+          <div class="detail-body">
+            <section class="detail-hero-card">
+              <div class="hero-top">
+                <div class="detail-rank-badge">
+                  <span style="color:var(--accent-cyan)">★</span>
+                  本周冠军
+                </div>
+                <div class="hero-meta-chip">AI 编程</div>
+              </div>
+              <div class="detail-repo-name">claude-code-action</div>
+              <div class="detail-owner-row">
+                <div class="owner-avatar">A</div>
+                <span class="detail-owner">anthropics · MIT 开源协议</span>
+              </div>
+              <p class="hero-desc">
+                功能完备的 AI 编程助手，可与 GitHub Actions 深度集成，支持自动化代码审查、代码生成以及基于自然语言的智能任务执行。接入 Claude 4 最新能力，带来全新的智能编程体验。
+              </p>
+            </section>
+
+            <div class="metrics-grid">
+              <div class="metric-card hot">
+                <span class="metric-icon">⭐</span>
+                <span class="metric-val">12.4k</span>
+                <span class="metric-lbl">总星标数</span>
+              </div>
+              <div class="metric-card hot">
+                <span class="metric-icon">↑</span>
+                <span class="metric-val">+2.1k</span>
+                <span class="metric-lbl">今日新增</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-icon" style="font-size:12px">⑂</span>
+                <span class="metric-val">843</span>
+                <span class="metric-lbl">复刻数</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-icon">◎</span>
+                <span class="metric-val">217</span>
+                <span class="metric-lbl">议题数</span>
+              </div>
+            </div>
+
+            <div>
+              <div class="section-label">技术栈</div>
+              <div class="tag-row">
+                <div class="tech-tag ts">TypeScript</div>
+                <div class="tech-tag ai">大模型智能体</div>
+                <div class="tech-tag go">GitHub 接口</div>
+                <div class="tech-tag py">自动化工作流</div>
+              </div>
+            </div>
+
+            <div>
+              <div class="section-label">星标趋势 · 近 7 天</div>
+              <div class="activity-chart">
+                <div class="bar low" style="height:30%"></div>
+                <div class="bar mid" style="height:45%"></div>
+                <div class="bar mid" style="height:40%"></div>
+                <div class="bar high" style="height:65%"></div>
+                <div class="bar high" style="height:70%"></div>
+                <div class="bar peak" style="height:100%"></div>
+                <div class="bar high" style="height:80%"></div>
+                <div class="bar peak" style="height:95%"></div>
+                <div class="bar high" style="height:75%"></div>
+                <div class="bar high" style="height:85%"></div>
+                <div class="bar mid" style="height:60%"></div>
+                <div class="bar peak" style="height:100%"></div>
+                <div class="bar high" style="height:90%"></div>
+                <div class="bar peak" style="height:100%"></div>
+              </div>
+            </div>
+
+            <div style="background:var(--bg-panel);border:1px solid rgba(0,212,255,0.15);border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:10px;">
+              <div style="font-family:var(--font-mono);font-size:9px;color:var(--accent-green);letter-spacing:0.08em;flex-shrink:0;">上榜理由</div>
+              <div style="font-size:10px;color:var(--text-secondary);line-height:1.4;">支持 Claude 4 全工具调用，智能体能力大幅升级，社区热度持续爆发</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================
+       SCREEN 4: 结尾钩子页
+       ====================================== -->
+  <div class="screen-wrapper">
+    <div class="screen-label">04 · 结尾钩子</div>
+    <div class="phone-frame">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div class="status-icons">
+          <svg width="15" height="11" viewBox="0 0 15 11" fill="none"><rect x="0" y="3" width="3" height="8" rx="1" fill="currentColor" opacity="0.4"/><rect x="4" y="2" width="3" height="9" rx="1" fill="currentColor" opacity="0.6"/><rect x="8" y="0" width="3" height="11" rx="1" fill="currentColor" opacity="0.8"/><rect x="12" y="0" width="3" height="11" rx="1" fill="currentColor"/></svg>
+          <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" stroke="currentColor" opacity="0.4"/><rect x="2" y="2" width="16" height="8" rx="2" fill="currentColor"/><path d="M23 4v4c1.1-.5 1.8-1.2 1.8-2S24.1 4.5 23 4z" fill="currentColor" opacity="0.5"/></svg>
+        </div>
+      </div>
+      <div class="screen-content">
+        <div class="scanline"></div>
+        <div class="hook-screen">
+          <div class="hook-bg-deco">
+            <div class="hex-grid"></div>
+            <div class="glow-orb glow-orb-1"></div>
+            <div class="glow-orb glow-orb-2"></div>
+          </div>
+
+          <div class="hook-header">
+            <div class="hook-ep-badge">⚡ 周报速递 · 第 24 期</div>
+            <h2 class="hook-title">本周<br><span class="em">前三甲</span><br>你最看好谁？</h2>
+            <p class="hook-subtitle">评论区投出你的一票，下期重点解析你感兴趣的项目</p>
+          </div>
+
+          <div class="hook-body">
+            <div class="hook-highlight-card featured">
+              <div class="hook-rank-chip r1">01</div>
+              <div class="hook-card-content">
+                <div class="hook-card-name">claude-code-action</div>
+                <div class="hook-card-stat">anthropics · TypeScript · AI 编程</div>
+              </div>
+              <div class="hook-star">★ 1.2 万</div>
+            </div>
+
+            <div class="hook-highlight-card">
+              <div class="hook-rank-chip r2">02</div>
+              <div class="hook-card-content">
+                <div class="hook-card-name">hyperframe</div>
+                <div class="hook-card-stat">frameai · Rust · 动效框架</div>
+              </div>
+              <div class="hook-star">★ 9.8k</div>
+            </div>
+
+            <div class="hook-highlight-card">
+              <div class="hook-rank-chip r3">03</div>
+              <div class="hook-card-content">
+                <div class="hook-card-name">openai-agents-sdk</div>
+                <div class="hook-card-stat">openai · Python · 多智能体</div>
+              </div>
+              <div class="hook-star">★ 8.2k</div>
+            </div>
+          </div>
+
+          <div class="hook-divider">
+            <div class="hook-divider-line"></div>
+            <div class="hook-divider-dot"></div>
+            <div class="hook-divider-line"></div>
+          </div>
+
+          <div class="hook-cta-area">
+            <p class="hook-question">
+              觉得这期有价值？<span>点赞关注</span>不错过<br>每周 GitHub 热榜速报
+            </p>
+
+            <div class="hook-action-row">
+              <div class="hook-btn primary">
+                <span class="hook-btn-icon">▲</span>
+                点赞支持
+              </div>
+              <div class="hook-btn secondary">
+                <span class="hook-btn-icon">+</span>
+                关注博主
+              </div>
+            </div>
+
+            <div class="hook-follow-text">
+              下期预告：<span>AI 基础设施专题</span> · 敬请期待
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
