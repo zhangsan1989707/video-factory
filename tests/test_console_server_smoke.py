@@ -11,7 +11,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from src.console.server import ConsoleHandler
+from src.console.server import ConsoleHandler, _short_message
 from src.console.store import create_job, read_json, update_job, write_json
 
 
@@ -429,6 +429,13 @@ class ConsoleServerSmokeTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(result["saved"])
         update_result.assert_called_once_with("openai", "连接成功: ok")
+
+    def test_provider_test_message_redacts_api_key_fragments(self) -> None:
+        message = _short_message("Authentication Fails, Your api key: ****b4da is invalid for sk-secretvalue")
+
+        self.assertIn("api key: [redacted]", message)
+        self.assertNotIn("b4da", message)
+        self.assertNotIn("sk-secretvalue", message)
 
     def test_config_endpoint_saves_settings_in_one_batch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

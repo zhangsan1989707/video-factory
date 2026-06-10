@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -20,6 +20,7 @@ async function run() {
   testSyncDetailStateReplacesCandidateAndScriptSnapshots();
   testSelectionButtonStateShowsLimit();
   testCandidateDefaultsUseProjectCount();
+  await testProviderTestKeepsUnsavedFormValues();
 }
 
 async function testJsonSuccess() {
@@ -459,6 +460,74 @@ function testCandidateDefaultsUseProjectCount() {
   assert.equal(candidateOrder({}, 0), 1);
   assert.equal(candidateOrder({}, 5), "");
   assert.equal(candidateChecked({ selected: false }, 0), false);
+}
+
+async function testProviderTestKeepsUnsavedFormValues() {
+  let requestBody = null;
+  global.fetch = async (_path, options) => {
+    requestBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        ok: true,
+        saved: false,
+        message: "连接成功: ok",
+        config: { providers: { providers: [] } },
+      }),
+    };
+  };
+  global.alert = (message) => {
+    throw new Error(message);
+  };
+
+  const settingsMessage = { textContent: "" };
+  global.document = {
+    getElementById(id) {
+      if (id === "settingsMessage") return settingsMessage;
+      throw new Error(`unexpected render lookup: ${id}`);
+    },
+  };
+
+  state.config = {
+    providers: {
+      providers: [
+        { id: "deepseek", type: "openai-compatible", name: "DeepSeek" },
+      ],
+    },
+  };
+  const fields = {
+    api_key: { value: "sk-draft" },
+    base_url: { value: "https://api.deepseek.com" },
+    default_model: { value: "deepseek-v4-flash" },
+    enabled: { checked: true },
+  };
+  const card = {
+    querySelector(selector) {
+      const match = selector.match(/data-field='([^']+)'/);
+      return match ? fields[match[1]] : null;
+    },
+  };
+  const button = {
+    dataset: { providerTest: "deepseek" },
+    disabled: false,
+    isConnected: true,
+    textContent: "测试",
+    closest(selector) {
+      return selector === "[data-provider-test]" ? button : card;
+    },
+  };
+
+  await testProviderFromButton({ target: button });
+
+  assert.equal(requestBody.model, "deepseek-v4-flash");
+  assert.equal(requestBody.provider.api_key, "sk-draft");
+  assert.equal(requestBody.provider.base_url, "https://api.deepseek.com");
+  assert.equal(requestBody.provider.enabled, true);
+  assert.equal(fields.api_key.value, "sk-draft");
+  assert.equal(button.disabled, false);
+  assert.equal(button.textContent, "测试");
+  assert.match(settingsMessage.textContent, /当前表单尚未保存/);
 }
 
 run().catch((error) => {

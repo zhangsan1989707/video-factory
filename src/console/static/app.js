@@ -1128,6 +1128,7 @@ async function testProviderFromButton(event) {
   const card = button.closest(".provider-card");
   if (!card) return;
   const providerId = button.dataset.providerTest;
+  const originalText = button.textContent || "测试";
   const model = fieldValue(card, "default_model");
   const original = (state.config?.providers?.providers || []).find((item) => item.id === providerId) || {};
   const provider = {
@@ -1142,15 +1143,20 @@ async function testProviderFromButton(event) {
   button.textContent = "测试中";
   try {
     const result = await post(`/api/providers/${encodeURIComponent(providerId)}/test`, { model, provider });
-    state.config = result.config;
-    renderSettings(state.config);
-    await loadConfig();
+    if (result.saved) {
+      state.config = result.config;
+      $("routingStatus").textContent = providerStatusLabel(result.config.providers.providers || []);
+      renderSettings(state.config);
+    }
     $("settingsMessage").textContent = result.saved ? result.message : `${result.message}；当前表单尚未保存，状态未写回。`;
   } catch (error) {
     button.textContent = "失败";
     alert(error.message);
   } finally {
-    button.disabled = false;
+    if (button.isConnected !== false) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 }
 
@@ -1232,5 +1238,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

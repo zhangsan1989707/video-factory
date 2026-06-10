@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import re
 import subprocess
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -330,8 +331,13 @@ class ConsoleHandler(BaseHTTPRequestHandler):
 
 
 def _short_message(message: str, limit: int = 160) -> str:
-    text = " ".join(str(message).split())
+    text = _redact_message_secrets(" ".join(str(message).split()))
     return text if len(text) <= limit else text[: limit - 1] + "..."
+
+
+def _redact_message_secrets(message: str) -> str:
+    text = re.sub(r"sk-[A-Za-z0-9_-]{8,}", "[redacted]", message)
+    return re.sub(r"(api key:\s*)\*+[A-Za-z0-9_-]+", r"\1[redacted]", text, flags=re.IGNORECASE)
 
 
 def _error_status(exc: Exception) -> int:
