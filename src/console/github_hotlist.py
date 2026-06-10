@@ -65,6 +65,9 @@ async def collect_candidates_with_meta(
             "description": item.get("description") or "",
             "description_zh": _localized_description(item),
             "stars": item.get("stargazers_count", 0),
+            "daily_growth": _estimated_daily_growth(item),
+            "forks": item.get("forks_count", 0),
+            "issues": item.get("open_issues_count", 0),
             "language": item.get("language") or "",
             "topics": item.get("topics") or [],
             "repo_url": item.get("html_url", ""),
@@ -79,6 +82,17 @@ async def collect_candidates_with_meta(
             "selected": index <= 10,
         })
     return {"items": candidates, "rate_limit": rate_limit}
+
+
+def _estimated_daily_growth(item: dict[str, Any]) -> str:
+    stars = int(item.get("stargazers_count") or 0)
+    created_at = str(item.get("created_at") or "")
+    try:
+        created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        age_days = max(1, (datetime.now(timezone.utc) - created).days)
+    except ValueError:
+        age_days = 30
+    return f"约 +{max(1, round(stars / age_days))}/天" if stars else "暂无"
 
 
 def _rate_limit_label(headers: httpx.Headers) -> str:

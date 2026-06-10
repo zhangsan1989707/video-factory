@@ -21,6 +21,9 @@ class GithubHotlistTest(unittest.TestCase):
         self.assertNotIn("authorization", seen_headers)
         self.assertRegex(result["rate_limit"], r"^59/60，重置 \d{2}:\d{2}$")
         self.assertEqual(result["items"][0]["full_name"], "demo/alpha")
+        self.assertEqual(result["items"][0]["forks"], 17)
+        self.assertEqual(result["items"][0]["issues"], 3)
+        self.assertRegex(result["items"][0]["daily_growth"], r"^约 \+\d+/天$")
 
     def test_collect_candidates_with_token(self) -> None:
         seen_headers = {}
@@ -81,6 +84,8 @@ def _github_response() -> httpx.Response:
                     "owner": {"login": "demo"},
                     "description": "AI agent workflow",
                     "stargazers_count": 120,
+                    "forks_count": 17,
+                    "open_issues_count": 3,
                     "language": "Python",
                     "topics": ["ai"],
                     "html_url": "https://github.com/demo/alpha",
