@@ -159,7 +159,13 @@ def _risk_note(item: dict[str, Any]) -> str:
 
 
 def _audience(item: dict[str, Any]) -> str:
-    text = f"{item.get('description') or ''} {' '.join(item.get('topics') or [])}"
+    text = _project_text(item)
+    if _has_any_keyword(text, ("ppt", "powerpoint", "presentation", "slide", "slides")):
+        return "经常做汇报和课件的人"
+    if _has_any_keyword(text, ("figma", "design", "designer", "ui", "interface", "prototype")):
+        return "设计师和前端开发者"
+    if _has_any_keyword(text, ("claude", "agent-skill", "agent-skills")):
+        return "Claude 和 Agent 用户"
     if _has_any_keyword(text, ("ai", "agent", "llm", "model")):
         return "AI 工具开发者"
     if _has_any_keyword(text, ("frontend", "react", "vue", "ui")):
@@ -180,20 +186,41 @@ def _visual_potential(item: dict[str, Any]) -> str:
 
 def _has_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
     normalized = text.lower()
-    return any(re.search(rf"(^|[^a-z0-9]){re.escape(keyword)}([^a-z0-9]|$)", normalized) for keyword in keywords)
+    return any(
+        keyword in normalized
+        if len(keyword) >= 3
+        else re.search(rf"(^|[^a-z0-9]){re.escape(keyword)}([^a-z0-9]|$)", normalized)
+        for keyword in keywords
+    )
+
+
+def _project_text(item: dict[str, Any]) -> str:
+    return " ".join([
+        str(item.get("name") or ""),
+        str(item.get("full_name") or ""),
+        str(item.get("description") or ""),
+        " ".join(str(topic) for topic in item.get("topics") or []),
+        str(item.get("language") or ""),
+    ]).lower()
 
 
 def _localized_description(item: dict[str, Any]) -> str:
     description = item.get("description") or ""
-    text = f"{description} {' '.join(item.get('topics') or [])}"
+    text = _project_text(item)
     if not description:
         return "项目描述较少，需要先打开仓库确认具体用途。"
+    if _has_any_keyword(text, ("ppt", "powerpoint", "presentation", "slide", "slides")):
+        return "用来生成或整理 PPT，把主题、结构和页面初稿更快搭出来。"
+    if _has_any_keyword(text, ("figma", "design", "designer", "ui", "interface", "prototype")):
+        return "用来做界面设计或设计稿生成，把自然语言想法转成更可编辑的页面结构。"
+    if _has_any_keyword(text, ("claude", "agent-skill", "agent-skills")):
+        return "给 Claude 或 Agent 扩展技能，把常用任务封装成可复用工作流。"
     if _has_any_keyword(text, ("aircraft", "flight", "projector", "raspberry", "hardware", "sdr")):
         return "偏硬件、实时数据或空间展示，重点是把复杂设备或数据流变成可操作场景。"
     if _has_any_keyword(text, ("video", "image", "audio", "visual", "3d")):
         return "用于多媒体生成、处理或可视化，重点是把内容产出变成可复用流程。"
     if _has_any_keyword(text, ("ai", "agent", "llm", "model", "rag")):
-        return "围绕 AI 工具或模型工作流，重点是把模型能力接进具体任务。"
+        return "把 AI 能力接到一个明确任务里，减少只靠聊天反复试提示词。"
     if _has_any_keyword(text, ("react", "vue", "frontend", "ui", "css")):
         return "偏前端或界面工具，重点是更快搭出可见界面和交互效果。"
     if _has_any_keyword(text, ("data", "database", "analytics", "sql")):

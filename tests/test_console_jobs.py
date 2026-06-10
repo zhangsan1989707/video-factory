@@ -1225,6 +1225,8 @@ class ConsoleJobsTest(unittest.TestCase):
         self.assertEqual(captured["task"], "candidate_analysis")
         self.assertEqual(captured["max_tokens"], 5000)
         self.assertEqual(len(captured["prompt"]["items"]), 30)
+        self.assertIn("禁止使用同一句模板", captured["prompt"]["instruction"])
+        self.assertIn("围绕……重点是", captured["prompt"]["instruction"])
         self.assertEqual(captured["prompt"]["items"][-1]["full_name"], "demo/repo-30")
         self.assertIn("project_highlight", captured["prompt"]["schema"]["items"][0])
         self.assertIn("viewer_benefit", captured["prompt"]["schema"]["items"][0])

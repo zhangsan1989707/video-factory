@@ -54,6 +54,26 @@ class GithubHotlistTest(unittest.TestCase):
 
         self.assertIn("GitHub API 额度 0/60，重置", str(raised.exception))
 
+    def test_heuristic_descriptions_are_project_specific(self) -> None:
+        ppt = github_hotlist._localized_description({
+            "full_name": "gorden/GordenSuperPPTSkills",
+            "name": "GordenSuperPPTSkills",
+            "description": "AI powered PowerPoint presentation workflow",
+            "topics": ["ai", "ppt", "workflow"],
+        })
+        design = github_hotlist._localized_description({
+            "full_name": "baoyu/baoyu-design",
+            "name": "baoyu-design",
+            "description": "Claude agent skills for generating UI design drafts",
+            "topics": ["ai", "design", "claude"],
+        })
+
+        self.assertIn("PPT", ppt)
+        self.assertIn("设计", design)
+        self.assertNotEqual(ppt, design)
+        self.assertNotIn("围绕 AI 工具或模型工作流", ppt)
+        self.assertNotIn("围绕 AI 工具或模型工作流", design)
+
 async def _collect_with_transport(token: str, transport: httpx.MockTransport):
     original = httpx.AsyncClient
 

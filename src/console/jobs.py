@@ -522,7 +522,12 @@ def _analyze_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[d
         append_log(job_id, f"候选分析使用启发式评分：{_route_skip_reason(route)}。")
         return candidates
     prompt = {
-        "instruction": "为中文 GitHub 热榜短视频分析候选项目。只根据输入字段判断，不要夸大。区分观众听得懂的项目价值和制作侧画面建议。",
+        "instruction": (
+            "为中文 GitHub 热榜短视频分析候选项目。只根据输入字段判断，不要夸大。"
+            "区分观众听得懂的项目价值和制作侧画面建议。"
+            "每个项目的 description_zh、project_highlight、viewer_benefit 必须写出具体功能或使用场景，"
+            "禁止使用同一句模板，禁止使用“围绕……重点是……”这类万能句。"
+        ),
         "items": [
             {
                 "index": index,
