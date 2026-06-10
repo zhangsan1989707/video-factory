@@ -793,6 +793,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertTrue(calls[0]["dry_run"])
                 self.assertEqual(len(render_calls), 1)
                 self.assertEqual(render_calls[0]["style"], "tech_hotspot")
+                self.assertEqual([segment["id"] for segment in render_calls[0]["narration_segments"]], ["intro", "project-1", "project-2", "outro"])
                 self.assertEqual(result["job"]["plan_validation"]["status"], "passed")
 
     def test_render_video_passes_custom_bgm_path(self) -> None:

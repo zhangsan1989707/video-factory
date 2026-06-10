@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
+import re
+import shutil
 import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -51,10 +52,17 @@ async def render_hotlist_v2_from_projects(
     output_path: Path | None = None,
     durations: dict[str, int] | None = None,
     style: str = DEFAULT_STYLE,
+    narration_segments: list[dict] | None = None,
 ) -> Path:
     """Render a hotlist v2 video from already selected console project data."""
     data = _data_from_projects(projects)
-    return await render_hotlist_v2_from_data(data, output_path=output_path, durations=durations, style=style)
+    return await render_hotlist_v2_from_data(
+        data,
+        output_path=output_path,
+        durations=durations,
+        style=style,
+        narration_segments=narration_segments,
+    )
 
 
 def render_hotlist_v2_previews_from_projects(
@@ -66,26 +74,22 @@ def render_hotlist_v2_previews_from_projects(
     """Render static preview frames from the HyperFrames HTML template."""
     output_dir.mkdir(parents=True, exist_ok=True)
     data = _data_from_projects(projects)
+    timeline = _timeline_context(data, durations)
+    render_data = {**data, **timeline}
     html_dir = output_dir.parent / "hyperframes_preview_html"
     html_dir.mkdir(parents=True, exist_ok=True)
 
     previews = []
     base_html = html_dir / "composition.html"
-    render_composition(data, base_html, durations, style=style)
-    previews.append(_capture_html_screen(base_html, "screen-intro", output_dir / "shot-01.png"))
-    previews.append(_capture_html_screen(base_html, "screen-list", output_dir / "shot-02.png"))
-
-    base_projects = data.get("projects") or []
-    for index, project in enumerate(base_projects, start=1):
-        detail_data = {
-            **data,
-            "projects": [project, *[item for item in base_projects if item is not project]],
-        }
-        detail_html = html_dir / f"composition-detail-{index:02d}.html"
-        render_composition(detail_data, detail_html, durations, style=style)
-        previews.append(_capture_html_screen(detail_html, "screen-detail", output_dir / f"shot-{index + 2:02d}.png"))
-
-    previews.append(_capture_html_screen(base_html, "screen-hook", output_dir / f"shot-{len(previews) + 1:02d}.png"))
+    render_composition(render_data, base_html, durations, style=style)
+    targets = [
+        ("screen-intro", output_dir / "shot-01.png"),
+        ("screen-list", output_dir / "shot-02.png"),
+    ]
+    for index, detail in enumerate(render_data.get("detail_screens") or [], start=1):
+        targets.append((detail["screen_id"], output_dir / f"shot-{index + 2:02d}.png"))
+    targets.append(("screen-hook", output_dir / f"shot-{len(targets) + 1:02d}.png"))
+    previews.extend(_capture_html_screens(base_html, targets))
     return previews
 
 
@@ -94,27 +98,31 @@ async def render_hotlist_v2_from_data(
     output_path: Path | None = None,
     durations: dict[str, int] | None = None,
     style: str = DEFAULT_STYLE,
+    narration_segments: list[dict] | None = None,
 ) -> Path:
     """Render a hotlist v2 video from normalized template data."""
     out = output_path or OUTPUT_DIR / "final.mp4"
     work_dir = out.parent
     work_dir.mkdir(parents=True, exist_ok=True)
+    timeline = _timeline_context(data, durations, narration_segments)
+    render_data = {**data, **timeline}
 
     data_path = work_dir / "trending-data.json"
-    data_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    data_path.write_text(json.dumps(render_data, indent=2, ensure_ascii=False), encoding="utf-8")
     console.print(f"  ✓ Found {data['total_projects']} projects, {data['total_languages']} languages")
 
     # Step 2: Render HTML composition
     console.print("[bold cyan]Step 2/5:[/] Rendering HTML composition...")
     html_path = work_dir / "composition.html"
-    render_composition(data, html_path, durations, style=style)
+    render_composition(render_data, html_path, durations, style=style)
     console.print(f"  ✓ HTML composition: {html_path}")
 
     # Step 3: Generate TTS narration
     console.print("[bold cyan]Step 3/5:[/] Generating TTS narration...")
-    script = _build_script(data, durations)
+    script = _build_script_from_timeline(timeline)
     script_path = work_dir / "script.json"
     script_path.write_text(json.dumps(script.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+    shutil.rmtree(work_dir / "audio", ignore_errors=True)
     await generate_all_audio(script, work_dir)
     audio_dir = work_dir / "audio"
     console.print(f"  ✓ TTS audio: {audio_dir}")
@@ -243,71 +251,179 @@ def _theme_tags(projects: list[dict]) -> list[str]:
 
 
 def _capture_html_screen(html_path: Path, screen_id: str, output_path: Path) -> Path:
+    return _capture_html_screens(html_path, [(screen_id, output_path)])[0]
+
+
+def _capture_html_screens(html_path: Path, targets: list[tuple[str, Path]]) -> list[Path]:
     from playwright.sync_api import sync_playwright
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1080, "height": 1920}, device_scale_factor=1)
         page.goto(html_path.resolve().as_uri(), wait_until="domcontentloaded")
-        page.wait_for_selector(f"#{screen_id}", timeout=5000)
-        page.evaluate(
-            """(screenId) => {
-                document.querySelectorAll('.screen').forEach((el) => {
-                    el.style.visibility = 'hidden';
-                    el.style.opacity = '0';
-                });
-                const target = document.getElementById(screenId);
-                target.style.visibility = 'visible';
-                target.style.opacity = '1';
-            }""",
-            screen_id,
-        )
-        box = page.locator('[data-composition-id="main"]').bounding_box()
-        page.screenshot(path=str(output_path), clip=box)
+        outputs = []
+        for screen_id, output_path in targets:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            page.wait_for_selector(f"#{screen_id}", state="attached", timeout=5000)
+            page.evaluate(
+                """(screenId) => {
+                    document.querySelectorAll('.screen').forEach((el) => {
+                        el.style.visibility = 'hidden';
+                        el.style.opacity = '0';
+                    });
+                    const target = document.getElementById(screenId);
+                    target.style.visibility = 'visible';
+                    target.style.opacity = '1';
+                }""",
+                screen_id,
+            )
+            page.screenshot(path=str(output_path), clip={"x": 0, "y": 0, "width": 1080, "height": 1920})
+            outputs.append(output_path)
         browser.close()
-    return output_path
+    return outputs
 
 
-def _build_script(data: dict, durations: dict[str, int] | None = None) -> VideoScript:
-    """Build VideoScript from trending data for TTS generation."""
-    dur = {**{"intro_duration": 4, "list_duration": 4, "detail_duration": 4, "hook_duration": 4}, **(durations or {})}
-    projects = data.get("projects", [])
-    top1 = projects[0] if projects else {}
+def _timeline_context(
+    data: dict,
+    durations: dict[str, int] | None = None,
+    narration_segments: list[dict] | None = None,
+) -> dict:
+    """Build one shared timeline for the HTML composition and TTS script."""
+    projects = data.get("projects") or []
+    narration = _narration_by_id(narration_segments or [])
+    duration_overrides = durations or {}
 
-    segments = [
-        ScriptSegment(
-            timestamp=0,
-            duration=dur["intro_duration"],
-            narration=f"这期 GitHub 热榜，我挑了 {data.get('total_projects', 10)} 个真实项目，{data.get('theme_highlight', '开源新星')}。",
-            action="show",
-            target="intro",
-        ),
-        ScriptSegment(
-            timestamp=dur["intro_duration"],
-            duration=dur["list_duration"],
-            narration=f"先看榜单：{projects[0]['name'] if projects else ''} 暂时排第一，{projects[1]['name'] if len(projects) > 1 else ''} 和 {projects[2]['name'] if len(projects) > 2 else ''} 紧随其后。",
-            action="show",
-            target="list",
-        ),
-        ScriptSegment(
-            timestamp=dur["intro_duration"] + dur["list_duration"],
-            duration=dur["detail_duration"],
-            narration=f"第一名 {top1.get('name', '')}，{top1.get('stars_display', '')} 星标。{top1.get('reason', '')}",
-            action="show",
-            target="detail",
-        ),
-        ScriptSegment(
-            timestamp=dur["intro_duration"] + dur["list_duration"] + dur["detail_duration"],
-            duration=dur["hook_duration"],
-            narration="这期都是真实开源项目。你想先看哪个？评论区告诉我。",
-            action="show",
-            target="hook",
-        ),
-    ]
+    intro_text = _narration_text(
+        narration,
+        "intro",
+        f"这期 GitHub 热榜，我挑了 {data.get('total_projects', len(projects))} 个真实项目，{data.get('theme_highlight', '开源新星')}。",
+    )
+    list_text = _list_narration(projects)
+    hook_text = _narration_text(
+        narration,
+        "outro",
+        "这期都是真实开源项目。你想先看哪个？评论区告诉我。",
+    )
 
-    total = sum(dur.values())
-    return VideoScript(title="GitHub 热榜速报", segments=segments, total_duration=total)
+    intro_duration = _duration_override(duration_overrides, "intro_duration") or _spoken_duration(intro_text, 5.0, 7.0)
+    list_duration = _duration_override(duration_overrides, "list_duration") or _spoken_duration(list_text, 6.0, 8.0)
+    detail_base = _duration_override(duration_overrides, "detail_duration")
+    hook_duration = _duration_override(duration_overrides, "hook_duration") or _spoken_duration(hook_text, 5.5, 8.0)
+
+    cursor = 0.0
+    intro_screen = {
+        "screen_id": "screen-intro",
+        "start": cursor,
+        "duration": intro_duration,
+        "narration": intro_text,
+        "target": "intro",
+    }
+    cursor += intro_duration
+    list_screen = {
+        "screen_id": "screen-list",
+        "start": cursor,
+        "duration": list_duration,
+        "narration": list_text,
+        "target": "list",
+    }
+    cursor += list_duration
+
+    detail_screens = []
+    for index, project in enumerate(projects, start=1):
+        project_text = _narration_text(narration, f"project-{index}", _project_narration(project))
+        duration = detail_base or _spoken_duration(project_text, 5.4, 8.5)
+        detail_screens.append({
+            "screen_id": f"screen-detail-{index:02d}",
+            "start": cursor,
+            "duration": duration,
+            "narration": project_text,
+            "target": f"project-{index}",
+            "project": project,
+        })
+        cursor += duration
+
+    hook_screen = {
+        "screen_id": "screen-hook",
+        "start": cursor,
+        "duration": hook_duration,
+        "narration": hook_text,
+        "target": "hook",
+    }
+    cursor += hook_duration
+
+    return {
+        "intro_screen": intro_screen,
+        "list_screen": list_screen,
+        "detail_screens": detail_screens,
+        "hook_screen": hook_screen,
+        "total_duration": round(cursor, 1),
+        "top_projects": projects[: min(10, len(projects))],
+        "intro_duration": intro_duration,
+        "list_duration": list_duration,
+        "detail_duration": detail_base or 0,
+        "hook_duration": hook_duration,
+    }
+
+
+def _build_script_from_timeline(timeline: dict) -> VideoScript:
+    """Build VideoScript from the same timeline used by the HTML template."""
+    items = [timeline["intro_screen"], timeline["list_screen"], *timeline["detail_screens"], timeline["hook_screen"]]
+    return VideoScript(
+        title="GitHub 热榜速报",
+        segments=[
+            ScriptSegment(
+                timestamp=float(item["start"]),
+                duration=float(item["duration"]),
+                narration=str(item["narration"]),
+                action="show",
+                target=str(item["target"]),
+            )
+            for item in items
+        ],
+        total_duration=float(timeline["total_duration"]),
+    )
+
+
+def _narration_by_id(segments: list[dict]) -> dict[str, str]:
+    return {
+        str(segment.get("id") or ""): str(segment.get("text") or "").strip()
+        for segment in segments
+        if isinstance(segment, dict) and str(segment.get("id") or "")
+    }
+
+
+def _narration_text(segments: dict[str, str], segment_id: str, fallback: str) -> str:
+    return segments.get(segment_id) or fallback
+
+
+def _duration_override(durations: dict[str, int], key: str) -> float | None:
+    if key not in durations:
+        return None
+    try:
+        return max(1.0, float(durations[key]))
+    except (TypeError, ValueError):
+        return None
+
+
+def _spoken_duration(text: str, minimum: float, maximum: float) -> float:
+    cjk_chars = len(re.findall(r"[\u3400-\u9fff]", text))
+    latin_words = len(re.findall(r"[A-Za-z0-9]+", text))
+    estimate = 1.2 + (cjk_chars + latin_words * 2.2) / 11.5
+    return round(max(minimum, min(maximum, estimate)), 1)
+
+
+def _list_narration(projects: list[dict]) -> str:
+    if not projects:
+        return "先看完整榜单，本期 GitHub 热门项目都在这里。"
+    names = "、".join(str(project.get("name") or "") for project in projects[:3] if project.get("name"))
+    return f"先看完整 TOP {len(projects)} 榜单：{names} 领跑，本期还有更多值得收藏的开源项目。"
+
+
+def _project_narration(project: dict) -> str:
+    rank = project.get("rank") or 1
+    name = project.get("name") or "GitHub 项目"
+    reason = project.get("reason") or project.get("description") or project.get("tagline") or "近期热度上升，值得关注。"
+    return f"第 {rank} 个，{name}。{reason}"
 
 
 def _render_hyperframes(html_path: Path, output_path: Path) -> None:

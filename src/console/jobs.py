@@ -350,10 +350,12 @@ async def render_video(job_id: str) -> dict[str, Any]:
             update_job(job_id, status="running", stage="generating_tts")
             append_log(job_id, "默认使用 HyperFrames 科技热点风模板。")
             update_job(job_id, status="running", stage="composing_video")
+            narration_segments = read_json(job_dir / "narration.json", {}).get("segments") or []
             await render_hotlist_v2_from_projects(
                 selected,
                 output_path=output_path,
                 style="tech_hotspot",
+                narration_segments=narration_segments,
             )
             update_job(job_id, status="running", stage="post_processing")
             append_log(job_id, "开始执行视频后处理。")

@@ -44,7 +44,8 @@ def render_composition(
     template = env.get_template(STYLE_TEMPLATES.get(style, STYLE_TEMPLATES[DEFAULT_STYLE]))
 
     merged = {**DEFAULT_DURATIONS, **(durations or {})}
-    html = template.render(**data, **merged)
+    context = {**merged, **data}
+    html = template.render(**context)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
