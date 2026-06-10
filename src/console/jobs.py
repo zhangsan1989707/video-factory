@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -105,6 +106,7 @@ def save_selection(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if len(items) > project_count:
         raise ValueError(f"最多只能选择 {project_count} 个项目，当前选择 {len(items)} 个")
     selected = _selected_from_candidate_snapshot(job_id, items)
+    selected = _ensure_feature_extracts(job_id, selected)
     _clear_plan_artifacts(job_id)
     _clear_script_metadata(job_id)
     write_json(JOBS_DIR / job_id / "selected_projects.json", {"items": selected})
@@ -125,6 +127,8 @@ def regenerate_script(job_id: str) -> dict[str, Any]:
 
 def _generate_script_for_selection(job_id: str, selected: list[dict[str, Any]]) -> dict[str, Any]:
     update_job(job_id, status="running", stage="generating_script", error="")
+    selected = _ensure_feature_extracts(job_id, selected)
+    write_json(JOBS_DIR / job_id / "selected_projects.json", {"items": selected})
 
     hook = _generate_hook(job_id, selected)
     narrations = _model_narrations(job_id, selected)
@@ -175,6 +179,25 @@ def save_script(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     write_json(JOBS_DIR / job_id / "narration.json", {"segments": segments})
     append_log(job_id, "口播脚本已确认。")
     _quality_check_script(job_id, segments, selected)
+    quality = read_json(JOBS_DIR / job_id / "quality_report.json", {})
+    ignored = bool(payload.get("ignore_quality_risk"))
+    if _quality_blocks_render(quality) and not ignored:
+        publish_pack = _write_publish_pack(job_id, selected, segments)
+        update_job(
+            job_id,
+            status="awaiting_input",
+            stage="awaiting_script_confirmation",
+            error="脚本质检未通过，请复核风险项或手动忽略后继续。",
+            plan_validation={"status": "not_run", "error": ""},
+        )
+        return {
+            "job": read_job(job_id),
+            "segments": segments,
+            "quality_report": quality,
+            "publish_pack": publish_pack,
+        }
+    if ignored and _quality_blocks_render(quality):
+        quality = _apply_quality_override(job_id, quality)
     publish_pack = _write_publish_pack(job_id, selected, segments)
     update_job(job_id, status="awaiting_render", stage="preparing_plan", error="", plan_validation={"status": "not_run", "error": ""})
     return {
@@ -280,6 +303,7 @@ def prepare_plan(job_id: str) -> dict[str, Any]:
         raise ValueError("请先确认项目列表")
     if not segments:
         raise ValueError("请先确认口播脚本")
+    _ensure_quality_gate(job_id)
 
     update_job(job_id, status="running", stage="preparing_plan", failed_stage="", error="")
     append_log(job_id, "开始生成流水线计划文件。")
@@ -331,6 +355,7 @@ async def validate_plan(job_id: str) -> dict[str, Any]:
     job_dir = JOBS_DIR / job_id
     if not (job_dir / "shot_plan.json").exists():
         prepare_plan(job_id)
+    _ensure_quality_gate(job_id)
 
     append_log(job_id, "开始校验 --from-plan dry run。")
     update_job(
@@ -350,8 +375,9 @@ async def validate_plan(job_id: str) -> dict[str, Any]:
             style="hotlist",
             dry_run=True,
         )
+        details = _plan_validation_details(job_dir)
         append_log(job_id, "计划文件校验通过，可进入最终渲染。")
-        validation = {"status": "passed", "error": ""}
+        validation = {"status": "passed", "error": "", "details": details}
         update_job(job_id, status="ready_to_render", stage="preparing_plan", plan_validation=validation)
         return {"job": read_job(job_id), "plan_validation": validation, "artifacts": job_artifacts(job_id)}
     except Exception as exc:
@@ -379,6 +405,7 @@ async def render_video(job_id: str) -> dict[str, Any]:
         if not (job_dir / "shot_plan.json").exists():
             prepare_plan(job_id)
         job = read_job(job_id)
+        _ensure_quality_gate(job_id)
         if (job.get("plan_validation") or {}).get("status") != "passed":
             await validate_plan(job_id)
             job = read_job(job_id)
@@ -714,12 +741,20 @@ def _route_skip_reason(route: dict[str, Any]) -> str:
 
 
 def _narration_project_context(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        {
+    items = []
+    for index, project in enumerate(projects, start=1):
+        feature = project.get("feature_extract") or {}
+        benefit = str(feature.get("quantified_benefit") or "").strip()
+        items.append({
             "rank": index,
             "name": project.get("name"),
             "full_name": project.get("full_name"),
             "description_zh": project.get("description_zh"),
+            "feature_extract": feature,
+            "core_problem": feature.get("core_problem") or _viewer_pain(project),
+            "core_action": feature.get("core_action") or _viewer_highlight(project),
+            "quantified_benefit": benefit,
+            "quantified_benefit_or_tech_point": benefit or _viewer_highlight(project),
             "recommendation": project.get("recommendation"),
             "project_highlight": project.get("project_highlight"),
             "viewer_benefit": project.get("viewer_benefit"),
@@ -731,9 +766,139 @@ def _narration_project_context(projects: list[dict[str, Any]]) -> list[dict[str,
             "safe_highlight": _viewer_highlight(project),
             "safe_audience": _viewer_audience(project),
             "risk": project.get("risk"),
-        }
-        for index, project in enumerate(projects, start=1)
-    ]
+        })
+    return items
+
+
+def _ensure_feature_extracts(job_id: str, projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    updated = []
+    missing = []
+    for index, project in enumerate(projects, start=1):
+        patched = dict(project)
+        feature = _sanitize_feature_extract(project.get("feature_extract"))
+        if not feature:
+            missing.append((index, patched))
+            feature = _fallback_feature_extract(patched)
+        patched["feature_extract"] = feature
+        _apply_feature_to_project_copy(patched, feature)
+        updated.append(patched)
+    if missing:
+        _extract_features_with_model(job_id, updated, [index for index, _project in missing])
+    return updated
+
+
+def _extract_features_with_model(job_id: str, projects: list[dict[str, Any]], indexes: list[int]) -> None:
+    route = route_snapshot("feature_extraction")
+    if not _route_available(route):
+        append_log(job_id, f"项目功能摘要使用启发式提取：{_route_skip_reason(route)}。")
+        return
+    prompt = {
+        "instruction": (
+            "为 GitHub 热榜入选项目提取事实型功能摘要。只能根据 description、topics、README 摘要判断，"
+            "不要写营销话术，不要把视频画面建议当功能。"
+        ),
+        "items": [
+            {
+                "index": index,
+                "name": project.get("name"),
+                "full_name": project.get("full_name"),
+                "description": project.get("description"),
+                "description_zh": project.get("description_zh"),
+                "topics": project.get("topics"),
+                "readme_excerpt": _readme_excerpt(project),
+            }
+            for index, project in enumerate(projects, start=1)
+            if index in indexes
+        ],
+        "schema": {
+            "items": [
+                {
+                    "index": 1,
+                    "core_problem": "15字内具体痛点",
+                    "core_action": "用户用它做什么，一句话动作",
+                    "quantified_benefit": "可量化效果；没有就空字符串",
+                }
+            ]
+        },
+    }
+    try:
+        detail = chat_json_detail(
+            "feature_extraction",
+            "你是克制的开源项目功能摘要编辑，只输出 JSON。",
+            json.dumps(prompt, ensure_ascii=False),
+            max_tokens=1800,
+        )
+        items = (detail.get("data") or {}).get("items", []) if isinstance(detail.get("data"), dict) else []
+        by_index = {int(item.get("index") or 0): _sanitize_feature_extract(item) for item in items if isinstance(item, dict)}
+        changed = 0
+        for index, project in enumerate(projects, start=1):
+            feature = by_index.get(index)
+            if feature:
+                project["feature_extract"] = feature
+                _apply_feature_to_project_copy(project, feature)
+                changed += 1
+        if changed:
+            _record_model_call(job_id, "feature_extraction", detail, "success")
+            used_route = detail.get("route") or {}
+            append_log(job_id, f"已为 {changed} 个项目提取功能摘要：{used_route.get('provider_name') or used_route.get('provider') or ''} / {used_route.get('model') or ''}。")
+        else:
+            _write_ai_raw_response(job_id, "feature_extraction", detail)
+            _record_model_call(job_id, "feature_extraction", detail, "invalid_json")
+            append_log(job_id, "功能摘要模型未返回可用 JSON，保留启发式摘要。")
+    except Exception as exc:
+        _record_model_call(job_id, "feature_extraction", {"route": route, "error": str(exc)}, "failed")
+        append_log(job_id, f"功能摘要模型失败，保留启发式摘要: {exc}")
+
+
+def _sanitize_feature_extract(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    core_problem = _short_text(str(value.get("core_problem") or ""), 24)
+    core_action = _short_text(str(value.get("core_action") or ""), 80)
+    quantified_benefit = _short_text(str(value.get("quantified_benefit") or ""), 48)
+    if not core_problem or not core_action:
+        return {}
+    return {
+        "core_problem": core_problem,
+        "core_action": core_action,
+        "quantified_benefit": quantified_benefit,
+    }
+
+
+def _fallback_feature_extract(project: dict[str, Any]) -> dict[str, str]:
+    problem = _short_text(_viewer_pain(project), 15)
+    action = _viewer_highlight(project)
+    if not action:
+        action = _viewer_outcome(project).rstrip("。")
+    benefit = _quantified_benefit(project)
+    return {
+        "core_problem": problem or "判断成本太高",
+        "core_action": _short_text(action, 80),
+        "quantified_benefit": benefit,
+    }
+
+
+def _apply_feature_to_project_copy(project: dict[str, Any], feature: dict[str, str]) -> None:
+    if feature.get("core_action") and not project.get("project_highlight"):
+        project["project_highlight"] = feature["core_action"]
+    if feature.get("core_problem") and not project.get("viewer_benefit"):
+        project["viewer_benefit"] = f"解决{feature['core_problem']}"
+    if feature.get("quantified_benefit") and not project.get("project_outcome"):
+        project["project_outcome"] = feature["quantified_benefit"]
+
+
+def _readme_excerpt(project: dict[str, Any]) -> str:
+    return _short_text(str(project.get("readme") or project.get("readme_excerpt") or ""), 1800)
+
+
+def _quantified_benefit(project: dict[str, Any]) -> str:
+    text = " ".join([
+        str(project.get("description") or ""),
+        str(project.get("description_zh") or ""),
+        str(project.get("readme") or project.get("readme_excerpt") or "")[:1000],
+    ])
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?\s*(?:x|倍|%|分钟|秒|hours?|days?))", text, re.IGNORECASE)
+    return _short_text(match.group(1), 48) if match else ""
 
 
 def _ranking_overview_line(projects: list[dict[str, Any]]) -> str:
@@ -768,6 +933,7 @@ def _generate_hook(job_id: str, projects: list[dict[str, Any]]) -> dict[str, Any
                 "name": project.get("name"),
                 "full_name": project.get("full_name"),
                 "description_zh": project.get("description_zh"),
+                "feature_extract": project.get("feature_extract") or {},
                 "recommendation": project.get("recommendation"),
                 "audience": project.get("audience"),
                 "stars": project.get("stars"),
@@ -897,11 +1063,39 @@ def _hashtags(projects: list[dict[str, Any]]) -> list[str]:
 
 
 def _cover_text(title: str, projects: list[dict[str, Any]]) -> dict[str, str]:
-    top = str((projects[0] or {}).get("name") or (projects[0] or {}).get("full_name") or "开源项目") if projects else "开源项目"
+    top_project = _fastest_growth_project(projects)
+    top = str((top_project or {}).get("name") or (top_project or {}).get("full_name") or "开源项目") if projects else "开源项目"
+    growth = str((top_project or {}).get("daily_growth") or "").replace("约 ", "")
+    feature = (top_project or {}).get("feature_extract") or {}
+    hook = str(feature.get("core_problem") or (top_project or {}).get("description_zh") or "").strip("。")
+    subhead = f"本周黑马：{top}"
+    if growth:
+        subhead += f" 日均涨星 {growth.replace('/天', '')}"
+    if hook:
+        subhead += f" · {hook}"
     return {
         "headline": title,
-        "subhead": f"{len(projects)} 个项目 / 重点看 {top}",
+        "subhead": _short_text(subhead, 48),
     }
+
+
+def _fastest_growth_project(projects: list[dict[str, Any]]) -> dict[str, Any]:
+    if not projects:
+        return {}
+    return max(projects, key=lambda item: _growth_value(str(item.get("daily_growth") or item.get("stars_delta") or "")))
+
+
+def _growth_value(text: str) -> int:
+    match = re.search(r"([+-]?\d+(?:\.\d+)?)\s*([kK千万]?)", text.replace(",", ""))
+    if not match:
+        return 0
+    value = float(match.group(1))
+    unit = match.group(2).lower()
+    if unit in {"k", "千"}:
+        value *= 1000
+    elif unit == "万":
+        value *= 10000
+    return max(0, int(value))
 
 
 def _write_cover_frame(job_id: str, previews: list[Any]) -> dict[str, Any]:
@@ -942,14 +1136,15 @@ def _write_readiness_report(
         _readiness_check("publish_pack", bool(publish_pack.get("title") and publish_pack.get("description")), "已生成发布辅助包", "缺少发布辅助包"),
     ]
     if quality:
+        fact_passed = _quality_allows_render(quality)
         checks.append(_readiness_check(
             "fact_check",
-            quality.get("status") in {"pass", "skipped"},
+            fact_passed,
             f"质检状态: {quality.get('status')}",
             f"质检需要复核: {quality.get('status')}",
         ))
     score = int(sum(item["score"] for item in checks) / max(1, len(checks)))
-    status = "ready" if score >= 85 and all(item["passed"] for item in checks if item["id"] != "fact_check") else "review"
+    status = "ready" if score >= 85 and all(item["passed"] for item in checks) else "review"
     report = {
         "status": status,
         "score": score,
@@ -970,6 +1165,63 @@ def _readiness_check(check_id: str, passed: bool, ok: str, fail: str) -> dict[st
     }
 
 
+def _quality_blocks_render(report: dict[str, Any]) -> bool:
+    return bool(report) and not _quality_allows_render(report)
+
+
+def _quality_allows_render(report: dict[str, Any]) -> bool:
+    if not report:
+        return True
+    if report.get("manual_override"):
+        return True
+    if report.get("passed") is True:
+        return True
+    return report.get("status") in {"pass", "skipped"}
+
+
+def _ensure_quality_gate(job_id: str) -> None:
+    quality = read_json(JOBS_DIR / job_id / "quality_report.json", {})
+    if _quality_blocks_render(quality):
+        raise ValueError("脚本质检未通过，请在控制台复核风险项，或手动忽略风险后再渲染。")
+
+
+def _apply_quality_override(job_id: str, report: dict[str, Any]) -> dict[str, Any]:
+    patched = dict(report)
+    patched["manual_override"] = True
+    patched["passed"] = True
+    patched["override_note"] = "用户已在控制台确认忽略质检风险。"
+    write_json(JOBS_DIR / job_id / "quality_report.json", patched)
+    append_log(job_id, "用户已手动忽略脚本质检风险，允许继续准备出片。")
+    return patched
+
+
+def _plan_validation_details(job_dir: Path) -> dict[str, Any]:
+    manifest = read_json(job_dir / "asset_manifest.json", {})
+    shot_plan = read_json(job_dir / "shot_plan.json", {})
+    script = read_json(job_dir / "script.json", {})
+    asset_ids = {str(asset.get("id") or "") for asset in manifest.get("assets", []) if isinstance(asset, dict)}
+    shot_assets = [
+        str(shot.get("visual_asset") or "")
+        for shot in shot_plan.get("shots", [])
+        if isinstance(shot, dict) and str(shot.get("visual_asset") or "")
+    ]
+    durations = [
+        float(segment.get("duration") or 0)
+        for segment in script.get("segments", [])
+        if isinstance(segment, dict)
+    ]
+    subtitles = [
+        str(shot.get("subtitle") or "")
+        for shot in shot_plan.get("shots", [])
+        if isinstance(shot, dict)
+    ]
+    return {
+        "asset_existence": {asset_id: asset_id in asset_ids for asset_id in shot_assets},
+        "duration_sum": round(sum(durations), 1),
+        "subtitle_length_check": "all_under_35_chars" if all(len(text) <= 35 for text in subtitles) else "has_long_subtitle",
+    }
+
+
 def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[str, str]] | None:
     route = route_snapshot("narration_generation")
     if not _route_available(route):
@@ -986,6 +1238,8 @@ def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[
             "榜单总览只讲整体趋势和选择标准，不展开第 1 名细节；每个项目详情再按痛点、项目怎么解决、适合谁、为什么值得看展开。"
             "结尾要留下讨论空间或下一期期待，不要只说点赞关注。"
             "每个 project-* 段落控制在 60 到 100 个中文字符左右。"
+            "每个 project-* 必须使用对应项目 feature_extract 里的 core_problem 和 core_action；"
+            "quantified_benefit 非空时必须自然写入，空时不要编造数字。"
             "禁止使用以下开头句式：如果你纠结、如果你觉得、如果你在找、如果你卡在、先看看它、先看它。"
             "禁止空洞评价：很有价值、值得关注、适合开发者、适合开源项目关注者。"
             "每个 project-* 必须包含：一个反常识或场景化开头；一句具体痛点或爽点；一句锁定目标人群，格式可以用「适合：被 X 折磨的人」。"
@@ -1000,9 +1254,8 @@ def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[
             "closing": "留下讨论钩子，让观众选择想看哪个项目的实操拆解",
         },
         "project_copy_template": (
-            "很多人以为 {{name}} 只是 {{description}}，但它真正改变的是 {{viewer_outcome}}。"
-            "{{safe_highlight}}，不用在 {{viewer_pain}} 上反复耗时间。"
-            "适合：被 {{viewer_pain}} 折磨的 {{safe_audience}}。"
+            "{{core_problem}} 不是靠收藏项目解决的。{{name}} 的核心动作是：{{core_action}}。"
+            "{{quantified_benefit_or_tech_point}}。适合：被 {{core_problem}} 折磨的 {{safe_audience}}。"
         ),
         "schema": {
             "segments": [
@@ -1160,6 +1413,7 @@ def _quality_check_script(
         reason = _route_skip_reason(route)
         write_json(report_path, {
             "status": "skipped",
+            "passed": True,
             "summary": reason,
             "risk_flags": [],
             "factual_notes": [],
@@ -1168,6 +1422,7 @@ def _quality_check_script(
             "provider": route.get("provider_name") or route.get("provider") or "",
             "model": route.get("model") or "",
             "error": "",
+            "error_details": [],
         })
         append_log(job_id, f"脚本质检跳过：{reason}。")
         return
@@ -1181,6 +1436,7 @@ def _quality_check_script(
                 "full_name": project.get("full_name"),
                 "description": project.get("description"),
                 "description_zh": project.get("description_zh"),
+                "feature_extract": project.get("feature_extract") or {},
                 "recommendation": project.get("recommendation"),
                 "risk": project.get("risk"),
                 "stars": project.get("stars"),
@@ -1212,26 +1468,31 @@ def _quality_check_script(
             max_tokens=1800,
         )
         data = detail["data"]
-        report = _sanitize_quality_report(data, detail.get("route") or {}, "")
+        report = _sanitize_quality_report(data, detail.get("route") or {}, "", detail.get("error_details") or [])
         if not report:
             _write_ai_raw_response(job_id, "fact_check", detail)
             _record_model_call(job_id, "fact_check", detail, "invalid_json")
-            write_json(report_path, _quality_report_error("invalid_json", detail.get("route") or {}, detail.get("error") or "模型未返回可用 JSON"))
+            report = _quality_report_error("invalid_json", detail.get("route") or {}, detail.get("error") or "模型未返回可用 JSON", detail.get("error_details") or [])
+            report = _with_local_fact_checks(report, projects, segments)
+            write_json(report_path, report)
             append_log(job_id, "脚本质检模型未返回可用 JSON，已保留原始响应。")
             return
+        report = _with_local_fact_checks(report, projects, segments)
         write_json(report_path, report)
         _record_model_call(job_id, "fact_check", detail, "success")
         append_log(job_id, f"脚本质检完成：{report['summary']}")
     except Exception as exc:
         _record_model_call(job_id, "fact_check", {"route": route, "error": str(exc)}, "failed")
-        write_json(report_path, _quality_report_error("failed", route, str(exc)))
-        append_log(job_id, f"脚本质检失败，继续进入出片准备: {exc}")
+        report = _with_local_fact_checks(_quality_report_error("failed", route, str(exc), []), projects, segments)
+        write_json(report_path, report)
+        append_log(job_id, f"脚本质检失败，已要求人工复核: {exc}")
 
 
 def _sanitize_quality_report(
     data: dict[str, Any] | None,
     route: dict[str, Any],
     error: str,
+    error_details: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     if not isinstance(data, dict):
         return None
@@ -1243,6 +1504,7 @@ def _sanitize_quality_report(
         status = "caution"
     return {
         "status": status,
+        "passed": status == "pass",
         "summary": summary,
         "risk_flags": _short_list(data.get("risk_flags"), 8, 160),
         "factual_notes": _short_list(data.get("factual_notes"), 8, 180),
@@ -1251,12 +1513,14 @@ def _sanitize_quality_report(
         "provider": route.get("provider_name") or route.get("provider") or "",
         "model": route.get("model") or "",
         "error": error,
+        "error_details": _short_error_details(error_details or []),
     }
 
 
-def _quality_report_error(status: str, route: dict[str, Any], error: str) -> dict[str, Any]:
+def _quality_report_error(status: str, route: dict[str, Any], error: str, error_details: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "status": status,
+        "passed": False,
         "summary": "脚本质检未完成，请人工检查事实和夸大表达。",
         "risk_flags": [],
         "factual_notes": [],
@@ -1265,7 +1529,82 @@ def _quality_report_error(status: str, route: dict[str, Any], error: str) -> dic
         "provider": route.get("provider_name") or route.get("provider") or "",
         "model": route.get("model") or "",
         "error": error,
+        "error_details": _short_error_details(error_details),
     }
+
+
+def _with_local_fact_checks(
+    report: dict[str, Any],
+    projects: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    local_flags = _local_fact_flags(projects, segments)
+    if local_flags:
+        report = dict(report)
+        report["risk_flags"] = [*report.get("risk_flags", []), *local_flags][:8]
+        report["status"] = "caution"
+        report["passed"] = False
+        report["summary"] = "脚本存在需要人工复核的事实一致性风险。"
+    elif report.get("status") == "pass":
+        report["passed"] = True
+    return report
+
+
+def _local_fact_flags(projects: list[dict[str, Any]], segments: list[dict[str, Any]]) -> list[str]:
+    by_id = {str(segment.get("id") or ""): str(segment.get("text") or "") for segment in segments}
+    flags = []
+    for index, project in enumerate(projects, start=1):
+        feature = _sanitize_feature_extract(project.get("feature_extract")) or _fallback_feature_extract(project)
+        action = feature.get("core_action") or ""
+        source = " ".join([
+            str(project.get("description") or ""),
+            str(project.get("description_zh") or ""),
+            str(project.get("project_highlight") or ""),
+            str(project.get("viewer_benefit") or ""),
+            str(project.get("recommendation") or ""),
+            " ".join(str(topic) for topic in project.get("topics") or []),
+            _readme_excerpt(project),
+        ])
+        support = _fact_similarity(action, source)
+        narration = by_id.get(f"project-{index}", "")
+        mention = _fact_similarity(action, narration)
+        if support < 0.18:
+            flags.append(f"{project.get('full_name') or project.get('name')}: core_action 与项目描述/README 支撑不足，请复核。")
+        elif mention < 0.12:
+            flags.append(f"{project.get('full_name') or project.get('name')}: 口播未明显使用 core_action，请重写该段。")
+    return flags
+
+
+def _fact_similarity(left: str, right: str) -> float:
+    left_tokens = _fact_tokens(left)
+    right_tokens = _fact_tokens(right)
+    if left_tokens and right_tokens:
+        return len(left_tokens & right_tokens) / max(1, len(left_tokens))
+    left_compact = re.sub(r"\s+", "", left.lower())
+    right_compact = re.sub(r"\s+", "", right.lower())
+    if not left_compact or not right_compact:
+        return 0.0
+    return SequenceMatcher(None, left_compact, right_compact).ratio()
+
+
+def _fact_tokens(text: str) -> set[str]:
+    return {
+        token.lower()
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{2,}|[\u4e00-\u9fff]{2,}", text)
+        if token.lower() not in {"github", "readme", "project", "项目", "工具", "用户"}
+    }
+
+
+def _short_error_details(items: list[dict[str, Any]]) -> list[dict[str, str]]:
+    cleaned = []
+    for item in items[:6]:
+        cleaned.append({
+            "provider": _short_text(str(item.get("provider") or ""), 40),
+            "model": _short_text(str(item.get("model") or ""), 60),
+            "temperature": str(item.get("temperature") or ""),
+            "error": _short_text(str(item.get("error") or ""), 180),
+        })
+    return cleaned
 
 
 def _short_list(value: Any, limit: int, text_limit: int) -> list[str]:
@@ -1322,9 +1661,12 @@ def _write_ai_raw_response(job_id: str, task: str, detail: dict[str, Any]) -> No
 
 
 def _record_model_call(job_id: str, task: str, detail: dict[str, Any], status: str) -> None:
+    route = detail.get("route") or {}
     append_model_call(job_id, {
         "task": task,
-        "route": detail.get("route") or {},
+        "provider": route.get("provider_name") or route.get("provider") or "",
+        "model": route.get("model") or "",
+        "route": route,
         "status": status,
         "error": detail.get("error") or "",
     })
@@ -1390,15 +1732,15 @@ def _outro_line(projects: list[dict[str, Any]]) -> str:
 
 def _default_project_narration(project: dict[str, Any]) -> str:
     name = project.get("name") or project.get("full_name") or "这个项目"
-    description = _short_text(_viewer_safe_value(str(project.get("description_zh") or project.get("description") or "")), 18)
-    if not description:
-        description = "又一个热榜项目"
-    pain = _viewer_pain(project)
-    highlight = _viewer_highlight(project)
+    feature = _sanitize_feature_extract(project.get("feature_extract")) or _fallback_feature_extract(project)
+    pain = feature["core_problem"]
+    highlight = feature["core_action"]
+    benefit = feature.get("quantified_benefit") or "重点是把一个具体流程缩短"
     audience = _viewer_audience(project)
     return (
-        f"很多人以为 {name} 只是{_description_phrase(description)}，但它真正解决的是「{pain}」："
-        f"{highlight}，少掉反复试错。"
+        f"{pain} 不是靠多收藏几个项目解决的。"
+        f"{name} 的核心动作是：{highlight}。"
+        f"{benefit}。"
         f"适合：被「{pain}」折磨的{_audience_phrase(audience)}。"
     )
 

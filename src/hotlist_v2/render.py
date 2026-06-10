@@ -165,6 +165,7 @@ def _data_from_projects(projects: list[dict]) -> dict:
         purpose = _project_purpose(item, description)
         outcome = _project_outcome(item, description)
         hook = _project_hook(item, name)
+        growth_num = _growth_number(str(item.get("daily_growth") or item.get("stars_delta") or ""))
         normalized.append({
             "rank": index,
             "name": name,
@@ -181,11 +182,15 @@ def _data_from_projects(projects: list[dict]) -> dict:
             "stars_display": _star_display(stars),
             "daily_growth": str(item.get("daily_growth") or item.get("stars_delta") or "热度上升"),
             "trend_label": _trend_label(item),
+            "trend_icon": _trend_icon(growth_num),
+            "trend_heat": _trend_heat(growth_num),
             "forks": _fork_display(item),
             "issues": int(item.get("issues") or item.get("open_issues_count") or 0),
             "topics": topics,
             "tech_tags": _tech_tags(topics, language),
             "audience_tags": _audience_tags(item, topics),
+            "display_tags": _display_tags(item, topics, language),
+            "preview_url": str(item.get("homepage") or ""),
             "star_history": _star_history(stars, index),
             "reason": _project_reason(item, purpose, outcome, stars),
             "repo_url": str(item.get("repo_url") or item.get("html_url") or ""),
@@ -239,6 +244,9 @@ def _project_description(item: dict) -> str:
 
 
 def _project_purpose(item: dict, description: str) -> str:
+    feature = item.get("feature_extract") if isinstance(item.get("feature_extract"), dict) else {}
+    if feature.get("core_action"):
+        return _ensure_sentence(str(feature.get("core_action")))
     for key in ("project_highlight", "viewer_benefit"):
         text = _clean_viewer_text(str(item.get(key) or ""))
         if text:
@@ -247,6 +255,9 @@ def _project_purpose(item: dict, description: str) -> str:
 
 
 def _project_outcome(item: dict, description: str) -> str:
+    feature = item.get("feature_extract") if isinstance(item.get("feature_extract"), dict) else {}
+    if feature.get("quantified_benefit"):
+        return _ensure_sentence(str(feature.get("quantified_benefit")))
     for key in ("project_outcome", "implementation_effect", "outcome"):
         text = _clean_viewer_text(str(item.get(key) or ""))
         if text:
@@ -275,6 +286,9 @@ def _project_outcome(item: dict, description: str) -> str:
 
 
 def _project_hook(item: dict, name: str) -> str:
+    feature = item.get("feature_extract") if isinstance(item.get("feature_extract"), dict) else {}
+    if feature.get("core_problem"):
+        return _short_text(str(feature.get("core_problem")), 15)
     for key in ("hook", "project_hook", "headline"):
         text = _clean_viewer_text(str(item.get(key) or ""))
         if text:
@@ -393,8 +407,11 @@ def _trend_label(item: dict) -> str:
     else:
         ratio = 1.25 if growth_num >= 100 else 1.0
 
-    if growth_num >= 300 or ratio >= 1.6:
+    if growth_num > 300 or ratio >= 1.6:
         word = "爆发"
+        icon = "🔥🔥" if growth_num > 300 else "🔥"
+    elif growth_num >= 150:
+        word = "加速"
         icon = "🔥"
     elif growth_num > 0 or ratio >= 0.9:
         word = "稳步上升"
@@ -408,6 +425,22 @@ def _trend_label(item: dict) -> str:
     if growth_text:
         return f"{icon} {growth_text} {word}"
     return f"{icon} 热度{word}"
+
+
+def _trend_icon(growth_num: int) -> str:
+    if growth_num > 300:
+        return "🔥🔥"
+    if growth_num >= 150:
+        return "🔥"
+    return "📈"
+
+
+def _trend_heat(growth_num: int) -> str:
+    if growth_num > 300:
+        return "hot"
+    if growth_num >= 150:
+        return "warm"
+    return "steady"
 
 
 def _growth_number(text: str) -> int:
@@ -512,6 +545,27 @@ def _tech_tags(topics: list[str], language: str) -> list[str]:
         if topic and topic not in tags:
             tags.append(topic)
     return tags[:4]
+
+
+def _display_tags(item: dict, topics: list[str], language: str) -> list[str]:
+    tags = []
+    feature = item.get("feature_extract") if isinstance(item.get("feature_extract"), dict) else {}
+    problem = str(feature.get("core_problem") or "").strip()
+    if problem:
+        tags.append(problem)
+    for tag in _audience_tags(item, topics):
+        clean = tag.lstrip("#")
+        if clean and clean not in tags:
+            tags.append(clean)
+    if language and language not in tags:
+        tags.append(language)
+    for topic in topics:
+        clean = str(topic).strip()
+        if clean and len(clean) <= 16 and clean not in tags:
+            tags.append(clean)
+        if len(tags) >= 3:
+            break
+    return tags[:3] or ["开源", "效率工具"]
 
 
 def _star_history(stars: int, index: int) -> list[int]:

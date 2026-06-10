@@ -351,7 +351,10 @@ async function saveScript() {
   }));
   setBusy(true);
   try {
-    const result = await post(`/api/jobs/${state.currentJobId}/script`, { segments });
+    let result = await post(`/api/jobs/${state.currentJobId}/script`, { segments });
+    if (qualityBlocksRender(result.quality_report) && confirmQualityOverride(result.quality_report)) {
+      result = await post(`/api/jobs/${state.currentJobId}/script`, { segments, ignore_quality_risk: true });
+    }
     state.segments = result.segments || segments;
     state.qualityReport = result.quality_report || null;
     renderJob(result.job);
@@ -779,11 +782,7 @@ function renderQualityReport() {
     box.innerHTML = "";
     return;
   }
-  const notes = [
-    ...(report.risk_flags || []),
-    ...(report.factual_notes || []),
-    ...(report.overclaim_notes || []),
-  ].slice(0, 4);
+  const notes = qualityNotes(report);
   const score = report.readability_score === null || report.readability_score === undefined
     ? ""
     : ` · ${report.readability_score}/100`;
@@ -795,9 +794,48 @@ function renderQualityReport() {
       <code>${escapeHtml(report.provider || "-")} / ${escapeHtml(report.model || "-")}</code>
     </div>
     <p>${escapeHtml(report.summary || "暂无质检结论。")}</p>
-    ${notes.length ? `<ul>${notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : ""}
+    ${notes.length ? `
+      <table class="quality-table">
+        <tbody>
+          ${notes.map((note) => `
+            <tr>
+              <th>${escapeHtml(note.type)}</th>
+              <td>${escapeHtml(note.text)}</td>
+              <td><button class="tiny" type="button" disabled title="请先在口播编辑框中修改后重新确认">修正建议</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    ` : ""}
+    ${report.manual_override ? '<small>已人工确认忽略风险。</small>' : ""}
     ${report.error ? `<small>${escapeHtml(report.error)}</small>` : ""}
   `;
+}
+
+function qualityNotes(report) {
+  return [
+    ...(report.risk_flags || []).map((text) => ({ type: "风险", text })),
+    ...(report.factual_notes || []).map((text) => ({ type: "事实", text })),
+    ...(report.overclaim_notes || []).map((text) => ({ type: "夸大", text })),
+  ].slice(0, 8);
+}
+
+function qualityBlocksRender(report) {
+  if (!report) return false;
+  if (report.manual_override || report.passed === true) return false;
+  return !["pass", "skipped"].includes(report.status || "");
+}
+
+function confirmQualityOverride(report) {
+  const notes = qualityNotes(report);
+  const lines = [
+    "脚本质检未通过，继续渲染前需要确认风险：",
+    report.summary || "",
+    ...notes.map((note) => `- ${note.type}: ${note.text}`),
+    "",
+    "仍要忽略风险并继续生成计划文件吗？",
+  ].filter(Boolean);
+  return typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm(lines.join("\n"));
 }
 
 function qualityStatusLabel(status) {

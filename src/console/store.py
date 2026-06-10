@@ -67,6 +67,7 @@ DEFAULT_MODEL_ROUTING = {
     "candidate_analysis": {"provider": "deepseek", "model": "deepseek-chat"},
     "hotlist_ranking": {"provider": "deepseek", "model": "deepseek-chat"},
     "hook_generation": {"provider": "openai", "model": "gpt-4.1-mini"},
+    "feature_extraction": {"provider": "deepseek", "model": "deepseek-chat"},
     "narration_generation": {"provider": "openai", "model": "gpt-4.1-mini"},
     "script_polishing": {"provider": "deepseek", "model": "deepseek-chat"},
     "fact_check": {"provider": "deepseek", "model": "deepseek-chat"},

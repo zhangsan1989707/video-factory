@@ -116,10 +116,13 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertIn("PPT", ppt_project["outcome"])
         self.assertIn("#PPT自动化", ppt_project["audience_tags"])
         self.assertIn("🔥", ppt_project["trend_label"])
+        self.assertEqual(ppt_project["trend_heat"], "hot")
+        self.assertIn("PPT自动化", ppt_project["display_tags"])
 
         self.assertIn("设计", design_project["hook"])
         self.assertIn("设计", design_project["outcome"])
         self.assertIn("#AI设计", design_project["audience_tags"])
+        self.assertEqual(design_project["trend_heat"], "steady")
         self.assertNotEqual(ppt_project["outcome"], design_project["outcome"])
 
     def test_duplicate_outcomes_are_rewritten(self) -> None:

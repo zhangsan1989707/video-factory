@@ -565,6 +565,32 @@ td small {
   line-height: 1.45;
 }
 
+.quality-table {
+  table-layout: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.quality-table th,
+.quality-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 12px;
+}
+
+.quality-table th {
+  position: static;
+  width: 50px;
+  background: var(--table-head);
+  color: var(--muted);
+}
+
+.quality-table td:last-child {
+  width: 72px;
+  text-align: right;
+}
+
 .quality-report small {
   color: var(--muted);
 }

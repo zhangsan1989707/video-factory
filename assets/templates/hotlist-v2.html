@@ -300,12 +300,30 @@ body {
 .rank-new {
   font-family: var(--font-mono); font-size: 16px; color: var(--accent-green); margin-left: auto;
 }
+.rank-new.hot { color: #ff5c7a; }
+.rank-new.warm { color: var(--accent-amber); }
+.rank-new.steady { color: var(--text-dim); }
+.rank-tags {
+  display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px;
+}
+.rank-tag {
+  font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary);
+  border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
+  border-radius: 8px; padding: 4px 8px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rank-preview {
+  font-family: var(--font-mono); font-size: 13px; color: var(--accent-cyan);
+  border: 1px solid rgba(0,212,255,0.22); background: rgba(0,212,255,0.07);
+  border-radius: 8px; padding: 4px 8px;
+}
 .rank-list.dense .rank-repo { font-size: 22px; }
 .rank-list.dense .rank-owner { font-size: 15px; margin-bottom: 5px; }
 .rank-list.dense .rank-desc { font-size: 17px; margin-bottom: 7px; -webkit-line-clamp: 1; }
 .rank-list.dense .rank-lang,
 .rank-list.dense .rank-stars,
 .rank-list.dense .rank-new { font-size: 14px; }
+.rank-list.dense .rank-tag,
+.rank-list.dense .rank-preview { font-size: 12px; max-width: 120px; }
 .rank-list.dense .rank-footer { gap: 10px; }
 .rank-list.dense .rank-new { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -342,6 +360,11 @@ body {
   font-size: 19px; color: white; font-weight: 600; flex-shrink: 0;
 }
 .detail-owner { font-family: var(--font-mono); font-size: 22px; color: var(--text-secondary); }
+.detail-preview {
+  margin-left: auto; color: var(--accent-cyan); font-family: var(--font-mono); font-size: 18px;
+  border: 1px solid rgba(0,212,255,0.28); border-radius: 10px; padding: 7px 12px;
+  background: rgba(0,212,255,0.07);
+}
 
 .detail-body { flex: 1; display: flex; flex-direction: column; gap: 24px; }
 .detail-desc {
@@ -609,7 +632,15 @@ body {
           <div class="rank-footer">
             <div class="rank-lang"><div class="rank-lang-dot" style="background:{{ p.language_color }}"></div>{{ p.language }}</div>
             <div class="rank-stars">★ {{ p.stars_display }}</div>
-            <div class="rank-new">{{ p.trend_label }}</div>
+            <div class="rank-new {{ p.trend_heat }}">{{ p.trend_label }}</div>
+          </div>
+          <div class="rank-tags">
+            {% for tag in p.display_tags %}
+            <span class="rank-tag">{{ tag }}</span>
+            {% endfor %}
+            {% if p.preview_url %}
+            <span class="rank-preview">🌐 预览</span>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -642,6 +673,9 @@ body {
       <div class="detail-owner-row">
         <div class="owner-avatar">{{ top1.owner_initial }}</div>
         <span class="detail-owner">{{ top1.owner }} · MIT 开源协议</span>
+        {% if top1.preview_url %}
+        <span class="detail-preview">🌐 预览</span>
+        {% endif %}
       </div>
     </div>
 
@@ -663,7 +697,7 @@ body {
           <span class="metric-lbl">总星标数</span>
         </div>
         <div class="metric-card hot">
-          <span class="metric-icon">↑</span>
+          <span class="metric-icon">{{ top1.trend_icon }}</span>
           <span class="metric-val" style="font-size:32px;line-height:1.12;">{{ top1.trend_label }}</span>
           <span class="metric-lbl">星标趋势</span>
         </div>

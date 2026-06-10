@@ -12,6 +12,7 @@ from src.console.store import CONFIG_DIR, DEFAULT_MODEL_ROUTING, DEFAULT_PROVIDE
 
 
 MODEL_TIMEOUT_SECONDS = 120
+JSON_RETRY_TEMPERATURES = (0.2, 0.45, 0.65)
 
 
 def route_snapshot(task: str) -> dict[str, str]:
@@ -44,34 +45,60 @@ def chat_json(task: str, system: str, prompt: str, max_tokens: int = 2000) -> tu
 
 def chat_json_detail(task: str, system: str, prompt: str, max_tokens: int = 2000) -> dict[str, Any]:
     route = route_snapshot(task)
-    content = chat_text(task, system, prompt, max_tokens=max_tokens)[0]
-    if not content:
-        return {"data": None, "route": route, "raw": "", "error": "empty response"}
-    try:
-        return {"data": _parse_json(content), "route": route, "raw": content, "error": ""}
-    except Exception as exc:
-        return {"data": None, "route": route, "raw": content, "error": str(exc)}
+    attempts = []
+    for candidate in _json_candidate_routes(route):
+        for temperature in JSON_RETRY_TEMPERATURES:
+            try:
+                content, used_route = _chat_text_with_route(
+                    candidate,
+                    system,
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    json_object=True,
+                )
+            except Exception as exc:
+                attempts.append(_json_attempt(candidate, temperature, "", str(exc)))
+                continue
+            if not content:
+                attempts.append(_json_attempt(used_route, temperature, "", "empty response"))
+                continue
+            try:
+                return {
+                    "data": _parse_json(content),
+                    "route": used_route,
+                    "raw": content,
+                    "error": "",
+                    "error_details": attempts,
+                }
+            except Exception as exc:
+                attempts.append(_json_attempt(used_route, temperature, content, str(exc)))
+    error = attempts[-1]["error"] if attempts else "empty response"
+    return {"data": None, "route": route, "raw": attempts[-1]["raw"] if attempts else "", "error": error, "error_details": attempts}
 
 
 def chat_text(task: str, system: str, prompt: str, max_tokens: int = 2000) -> tuple[str, dict[str, str]]:
     route = route_snapshot(task)
+    return _chat_text_with_route(route, system, prompt, max_tokens=max_tokens, temperature=0.45, json_object=False)
+
+
+def _chat_text_with_route(
+    route: dict[str, str],
+    system: str,
+    prompt: str,
+    max_tokens: int = 2000,
+    temperature: float = 0.45,
+    json_object: bool = False,
+) -> tuple[str, dict[str, str]]:
     if not route.get("available"):
         return "", route
     provider = _provider_config(route["provider"])
     if _provider_type(provider) == "anthropic":
-        return _anthropic_text(provider or {}, route["model"], system, prompt, max_tokens), route
+        return _anthropic_text(provider or {}, route["model"], system, prompt, max_tokens, temperature), route
     client = _openai_client(route["provider"], provider)
     if not client:
         return "", route
-    response = client.chat.completions.create(
-        model=route["model"],
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.45,
-        max_tokens=max_tokens,
-    )
+    response = _openai_completion(client, route["model"], system, prompt, max_tokens, temperature, json_object)
     return str(response.choices[0].message.content or "").strip(), route
 
 
@@ -85,7 +112,7 @@ def test_provider(provider_id: str, model: str = "", provider_config: dict[str, 
         return False, "缺少模型名称"
     try:
         if _provider_type(provider_config) == "anthropic":
-            content = _anthropic_text(provider_config or {}, model_name, "只回复 ok。", "ping", 8)
+            content = _anthropic_text(provider_config or {}, model_name, "只回复 ok。", "ping", 8, 0)
             return True, content or "ok"
         client = _openai_client(provider_id, provider_config)
         if not client:
@@ -119,7 +146,36 @@ def _openai_client(provider_id: str, provider_config: dict[str, Any] | None = No
     return OpenAI(**kwargs)
 
 
-def _anthropic_text(provider: dict[str, Any], model: str, system: str, prompt: str, max_tokens: int) -> str:
+def _openai_completion(
+    client: OpenAI,
+    model: str,
+    system: str,
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    json_object: bool,
+) -> Any:
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if json_object:
+        kwargs["response_format"] = {"type": "json_object"}
+    try:
+        return client.chat.completions.create(**kwargs)
+    except Exception as exc:
+        if not json_object or "response_format" not in str(exc):
+            raise
+        kwargs.pop("response_format", None)
+        return client.chat.completions.create(**kwargs)
+
+
+def _anthropic_text(provider: dict[str, Any], model: str, system: str, prompt: str, max_tokens: int, temperature: float) -> str:
     if not provider or not bool_value(provider.get("enabled")):
         raise ValueError("供应商未启用或缺少 API Key")
     api_key = str(provider.get("api_key") or "")
@@ -138,7 +194,7 @@ def _anthropic_text(provider: dict[str, Any], model: str, system: str, prompt: s
             "system": system,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
-            "temperature": 0.45,
+            "temperature": temperature,
         },
         timeout=60,
     )
@@ -166,6 +222,54 @@ def _provider_type(provider: dict[str, Any] | None) -> str:
 def _provider_config(provider_id: str) -> dict[str, Any] | None:
     providers = read_json(CONFIG_DIR / "providers.json", DEFAULT_PROVIDERS).get("providers", [])
     return next((item for item in providers if item.get("id") == provider_id), None)
+
+
+def _json_candidate_routes(primary: dict[str, str]) -> list[dict[str, str]]:
+    routes = [primary]
+    configured = read_json(CONFIG_DIR / "providers.json", DEFAULT_PROVIDERS).get("providers", [])
+    fallback_models = {"openai": "gpt-4.1-mini", "deepseek": "deepseek-chat"}
+    seen = {(primary.get("provider"), primary.get("model"))}
+    for provider in configured:
+        provider_id = str(provider.get("id") or "")
+        if provider_id not in fallback_models:
+            continue
+        model = str(provider.get("default_model") or fallback_models[provider_id])
+        key = (provider_id, model)
+        if key in seen:
+            continue
+        route = _route_from_provider(provider, model)
+        if route.get("available"):
+            routes.append(route)
+            seen.add(key)
+    return routes
+
+
+def _route_from_provider(provider: dict[str, Any], model: str) -> dict[str, str]:
+    enabled = bool_value(provider.get("enabled"))
+    configured = bool(provider.get("api_key"))
+    last_test = str(provider.get("last_test") or "")
+    available = enabled and configured and bool(model) and last_test.startswith("连接成功")
+    provider_id = str(provider.get("id") or "")
+    return {
+        "task": "fallback_json",
+        "provider": provider_id,
+        "provider_name": str(provider.get("name") or provider_id),
+        "model": model,
+        "enabled": "1" if enabled else "",
+        "configured": "1" if configured else "",
+        "last_test": last_test,
+        "available": "1" if available else "",
+    }
+
+
+def _json_attempt(route: dict[str, str], temperature: float, raw: str, error: str) -> dict[str, str]:
+    return {
+        "provider": route.get("provider_name") or route.get("provider") or "",
+        "model": route.get("model") or "",
+        "temperature": f"{temperature:.2f}",
+        "error": error,
+        "raw": raw,
+    }
 
 
 def _merged_provider_config(provider_id: str, provider_config: dict[str, Any] | None) -> dict[str, Any] | None:

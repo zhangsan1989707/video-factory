@@ -442,6 +442,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 selected = read_json(jobs_dir / job["id"] / "selected_projects.json", {})["items"]
                 self.assertEqual(selected[0]["name"], "alpha")
                 self.assertEqual(selected[0]["stars"], 1520)
+                self.assertEqual(selected[0]["feature_extract"]["core_action"], "把 AI 流程接进具体开发步骤")
                 self.assertEqual(selection["segments"][1]["id"], "project-1")
 
     def test_selection_rejects_items_outside_candidate_snapshot(self) -> None:
@@ -606,6 +607,9 @@ class ConsoleJobsTest(unittest.TestCase):
 
                 self.assertEqual(result["job"]["status"], "ready_to_render")
                 self.assertEqual(result["plan_validation"]["status"], "passed")
+                self.assertIn("details", result["plan_validation"])
+                self.assertIn("asset_existence", result["plan_validation"]["details"])
+                self.assertGreater(result["plan_validation"]["details"]["duration_sum"], 0)
                 self.assertTrue(calls[0]["dry_run"])
                 self.assertEqual(calls[0]["from_plan"], str(jobs_dir / job["id"]))
 
@@ -1049,7 +1053,8 @@ class ConsoleJobsTest(unittest.TestCase):
 
                 project_line = next(segment["text"] for segment in result["segments"] if segment["id"] == "project-1")
                 self.assertNotIn("README 可展示", project_line)
-                self.assertIn("很多人以为 alpha", project_line)
+                self.assertIn("alpha 的核心动作是", project_line)
+                self.assertIn("把 AI 流程接进具体开发步骤", project_line)
                 self.assertNotIn("先看它", project_line)
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"][0]["status"], "invalid_json")
@@ -1425,8 +1430,8 @@ class ConsoleJobsTest(unittest.TestCase):
 
             project_line = next(segment["text"] for segment in result["segments"] if segment["id"] == "project-1")
 
-        self.assertIn("很多人以为 alpha", project_line)
-        self.assertIn("但它真正解决的是「AI 难接进真实工作流」", project_line)
+        self.assertIn("AI 难接进真实工作流", project_line)
+        self.assertIn("alpha 的核心动作是：把 AI 流程接进具体开发步骤", project_line)
         self.assertIn("适合：被「AI 难接进真实工作流」折磨的 AI 开发者。", project_line)
         self.assertNotIn("如果你卡在", project_line)
         self.assertNotIn("先看它", project_line)
@@ -1710,13 +1715,13 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertIn("demo/alpha", pack["description"])
                 self.assertIn("GitHub", pack["hashtags"])
                 self.assertIn("AI工具", pack["hashtags"])
-                self.assertEqual(pack["cover_text"]["subhead"], "2 个项目 / 重点看 alpha")
+                self.assertIn("本周黑马：alpha", pack["cover_text"]["subhead"])
                 saved = read_json(jobs_dir / job["id"] / "publish_pack.json", {})
                 self.assertEqual(saved["source_projects"], ["demo/alpha", "demo/beta"])
                 detail = job_detail(job["id"])
                 self.assertEqual(detail["publish_pack"]["title"], "GitHub热榜2个项目")
 
-    def test_save_script_keeps_going_when_fact_check_returns_invalid_json(self) -> None:
+    def test_save_script_blocks_when_fact_check_returns_invalid_json_until_overridden(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
             with (
@@ -1741,14 +1746,22 @@ class ConsoleJobsTest(unittest.TestCase):
                 selection = save_selection(job["id"], {"items": _sample_projects()})
                 result = save_script(job["id"], {"segments": selection["segments"]})
 
-                self.assertEqual(result["job"]["status"], "awaiting_render")
+                self.assertEqual(result["job"]["status"], "awaiting_input")
+                self.assertEqual(result["job"]["stage"], "awaiting_script_confirmation")
                 report = read_json(jobs_dir / job["id"] / "quality_report.json", {})
                 self.assertEqual(report["status"], "invalid_json")
+                self.assertFalse(report["passed"])
                 raw = read_json(jobs_dir / job["id"] / "ai-response-fact_check.json", {})
                 self.assertEqual(raw["raw"], "坏响应")
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"][-1]["task"], "fact_check")
                 self.assertEqual(saved["model_calls"][-1]["status"], "invalid_json")
+
+                result = save_script(job["id"], {"segments": selection["segments"], "ignore_quality_risk": True})
+                self.assertEqual(result["job"]["status"], "awaiting_render")
+                report = read_json(jobs_dir / job["id"] / "quality_report.json", {})
+                self.assertTrue(report["manual_override"])
+                self.assertTrue(report["passed"])
 
     def test_save_script_skips_quality_report_when_fact_check_is_unconfigured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
