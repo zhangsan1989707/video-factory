@@ -517,6 +517,26 @@ class ConsoleJobsTest(unittest.TestCase):
                 candidates = read_json(jobs_dir / job["id"] / "candidates.json", {})["items"]
                 self.assertEqual([item["full_name"] for item in candidates], ["demo/alpha", "demo/beta"])
 
+    def test_generate_candidates_labels_cached_rate_limit_as_cached(self) -> None:
+        async def collect(**kwargs):
+            return {"items": _sample_projects(), "rate_limit": "29/30，重置 19:31", "cache_status": "hit"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.collect_candidates_with_meta", side_effect=collect),
+            ):
+                job = create_job("GH-HOTLIST-20990101-CACHED-RATE", {"project_count": 2})
+
+                asyncio.run(generate_candidates(job["id"]))
+
+                logs = (jobs_dir / job["id"] / "logs.txt").read_text(encoding="utf-8")
+                self.assertIn("GitHub 候选缓存命中，未请求 API。", logs)
+                self.assertIn("GitHub 缓存记录额度: 29/30，重置 19:31。", logs)
+                self.assertNotIn("GitHub API 额度: 29/30，重置 19:31。", logs)
+
     def test_regenerate_candidates_clears_downstream_snapshots(self) -> None:
         async def collect(**kwargs):
             return {"items": _extra_projects(2), "rate_limit": "ok"}

@@ -80,9 +80,12 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any]) -> dic
         update_github_rate_limit(str(result.get("rate_limit") or "未检测"))
         if result.get("cache_status") == "hit":
             append_log(job_id, "GitHub 候选缓存命中，未请求 API。")
+            append_log(job_id, f"GitHub 缓存记录额度: {result.get('rate_limit') or '未检测'}。")
         elif result.get("cache_status") == "stale_rate_limit":
             append_log(job_id, "GitHub 额度受限，已使用最近缓存候选。")
-        append_log(job_id, f"GitHub API 额度: {result.get('rate_limit') or '未检测'}。")
+            append_log(job_id, f"GitHub 缓存记录额度: {result.get('rate_limit') or '未检测'}。")
+        else:
+            append_log(job_id, f"GitHub API 额度: {result.get('rate_limit') or '未检测'}。")
         update_job(job_id, status="running", stage="analyzing_candidates")
         candidates = _analyze_candidates(job_id, candidates)
         candidates = _rank_candidates(job_id, candidates)
