@@ -462,11 +462,14 @@ class ConsoleServerSmokeTest(unittest.TestCase):
             missing_id = "GH-HOTLIST-20990101-MISSING"
             endpoints = (
                 "candidates",
+                "regenerate-candidates",
                 "selection",
+                "regenerate-script",
                 "script",
                 "prepare-plan",
                 "validate-plan",
                 "render-video",
+                "regenerate-video",
                 "finalize",
             )
             with (

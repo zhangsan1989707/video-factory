@@ -53,6 +53,9 @@ function bindEvents() {
   $("nextActionBtn").addEventListener("click", runNextAction);
   $("confirmSelectionBtn").addEventListener("click", confirmSelection);
   $("saveScriptBtn").addEventListener("click", saveScript);
+  $("regenerateCandidatesBtn").addEventListener("click", regenerateCandidates);
+  $("regenerateScriptBtn").addEventListener("click", regenerateScript);
+  $("regenerateVideoBtn").addEventListener("click", regenerateVideo);
   $("openSettingsBtn").addEventListener("click", openSettings);
   $("closeSettingsBtn").addEventListener("click", closeSettings);
   $("settingsOverlay").addEventListener("click", closeSettings);
@@ -195,6 +198,34 @@ async function collectCandidatesForCurrentJob() {
   }
 }
 
+async function regenerateCandidates() {
+  if (!state.currentJobId) {
+    alert("请先创建任务");
+    return;
+  }
+  if (!confirmRegenerate("重新生成候选项目会清除已选项目、口播脚本、计划文件和视频产物。继续吗？")) return;
+  setBusy(true);
+  try {
+    switchTab("progress");
+    renderLogs(`${$("logBox").textContent}\\n正在重新生成候选项目...\\n`);
+    const result = await post(`/api/jobs/${state.currentJobId}/regenerate-candidates`);
+    state.candidates = result.candidates || [];
+    state.segments = [];
+    state.qualityReport = null;
+    renderJob(result.job);
+    renderCandidates();
+    renderScript();
+    await refreshCurrentJob();
+    await loadJobs();
+    switchTab("candidates");
+  } catch (error) {
+    alert(error.message);
+    await refreshCurrentJob();
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function confirmSelection() {
   if (!state.currentJobId) {
     alert("请先生成候选草稿");
@@ -215,6 +246,31 @@ async function confirmSelection() {
     switchTab("script");
   } catch (error) {
     alert(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function regenerateScript() {
+  if (!state.currentJobId) {
+    alert("请先创建任务");
+    return;
+  }
+  if (!confirmRegenerate("重新生成口播脚本会清除已确认口播后的计划文件和视频产物。继续吗？")) return;
+  setBusy(true);
+  try {
+    switchTab("progress");
+    renderLogs(`${$("logBox").textContent}\\n正在重新生成口播脚本...\\n`);
+    const result = await post(`/api/jobs/${state.currentJobId}/regenerate-script`);
+    state.segments = result.segments || [];
+    state.qualityReport = null;
+    renderJob(result.job);
+    renderScript();
+    await refreshCurrentJob();
+    switchTab("script");
+  } catch (error) {
+    alert(error.message);
+    await refreshCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -306,6 +362,32 @@ async function renderVideo() {
   } finally {
     setBusy(false);
   }
+}
+
+async function regenerateVideo() {
+  if (!state.currentJobId) {
+    alert("请先创建任务");
+    return;
+  }
+  if (!confirmRegenerate("重新生成最终视频会清除当前 final.mp4，保留历史正式视频版本、项目与口播脚本。继续吗？")) return;
+  setBusy(true);
+  try {
+    switchTab("progress");
+    renderLogs(`${$("logBox").textContent}\\n正在重新生成最终视频，请不要关闭控制台...\\n`);
+    const result = await post(`/api/jobs/${state.currentJobId}/regenerate-video`);
+    renderJob(result.job);
+    await refreshCurrentJob();
+    startPollingCurrentJob();
+  } catch (error) {
+    alert(error.message);
+    await refreshCurrentJob();
+  } finally {
+    setBusy(false);
+  }
+}
+
+function confirmRegenerate(message) {
+  return typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm(message);
 }
 
 async function runNextAction() {
@@ -501,6 +583,23 @@ function updateActionState(job) {
   confirmSelection.disabled = action !== "confirm-selection";
   saveScriptButton.textContent = "确认口播并进入出片";
   saveScriptButton.disabled = action !== "confirm-script";
+  updateRegenerateActions(job);
+}
+
+function updateRegenerateActions(job) {
+  const candidatesButton = $("regenerateCandidatesBtn");
+  const scriptButton = $("regenerateScriptBtn");
+  const videoButton = $("regenerateVideoBtn");
+  if (!candidatesButton || !scriptButton || !videoButton) return;
+  const stage = job.stage || "draft_pending";
+  const status = job.status || "";
+  const hasJob = Boolean(job.id);
+  const isRunning = status === "running";
+  const hasSelection = !["draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"].includes(stage);
+  const hasScript = hasSelection && !["generating_script", "awaiting_script_confirmation"].includes(stage);
+  candidatesButton.disabled = !hasJob || isRunning;
+  scriptButton.disabled = !hasJob || isRunning || !hasSelection;
+  videoButton.disabled = !hasJob || isRunning || !hasScript;
 }
 
 function nextActionForJob(job) {
@@ -1025,5 +1124,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload };
+  module.exports = { activeTemplateParams, api, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, updateRegenerateActions };
 }

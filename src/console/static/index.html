@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>视频工厂控制台</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260609-1" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260610-regen" />
   </head>
   <body>
     <noscript>
@@ -124,6 +124,11 @@
             <div id="currentModelCall" class="job-meta">model: -</div>
             <div id="currentError" class="job-error" hidden></div>
             <pre id="currentDiagnostics" class="job-diagnostics" hidden></pre>
+            <div class="regen-actions">
+              <button id="regenerateCandidatesBtn" class="tiny" disabled>重生成候选</button>
+              <button id="regenerateScriptBtn" class="tiny" disabled>重生成口播</button>
+              <button id="regenerateVideoBtn" class="tiny" disabled>重生成视频</button>
+            </div>
           </div>
         </section>
       </aside>
@@ -279,6 +284,6 @@
       </div>
     </aside>
 
-    <script src="/static/app.js?v=20260609-3"></script>
+    <script src="/static/app.js?v=20260610-regen"></script>
   </body>
 </html>

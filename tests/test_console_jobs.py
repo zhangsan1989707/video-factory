@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.console import jobs as console_jobs
-from src.console.jobs import create_hotlist_job, finalize_numbered_output, generate_candidates, job_detail, prepare_plan, render_video, save_script, save_selection, validate_plan
+from src.console.jobs import create_hotlist_job, finalize_numbered_output, generate_candidates, job_detail, prepare_plan, regenerate_candidates, regenerate_script, render_video, reset_video_for_regeneration, save_script, save_selection, validate_plan
 from src.console.server import open_job_folder, start_render_job
 from src.console.store import create_job, next_job_id, read_json, update_job, write_json
 from src.console.background import is_active, start_async_job
@@ -515,6 +515,73 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(saved["stage"], "awaiting_script_confirmation")
                 candidates = read_json(jobs_dir / job["id"] / "candidates.json", {})["items"]
                 self.assertEqual([item["full_name"] for item in candidates], ["demo/alpha", "demo/beta"])
+
+    def test_regenerate_candidates_clears_downstream_snapshots(self) -> None:
+        async def collect(**kwargs):
+            return {"items": _extra_projects(2), "rate_limit": "ok"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.collect_candidates_with_meta", side_effect=collect),
+            ):
+                job = create_job("GH-HOTLIST-20990101-REGEN-CANDIDATES", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+
+                result = asyncio.run(regenerate_candidates(job["id"]))
+
+                job_dir = jobs_dir / job["id"]
+                self.assertEqual([item["name"] for item in result["candidates"]], ["extra-1", "extra-2"])
+                self.assertFalse((job_dir / "selected_projects.json").exists())
+                self.assertFalse((job_dir / "narration.json").exists())
+                self.assertFalse((job_dir / "shot_plan.json").exists())
+                self.assertEqual(result["job"]["stage"], "awaiting_project_confirmation")
+
+    def test_regenerate_script_keeps_selection_and_clears_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with patch("src.console.store.JOBS_DIR", jobs_dir), patch("src.console.jobs.JOBS_DIR", jobs_dir):
+                job = create_job("GH-HOTLIST-20990101-REGEN-SCRIPT", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+
+                result = regenerate_script(job["id"])
+
+                job_dir = jobs_dir / job["id"]
+                self.assertTrue((job_dir / "selected_projects.json").exists())
+                self.assertTrue((job_dir / "narration.json").exists())
+                self.assertFalse((job_dir / "shot_plan.json").exists())
+                self.assertEqual(result["job"]["stage"], "awaiting_script_confirmation")
+                self.assertEqual([segment["id"] for segment in result["segments"]], ["intro", "project-1", "project-2", "outro"])
+
+    def test_reset_video_for_regeneration_keeps_script_and_clears_video_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with patch("src.console.store.JOBS_DIR", jobs_dir), patch("src.console.jobs.JOBS_DIR", jobs_dir):
+                job = create_job("GH-HOTLIST-20990101-REGEN-VIDEO", {"project_count": 2, "title": "重生成视频"})
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                job_dir = jobs_dir / job["id"]
+                (job_dir / "final.mp4").write_bytes(b"video")
+                (job_dir / f"{job['id']}-old.mp4").write_bytes(b"video")
+                update_job(job["id"], status="completed", stage="completed", official_video=str(job_dir / f"{job['id']}-old.mp4"))
+
+                reset = reset_video_for_regeneration(job["id"])
+
+                self.assertFalse((job_dir / "final.mp4").exists())
+                self.assertTrue((job_dir / f"{job['id']}-old.mp4").exists())
+                self.assertTrue((job_dir / "narration.json").exists())
+                self.assertEqual(reset["status"], "ready_to_render")
+                self.assertEqual(reset["stage"], "preparing_plan")
+                self.assertEqual(reset["official_video"], "")
 
     def test_plan_validation_runs_from_plan_dry_run_before_render(self) -> None:
         async def dry_run_pipeline(**kwargs):

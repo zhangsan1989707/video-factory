@@ -56,7 +56,16 @@ async def generate_candidates(job_id: str) -> dict[str, Any]:
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
     _require_stage(job, {"draft_pending", "collecting_candidates", "analyzing_candidates"}, "当前阶段不能生成候选项目")
+    return await _generate_candidates_snapshot(job_id, job)
 
+
+async def regenerate_candidates(job_id: str) -> dict[str, Any]:
+    job = _require_regenerable_job(job_id)
+    append_log(job_id, "已请求重新生成候选项目；将清除已选项目、口播、计划文件和视频产物。")
+    return await _generate_candidates_snapshot(job_id, job)
+
+
+async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
     _clear_candidate_artifacts(job_id)
     update_job(job_id, status="running", stage="collecting_candidates", failed_stage="", error="")
     append_log(job_id, f"开始拉取 {job.get('time_window', 'weekly')} 候选项目。")
@@ -100,6 +109,21 @@ def save_selection(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     _clear_script_metadata(job_id)
     write_json(JOBS_DIR / job_id / "selected_projects.json", {"items": selected})
     append_log(job_id, f"已确认 {len(selected)} 个入选项目。")
+    return _generate_script_for_selection(job_id, selected)
+
+
+def regenerate_script(job_id: str) -> dict[str, Any]:
+    _require_regenerable_job(job_id)
+    selected = read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items") or []
+    if not selected:
+        raise ValueError("请先确认项目列表，再重新生成口播脚本")
+    append_log(job_id, "已请求重新生成口播脚本；将清除已确认口播后的计划文件和视频产物。")
+    _clear_plan_artifacts(job_id)
+    _clear_script_metadata(job_id)
+    return _generate_script_for_selection(job_id, selected)
+
+
+def _generate_script_for_selection(job_id: str, selected: list[dict[str, Any]]) -> dict[str, Any]:
     update_job(job_id, status="running", stage="generating_script", error="")
 
     hook = _generate_hook(job_id, selected)
@@ -111,6 +135,28 @@ def save_selection(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     append_log(job_id, "已生成初版口播脚本，等待人工确认。")
     update_job(job_id, status="awaiting_input", stage="awaiting_script_confirmation", plan_validation={"status": "not_run", "error": ""})
     return {"job": read_job(job_id), "segments": narrations, "hook": hook}
+
+
+def reset_video_for_regeneration(job_id: str) -> dict[str, Any]:
+    _require_regenerable_job(job_id)
+    selected = read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items") or []
+    segments = read_json(JOBS_DIR / job_id / "narration.json", {}).get("segments") or []
+    if not selected:
+        raise ValueError("请先确认项目列表，再重新生成最终视频")
+    if not segments:
+        raise ValueError("请先确认口播脚本，再重新生成最终视频")
+    _clear_current_video_output(job_id)
+    append_log(job_id, "已请求重新生成最终视频；保留当前项目和口播脚本。")
+    return update_job(job_id, status="ready_to_render", stage="preparing_plan", failed_stage="", error="", official_video="")
+
+
+def _require_regenerable_job(job_id: str) -> dict[str, Any]:
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    if str(job.get("status") or "") == "running":
+        raise ValueError("任务运行中，不能重新生成")
+    return job
 
 
 def save_script(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -425,13 +471,17 @@ def _video_versions(job_id: str) -> list[dict[str, Any]]:
 
 def _clear_video_outputs(job_id: str) -> None:
     job_dir = JOBS_DIR / job_id
-    final = job_dir / "final.mp4"
-    if final.exists() and final.is_file():
-        final.unlink()
+    _clear_current_video_output(job_id)
     for path in job_dir.glob(f"{job_id}-*.mp4"):
         if path.exists() and path.is_file():
             path.unlink()
     update_job(job_id, official_video="")
+
+
+def _clear_current_video_output(job_id: str) -> None:
+    final = JOBS_DIR / job_id / "final.mp4"
+    if final.exists() and final.is_file():
+        final.unlink()
 
 
 def _version_index(name: str) -> int:

@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -8,6 +8,7 @@ async function run() {
   testRenderDiagnosticsIncludesLatestModelCall();
   testFailedJobsExposeRetryActions();
   testPlanStagesExposeSeparateActions();
+  testRegenerateButtonsFollowStage();
   testTemplatePayloadUsesActiveTemplate();
   testRenderArtifactsShowsPreviewAndOfficialVideo();
   testRenderArtifactSummaryShowsPublishMetadata();
@@ -117,6 +118,39 @@ function testPlanStagesExposeSeparateActions() {
     action: "validate-plan",
     disabled: false,
   });
+}
+
+function testRegenerateButtonsFollowStage() {
+  const nodes = {
+    regenerateCandidatesBtn: { disabled: true },
+    regenerateScriptBtn: { disabled: true },
+    regenerateVideoBtn: { disabled: true },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  updateRegenerateActions({ id: "job-1", status: "awaiting_input", stage: "awaiting_project_confirmation" });
+  assert.equal(nodes.regenerateCandidatesBtn.disabled, false);
+  assert.equal(nodes.regenerateScriptBtn.disabled, true);
+  assert.equal(nodes.regenerateVideoBtn.disabled, true);
+
+  updateRegenerateActions({ id: "job-1", status: "awaiting_input", stage: "awaiting_script_confirmation" });
+  assert.equal(nodes.regenerateCandidatesBtn.disabled, false);
+  assert.equal(nodes.regenerateScriptBtn.disabled, false);
+  assert.equal(nodes.regenerateVideoBtn.disabled, true);
+
+  updateRegenerateActions({ id: "job-1", status: "completed", stage: "completed" });
+  assert.equal(nodes.regenerateCandidatesBtn.disabled, false);
+  assert.equal(nodes.regenerateScriptBtn.disabled, false);
+  assert.equal(nodes.regenerateVideoBtn.disabled, false);
+
+  updateRegenerateActions({ id: "job-1", status: "running", stage: "composing_video" });
+  assert.equal(nodes.regenerateCandidatesBtn.disabled, true);
+  assert.equal(nodes.regenerateScriptBtn.disabled, true);
+  assert.equal(nodes.regenerateVideoBtn.disabled, true);
 }
 
 function testTemplatePayloadUsesActiveTemplate() {

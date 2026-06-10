@@ -305,6 +305,13 @@ section + section {
   background: var(--surface);
 }
 
+.regen-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .job-error {
   padding: 8px;
   border: 1px solid var(--danger-line);

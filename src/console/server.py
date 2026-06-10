@@ -21,7 +21,10 @@ from src.console.jobs import (
     generate_candidates,
     job_detail,
     prepare_plan,
+    regenerate_candidates,
+    regenerate_script,
     render_video,
+    reset_video_for_regeneration,
     save_script,
     save_selection,
     validate_plan,
@@ -172,9 +175,17 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                         with active_job(job_id):
                             self._json(asyncio.run(generate_candidates(job_id)))
                         return
+                    if action == "regenerate-candidates":
+                        with active_job(job_id):
+                            self._json(asyncio.run(regenerate_candidates(job_id)))
+                        return
                     if action == "selection":
                         with active_job(job_id):
                             self._json(save_selection(job_id, payload))
+                        return
+                    if action == "regenerate-script":
+                        with active_job(job_id):
+                            self._json(regenerate_script(job_id))
                         return
                     if action == "script":
                         with active_job(job_id):
@@ -190,6 +201,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                         return
                     if action == "render-video":
                         self._json(start_render_job(job_id))
+                        return
+                    if action == "regenerate-video":
+                        self._json(start_regenerate_render_job(job_id))
                         return
                     if action == "open-folder":
                         self._json(open_job_folder(job_id))
@@ -315,6 +329,11 @@ def start_render_job(job_id: str) -> dict:
         raise ValueError("已有渲染任务正在运行")
     job = job_detail(job_id)["job"]
     return {"started": started, "active": is_active(job_id), "job": job}
+
+
+def start_regenerate_render_job(job_id: str) -> dict:
+    reset_video_for_regeneration(job_id)
+    return start_render_job(job_id)
 
 
 def record_render_background_failure(job_id: str, exc: Exception) -> None:
