@@ -925,10 +925,15 @@ def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[
     project_context = _narration_project_context(projects)
     prompt = {
         "instruction": (
-            "为 GitHub 热榜竖屏短视频生成中文口播。先做内容策略，再写口播；克制、具体、面向观众价值，不要喊口号。"
+            "你是一个为「GitHub 热榜视频」撰写口播文案的专家。为 GitHub 热榜竖屏短视频生成中文口播。"
+            "单个项目口播要吸引人、有场景感、避免套路；克制、具体、面向观众价值，不要喊口号。"
             "开场必须在 3 秒内抓住人，用一个本期判断或反常识观点切入，不要直接复述第一名项目名。"
             "榜单总览只讲整体趋势和选择标准，不展开第 1 名细节；每个项目详情再按痛点、项目怎么解决、适合谁、为什么值得看展开。"
             "结尾要留下讨论空间或下一期期待，不要只说点赞关注。"
+            "每个 project-* 段落控制在 60 到 100 个中文字符左右。"
+            "禁止使用以下开头句式：如果你纠结、如果你觉得、如果你在找、如果你卡在、先看看它、先看它。"
+            "禁止空洞评价：很有价值、值得关注、适合开发者、适合开源项目关注者。"
+            "每个 project-* 必须包含：一个反常识或场景化开头；一句具体痛点或爽点；一句锁定目标人群，格式可以用「适合：被 X 折磨的人」。"
             "visual_potential 是制作侧画面建议，禁止直接写入口播；不要把 README 可展示、仓库页做信息卡片、"
             "终端截图可展示、截图可展示、画面潜力、信息卡片当成项目亮点。"
         ),
@@ -936,13 +941,18 @@ def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[
         "content_strategy": {
             "opening": "一句 20 到 45 字的钩子，讲本期判断，不复述第 1 名详情",
             "overview": "榜单总览负责建立选择标准和整体趋势，不能重复 project-1 的项目介绍",
-            "per_project": "每个项目按 viewer_pain -> safe_highlight 或 viewer_outcome -> safe_audience 组织",
+            "per_project": "每个项目按反常识/场景开头 -> 具体痛点或爽点 -> 被什么问题折磨的人组织",
             "closing": "留下讨论钩子，让观众选择想看哪个项目的实操拆解",
         },
+        "project_copy_template": (
+            "很多人以为 {{name}} 只是 {{description}}，但它真正改变的是 {{viewer_outcome}}。"
+            "{{safe_highlight}}，不用在 {{viewer_pain}} 上反复耗时间。"
+            "适合：被 {{viewer_pain}} 折磨的 {{safe_audience}}。"
+        ),
         "schema": {
             "segments": [
                 {"id": "intro", "label": "开场", "text": "20 到 45 字"},
-                {"id": "project-1", "label": "第 1 名", "text": "35 到 70 字"},
+                {"id": "project-1", "label": "第 1 名", "text": "60 到 100 字，纯文本，不要序号、标题、Markdown"},
                 {"id": "outro", "label": "结尾", "text": "20 到 45 字"},
             ]
         },
@@ -993,6 +1003,8 @@ def _polish_narrations(
     prompt = {
         "instruction": (
             "润色 GitHub 热榜中文口播，保持 segment id 不变。只改表达，不新增输入里没有的事实。"
+            "每个 project-* 段落要有反差或场景感、具体痛点/爽点、明确目标人群。"
+            "禁止使用：如果你纠结、如果你觉得、如果你在找、如果你卡在、先看看它、先看它、很有价值、值得关注、适合开发者、适合开源项目关注者。"
             "保留项目真实能力和观众收益，删除制作侧画面话术；禁止出现 README 可展示、仓库页做信息卡片、"
             "终端截图可展示、截图可展示、画面潜力、信息卡片作为亮点。"
         ),
@@ -1072,7 +1084,7 @@ def _sanitize_polished_segments(
         segment_id = str(source.get("id") or "")
         segment = by_id.get(segment_id)
         text = _short_text(str(segment.get("text") or ""), 140) if segment else ""
-        if not segment_id or not text or _contains_producer_visual_jargon(text):
+        if not segment_id or not text or _contains_producer_visual_jargon(text) or _contains_forbidden_narration(text):
             return []
         cleaned.append({
             "id": segment_id,
@@ -1221,7 +1233,7 @@ def _sanitize_model_segments(projects: list[dict[str, Any]], segments: list[dict
     for segment_id in expected:
         segment = by_id.get(segment_id)
         text = _short_text(str(segment.get("text") or ""), 120) if segment else ""
-        if not text or _contains_producer_visual_jargon(text):
+        if not text or _contains_producer_visual_jargon(text) or _contains_forbidden_narration(text):
             return []
         cleaned.append({
             "id": segment_id,
@@ -1291,21 +1303,10 @@ def _default_narrations(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
     ]
     for index, project in enumerate(projects, start=1):
-        name = project.get("name") or project.get("full_name") or "这个项目"
-        stars = int(project.get("stars") or 0)
-        star_label = _star_label(stars)
-        pain = _viewer_pain(project)
-        highlight = _viewer_highlight(project)
-        outcome = _viewer_outcome(project).rstrip("。")
-        audience = _viewer_audience(project)
         segments.append({
             "id": f"project-{index}",
             "label": f"第 {index} 名",
-            "text": (
-                f"第 {index} 个看 {name}。如果你卡在{pain}，先看它怎么做：{highlight}。"
-                f"{star_label} 是热度信号，但关键是，{outcome}。"
-                f"适合{audience}先判断值不值得上手。"
-            ),
+            "text": _default_project_narration(project),
         })
     segments.append({
         "id": "outro",
@@ -1330,6 +1331,33 @@ def _outro_line(projects: list[dict[str, Any]]) -> str:
         f"如果你想让我把 {names} 里面某一个拆成实操教程，评论区直接打项目名；"
         f"我下一期就按真实使用场景拆给你看。"
     )
+
+
+def _default_project_narration(project: dict[str, Any]) -> str:
+    name = project.get("name") or project.get("full_name") or "这个项目"
+    description = _short_text(_viewer_safe_value(str(project.get("description_zh") or project.get("description") or "")), 18)
+    if not description:
+        description = "又一个热榜项目"
+    pain = _viewer_pain(project)
+    highlight = _viewer_highlight(project)
+    audience = _viewer_audience(project)
+    return (
+        f"很多人以为 {name} 只是{_description_phrase(description)}，但它真正解决的是「{pain}」："
+        f"{highlight}，少掉反复试错。"
+        f"适合：被「{pain}」折磨的{_audience_phrase(audience)}。"
+    )
+
+
+def _description_phrase(description: str) -> str:
+    if re.match(r"^[A-Za-z0-9]", description):
+        return f" {description}"
+    return description
+
+
+def _audience_phrase(audience: str) -> str:
+    if re.match(r"^[A-Za-z0-9]", audience):
+        return f" {audience}"
+    return audience
 
 
 def _viewer_pain(project: dict[str, Any]) -> str:
@@ -1407,6 +1435,23 @@ def _viewer_safe_value(text: str) -> str:
 
 def _contains_producer_visual_jargon(text: str) -> bool:
     return bool(text.strip()) and not _viewer_safe_value(text)
+
+
+def _contains_forbidden_narration(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    forbidden = (
+        "如果你纠结",
+        "如果你觉得",
+        "如果你在找",
+        "如果你卡在",
+        "先看看它",
+        "先看它",
+        "很有价值",
+        "值得关注",
+        "适合开发者",
+        "适合开源项目关注者",
+    )
+    return any(phrase.replace(" ", "") in compact for phrase in forbidden)
 
 
 def _viewer_audience(project: dict[str, Any]) -> str:

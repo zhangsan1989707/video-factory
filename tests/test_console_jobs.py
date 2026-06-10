@@ -891,8 +891,8 @@ class ConsoleJobsTest(unittest.TestCase):
                 "data": {
                     "segments": [
                         {"id": "intro", "label": "开场", "text": "今天看两个真正能落地的开源项目。"},
-                        {"id": "project-1", "label": "第 1 名", "text": "alpha 适合把 AI 流程接进开发工作。"},
-                        {"id": "project-2", "label": "第 2 名", "text": "beta 更像一个减少重复命令的效率工具。"},
+                        {"id": "project-1", "label": "第 1 名", "text": "很多人以为 alpha 只是 AI 工作流工具，但它真正解决的是把模型接进开发步骤。少掉来回补脚本的时间。适合：被 AI 流程落地折磨的工程师。"},
+                        {"id": "project-2", "label": "第 2 名", "text": "很多人以为 beta 只是命令行助手，但它爽在把重复命令收成一条短路径。少翻文档，少切窗口。适合：被终端杂活拖慢的人。"},
                         {"id": "outro", "label": "结尾", "text": "想看实操拆解，就从你最卡的项目开始。"},
                     ]
                 },
@@ -927,6 +927,9 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(narration_prompt["projects"][0]["safe_highlight"], "把 AI 流程接进具体开发步骤")
                 self.assertIn("content_strategy", narration_prompt)
                 self.assertIn("不复述第 1 名详情", narration_prompt["content_strategy"]["opening"])
+                self.assertIn("反常识或场景化开头", narration_prompt["instruction"])
+                self.assertIn("如果你纠结", narration_prompt["instruction"])
+                self.assertIn("project_copy_template", narration_prompt)
                 self.assertIn("榜单总览只讲整体趋势", narration_prompt["instruction"])
                 self.assertIn("visual_potential 是制作侧画面建议", narration_prompt["instruction"])
                 self.assertIn("README 可展示", narration_prompt["instruction"])
@@ -979,9 +982,48 @@ class ConsoleJobsTest(unittest.TestCase):
 
                 project_line = next(segment["text"] for segment in result["segments"] if segment["id"] == "project-1")
                 self.assertNotIn("README 可展示", project_line)
-                self.assertIn("先看它怎么做：把 AI 流程接进具体开发步骤。", project_line)
+                self.assertIn("很多人以为 alpha", project_line)
+                self.assertNotIn("先看它", project_line)
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"][0]["status"], "invalid_json")
+                self.assertEqual(saved["narration_source"]["status"], "ai_failed_fallback")
+
+    def test_model_narration_with_forbidden_opening_falls_back(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
+                patch("src.console.jobs.chat_json_detail", return_value={
+                    "data": {
+                        "segments": [
+                            {"id": "intro", "label": "开场", "text": "今天看两个项目。"},
+                            {"id": "project-1", "label": "第 1 名", "text": "如果你纠结哪个项目值得花时间，先看看它，很有价值。"},
+                            {"id": "project-2", "label": "第 2 名", "text": "很多人以为 beta 只是命令行助手，但它把重复命令收成短路径。适合：被终端杂活拖慢的人。"},
+                            {"id": "outro", "label": "结尾", "text": "想看哪个，评论区告诉我。"},
+                        ]
+                    },
+                    "route": {"provider_name": "Mock", "model": "mock-model"},
+                    "raw": "{}",
+                    "error": "",
+                }),
+            ):
+                job = create_job("GH-HOTLIST-20990101-NARRATION-FORBIDDEN", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                result = save_selection(job["id"], {"items": _sample_projects()})
+
+                project_line = next(segment["text"] for segment in result["segments"] if segment["id"] == "project-1")
+                self.assertNotIn("如果你纠结", project_line)
+                self.assertNotIn("先看看它", project_line)
+                self.assertNotIn("很有价值", project_line)
+                saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["narration_source"]["status"], "ai_failed_fallback")
 
     def test_invalid_model_narration_response_is_saved_for_review(self) -> None:
@@ -1314,10 +1356,11 @@ class ConsoleJobsTest(unittest.TestCase):
 
             project_line = next(segment["text"] for segment in result["segments"] if segment["id"] == "project-1")
 
-        self.assertIn("如果你卡在AI 难接进真实工作流", project_line)
-        self.assertIn("先看它怎么做：把 AI 流程接进具体开发步骤。", project_line)
-        self.assertIn("1.5K Star 是热度信号", project_line)
-        self.assertIn("适合AI 开发者先判断值不值得上手。", project_line)
+        self.assertIn("很多人以为 alpha", project_line)
+        self.assertIn("但它真正解决的是「AI 难接进真实工作流」", project_line)
+        self.assertIn("适合：被「AI 难接进真实工作流」折磨的 AI 开发者。", project_line)
+        self.assertNotIn("如果你卡在", project_line)
+        self.assertNotIn("先看它", project_line)
         self.assertNotIn("README 可展示", project_line)
         self.assertNotIn("亮点：", project_line)
 
