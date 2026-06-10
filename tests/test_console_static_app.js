@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -8,6 +8,7 @@ async function run() {
   testRenderDiagnosticsIncludesLatestModelCall();
   testFailedJobsExposeRetryActions();
   testPlanStagesExposeSeparateActions();
+  testDraftJobsExposeSeparateCreateAndCollectActions();
   testRegenerateButtonsFollowStage();
   testTemplatePayloadUsesActiveTemplate();
   testRenderArtifactsShowsPreviewAndOfficialVideo();
@@ -20,6 +21,7 @@ async function run() {
   testSyncDetailStateReplacesCandidateAndScriptSnapshots();
   testSelectionButtonStateShowsLimit();
   testCandidateDefaultsUseProjectCount();
+  await testCreateDraftDoesNotCollectCandidates();
   await testProviderTestKeepsUnsavedFormValues();
 }
 
@@ -121,6 +123,128 @@ function testPlanStagesExposeSeparateActions() {
     action: "validate-plan",
     disabled: false,
   });
+}
+
+function testDraftJobsExposeSeparateCreateAndCollectActions() {
+  assert.deepEqual(nextActionForJob({ stage: "draft_pending", status: "draft_pending" }), {
+    label: "创建任务",
+    action: "create",
+    disabled: false,
+  });
+  assert.deepEqual(nextActionForJob({ id: "GH-HOTLIST-20990101-001", stage: "draft_pending", status: "draft_pending" }), {
+    label: "生成候选草稿",
+    action: "collect-candidates",
+    disabled: false,
+  });
+
+  state.currentJobId = "";
+  assert.equal(candidateEmptyMessage(), "还没有任务。先选择时间维度和项目数，再点击“创建任务”。");
+  state.currentJobId = "GH-HOTLIST-20990101-001";
+  assert.equal(candidateEmptyMessage(), "任务已创建。点击“生成候选草稿”拉取候选项目。");
+}
+
+async function testCreateDraftDoesNotCollectCandidates() {
+  const calls = [];
+  global.fetch = async (path, options = {}) => {
+    calls.push({ path, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null });
+    if (path === "/api/jobs" && options.method === "POST") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          job: {
+            id: "GH-HOTLIST-20990101-DRAFT",
+            status: "draft_pending",
+            stage: "draft_pending",
+            time_window: "monthly",
+            project_count: 10,
+            template_params: {},
+            stage_history: [{ stage: "draft_pending", status: "draft_pending", at: "2026-06-10T10:00:00" }],
+          },
+        }),
+      };
+    }
+    if (path === "/api/jobs") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ jobs: [{ id: "GH-HOTLIST-20990101-DRAFT", status: "draft_pending", stage: "draft_pending" }] }),
+      };
+    }
+    throw new Error(`unexpected fetch: ${path}`);
+  };
+  global.alert = (message) => {
+    throw new Error(message);
+  };
+
+  const buttons = [];
+  const values = {
+    timeWindow: { value: "monthly" },
+    projectCount: { value: "10" },
+    visualStyle: { value: "tech_hotspot" },
+    renderEngine: { value: "hyperframes" },
+    subtitleMode: { value: "large_hook" },
+    tone: { value: "professional_review" },
+    bgmMode: { value: "default" },
+    bgmPath: { value: "" },
+    currentJobId: { textContent: "" },
+    currentStage: { textContent: "" },
+    openJobFolderBtn: { disabled: true },
+    currentModelCall: { textContent: "" },
+    currentError: { hidden: true, textContent: "" },
+    currentDiagnostics: { hidden: true, textContent: "" },
+    stageTimeline: { className: "", innerHTML: "", textContent: "" },
+    nextActionBtn: { textContent: "", dataset: {}, disabled: false },
+    confirmSelectionBtn: { textContent: "", disabled: false },
+    saveScriptBtn: { textContent: "", disabled: false },
+    regenerateCandidatesBtn: { disabled: true },
+    regenerateScriptBtn: { disabled: true },
+    regenerateVideoBtn: { disabled: true },
+    candidateRows: { innerHTML: "", querySelectorAll() { return []; } },
+    scriptEditor: { className: "", textContent: "", innerHTML: "" },
+    qualityReport: { hidden: false, innerHTML: "", className: "" },
+    logBox: { textContent: "" },
+    historyList: {
+      className: "",
+      textContent: "",
+      innerHTML: "",
+      querySelectorAll() {
+        return [];
+      },
+    },
+  };
+  buttons.push(values.nextActionBtn, values.confirmSelectionBtn, values.saveScriptBtn);
+  buttons.forEach((button) => {
+    button.dataset ||= {};
+  });
+  global.document = {
+    getElementById(id) {
+      return values[id];
+    },
+    querySelectorAll(selector) {
+      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn)");
+      return buttons;
+    },
+  };
+
+  state.currentJobId = "";
+  state.currentJob = null;
+  state.candidates = [{ full_name: "old/candidate" }];
+  state.segments = [{ id: "intro", text: "old" }];
+  state.qualityReport = { status: "caution" };
+
+  await createDraft();
+
+  assert.deepEqual(calls.map((call) => [call.method, call.path]), [["POST", "/api/jobs"], ["GET", "/api/jobs"]]);
+  assert.equal(calls[0].body.time_window, "monthly");
+  assert.equal(calls[0].body.project_count, 10);
+  assert.equal(values.nextActionBtn.textContent, "生成候选草稿");
+  assert.equal(values.nextActionBtn.dataset.action, "collect-candidates");
+  assert.equal(values.logBox.textContent, "任务已按当前时间维度和项目数创建。点击“生成候选草稿”拉取候选项目。\n");
+  assert.equal(values.candidateRows.innerHTML.includes("任务已创建"), true);
+  assert.deepEqual(state.candidates, []);
+  assert.deepEqual(state.segments, []);
+  assert.equal(state.qualityReport, null);
 }
 
 function testRegenerateButtonsFollowStage() {

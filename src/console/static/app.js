@@ -55,7 +55,7 @@ function bindEvents() {
     button.addEventListener("click", () => switchTab(button.dataset.tab));
   });
   $("nextActionBtn").addEventListener("click", runNextAction);
-  $("newJobBtn").addEventListener("click", createDraft);
+  $("newJobBtn").addEventListener("click", startNewJob);
   $("confirmSelectionBtn").addEventListener("click", confirmSelection);
   $("saveScriptBtn").addEventListener("click", saveScript);
   $("regenerateCandidatesBtn").addEventListener("click", regenerateCandidates);
@@ -172,23 +172,29 @@ async function createDraft() {
       template_params: currentTemplateParams(),
     });
     state.currentJobId = created.job.id;
+    state.candidates = [];
+    state.segments = [];
+    state.qualityReport = null;
     renderJob(created.job);
-    switchTab("progress");
-    renderLogs("任务已创建，正在拉取候选项目...\n");
-    startPollingCurrentJob();
-
-    const result = await post(`/api/jobs/${state.currentJobId}/candidates`);
-    state.candidates = result.candidates || [];
-    renderJob(result.job);
     renderCandidates();
-    await refreshCurrentJob();
+    renderScript();
+    renderQualityReport();
+    renderLogs("任务已按当前时间维度和项目数创建。点击“生成候选草稿”拉取候选项目。\n");
     await loadJobs();
-    switchTab("candidates");
   } catch (error) {
     alert(error.message);
   } finally {
     setBusy(false);
   }
+}
+
+function startNewJob() {
+  stopPollingCurrentJob();
+  clearCurrentJob();
+  switchTab("candidates");
+  renderLogs("已准备新任务。请选择时间维度和项目数，然后点击“创建任务”。\n");
+  const timeWindow = $("timeWindow");
+  if (timeWindow && typeof timeWindow.focus === "function") timeWindow.focus();
 }
 
 async function deleteHistoryJob(jobId) {
@@ -217,7 +223,7 @@ function clearCurrentJob() {
   state.segments = [];
   state.qualityReport = null;
   $("currentJobId").textContent = "未创建";
-  $("currentStage").textContent = "等待生成候选草稿";
+  $("currentStage").textContent = "等待创建任务";
   $("currentModelCall").textContent = "model: -";
   $("openJobFolderBtn").disabled = true;
   renderJobError("");
@@ -510,6 +516,7 @@ function renderJob(job) {
   state.currentJob = job;
   $("currentJobId").textContent = job.id || "未创建";
   $("currentStage").textContent = job.stage || "未知阶段";
+  if (job.time_window) $("timeWindow").value = String(job.time_window);
   if (job.project_count) $("projectCount").value = String(job.project_count);
   $("openJobFolderBtn").disabled = !job.id;
   renderModelCall(job.model_calls || []);
@@ -708,13 +715,16 @@ function nextActionForJob(job) {
       ? { label: `重试：${stageLabel(stage)}`, action: retryAction, disabled: false }
       : { label: "无法自动重试", action: "failed", disabled: true };
   }
-  return { label: "生成候选草稿", action: "create", disabled: false };
+  if (stage === "draft_pending" && job.id) {
+    return { label: "生成候选草稿", action: "collect-candidates", disabled: false };
+  }
+  return { label: "创建任务", action: "create", disabled: false };
 }
 
 function renderCandidates() {
   const body = $("candidateRows");
   if (!state.candidates.length) {
-    body.innerHTML = '<tr><td colspan="8" class="empty">还没有候选项目。点击“生成候选草稿”。</td></tr>';
+    body.innerHTML = `<tr><td colspan="8" class="empty">${escapeHtml(candidateEmptyMessage())}</td></tr>`;
     return;
   }
   body.innerHTML = state.candidates.map((item, index) => `
@@ -738,6 +748,12 @@ function renderCandidates() {
     input.addEventListener("change", updateSelectionState);
   });
   updateSelectionState();
+}
+
+function candidateEmptyMessage() {
+  return state.currentJobId
+    ? "任务已创建。点击“生成候选草稿”拉取候选项目。"
+    : "还没有任务。先选择时间维度和项目数，再点击“创建任务”。";
 }
 
 function candidateAutoLimit() {
@@ -1238,5 +1254,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

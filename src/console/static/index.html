@@ -34,7 +34,7 @@
               <option value="10">10</option>
             </select>
           </label>
-          <button id="nextActionBtn" class="primary" data-action="create">生成候选草稿</button>
+          <button id="nextActionBtn" class="primary" data-action="create">创建任务</button>
           <button id="newJobBtn" class="ghost">新建任务</button>
           <button id="openSettingsBtn" class="ghost">配置</button>
         </div>
@@ -121,7 +121,7 @@
           <div class="section-title">当前任务</div>
           <div class="job-card">
             <code id="currentJobId">未创建</code>
-            <div id="currentStage">等待生成候选草稿</div>
+            <div id="currentStage">等待创建任务</div>
             <div id="currentModelCall" class="job-meta">model: -</div>
             <div id="currentError" class="job-error" hidden></div>
             <pre id="currentDiagnostics" class="job-diagnostics" hidden></pre>
@@ -165,7 +165,7 @@
                 </tr>
               </thead>
               <tbody id="candidateRows">
-                <tr><td colspan="8" class="empty">还没有候选项目。点击“生成候选草稿”。</td></tr>
+                <tr><td colspan="8" class="empty">还没有任务。先选择时间维度和项目数，再点击“创建任务”。</td></tr>
               </tbody>
             </table>
           </div>
