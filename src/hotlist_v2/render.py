@@ -149,10 +149,9 @@ def _data_from_projects(projects: list[dict]) -> dict:
     """Normalize console selected projects to the hotlist v2 template shape."""
     normalized = []
     languages_seen: dict[str, str] = {}
-    total_stars = 0
+    total_daily_growth = 0
     for index, item in enumerate(projects, start=1):
         stars = int(item.get("stars") or item.get("stargazers_count") or 0)
-        total_stars += stars
         language = str(item.get("language") or "")
         language_color = str(item.get("language_color") or _language_color(language))
         if language and language not in languages_seen:
@@ -166,16 +165,26 @@ def _data_from_projects(projects: list[dict]) -> dict:
         outcome = _project_outcome(item, description)
         hook = _project_hook(item, name)
         growth_num = _growth_number(str(item.get("daily_growth") or item.get("stars_delta") or ""))
+        total_daily_growth += growth_num
+        fact_card = _project_fact_card(item, name, description, purpose, outcome, hook, stars, growth_num)
         normalized.append({
             "rank": index,
             "name": name,
             "owner": owner,
             "owner_initial": owner[:1].upper() if owner else "?",
+            "license": str(item.get("license") or item.get("license_name") or "开源协议待确认"),
             "tagline": str(item.get("tagline") or item.get("audience") or "开源热点"),
-            "hook": hook,
+            "hook": fact_card["one_line_hook"],
             "description": description,
-            "purpose": purpose,
-            "outcome": outcome,
+            "purpose": fact_card["core_action"],
+            "outcome": fact_card["viewer_benefit"],
+            "core_problem": fact_card["core_problem"],
+            "core_action": fact_card["core_action"],
+            "proof_point": fact_card["proof_point"],
+            "viewer_benefit": fact_card["viewer_benefit"],
+            "risk_note": fact_card["risk_note"],
+            "visual_asset_label": fact_card["visual_asset_label"],
+            "visual_asset_source": fact_card["visual_asset_source"],
             "language": language,
             "language_color": language_color,
             "stars": stars,
@@ -192,7 +201,7 @@ def _data_from_projects(projects: list[dict]) -> dict:
             "display_tags": _display_tags(item, topics, language),
             "preview_url": str(item.get("homepage") or ""),
             "star_history": _star_history(stars, index),
-            "reason": _project_reason(item, purpose, outcome, stars),
+            "reason": fact_card["detail_reason"],
             "repo_url": str(item.get("repo_url") or item.get("html_url") or ""),
         })
     _dedupe_project_copy(normalized)
@@ -204,7 +213,7 @@ def _data_from_projects(projects: list[dict]) -> dict:
         "issue": now.isocalendar()[1],
         "total_projects": len(normalized),
         "total_languages": len(languages),
-        "total_new_stars": _star_display(total_stars),
+        "total_new_stars": _star_display(total_daily_growth) if total_daily_growth else "待确认",
         "languages": languages,
         "theme_highlight": _theme_highlight(normalized),
         "theme_tags": _theme_tags(normalized),
@@ -321,6 +330,150 @@ def _specific_ai_outcome(item: dict, description: str) -> str:
     return f"围绕“{text}”做具体自动化，避免只停留在聊天式试用。"
 
 
+def _project_fact_card(
+    item: dict,
+    name: str,
+    description: str,
+    purpose: str,
+    outcome: str,
+    hook: str,
+    stars: int,
+    growth_num: int,
+) -> dict[str, str]:
+    feature = item.get("feature_extract") if isinstance(item.get("feature_extract"), dict) else {}
+    core_problem = _first_clean(
+        str(feature.get("core_problem") or ""),
+        str(item.get("core_problem") or ""),
+        str(item.get("viewer_pain") or ""),
+    ) or _infer_core_problem(item)
+    core_action = _first_clean(
+        str(feature.get("core_action") or ""),
+        str(item.get("project_highlight") or ""),
+        purpose,
+        description,
+    ) or _fallback_core_action(item, name)
+    viewer_benefit = _first_clean(
+        str(feature.get("quantified_benefit") or ""),
+        str(item.get("viewer_benefit") or ""),
+        outcome,
+    ) or _fallback_viewer_benefit(item)
+    proof_point = _proof_point(item, stars, growth_num)
+    risk_note = _first_clean(str(item.get("risk") or "")) or "只按仓库公开信息判断，具体效果建议实测后再展开。"
+    one_line_hook = _first_clean(hook, core_problem) or _short_text(name, 15)
+    visual_label, visual_source = _visual_asset(item)
+    detail_reason = _detail_reason(core_action, viewer_benefit, proof_point)
+    return {
+        "core_problem": _short_text(core_problem, 24),
+        "core_action": _ensure_sentence(_short_text(core_action, 86)),
+        "viewer_benefit": _ensure_sentence(_short_text(viewer_benefit, 72)),
+        "proof_point": _ensure_sentence(_short_text(proof_point, 86)),
+        "risk_note": _ensure_sentence(_short_text(risk_note, 70)),
+        "one_line_hook": _short_text(one_line_hook, 15),
+        "visual_asset_label": visual_label,
+        "visual_asset_source": visual_source,
+        "detail_reason": detail_reason,
+    }
+
+
+def _first_clean(*values: str) -> str:
+    for value in values:
+        text = _clean_viewer_text(value)
+        if text and not _is_weak_copy(text):
+            return text
+    return ""
+
+
+def _is_weak_copy(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    weak_phrases = (
+        "近期热度上升",
+        "值得关注",
+        "值得试",
+        "重点看",
+        "具体用途",
+        "实现效果",
+        "上手成本",
+        "开源热点",
+        "开源项目",
+        "项目描述较少",
+        "需要打开仓库确认",
+        "需要补充README",
+        "需要补充一个真实使用场景",
+    )
+    return any(phrase in text or phrase.replace(" ", "") in compact for phrase in weak_phrases)
+
+
+def _infer_core_problem(item: dict) -> str:
+    text = _project_text(item)
+    if _has_keyword(text, ("ppt", "powerpoint", "presentation", "slide", "slides")):
+        return "PPT 从空白页开始"
+    if _has_keyword(text, ("figma", "design", "designer", "ui", "interface", "prototype")):
+        return "设计稿来回描述"
+    if _has_keyword(text, ("claude", "agent-skill", "agent-skills", "skill")):
+        return "重复提示词太多"
+    if _has_keyword(text, ("cli", "terminal", "shell")):
+        return "终端流程太碎"
+    if _has_keyword(text, ("data", "database", "analytics", "sql")):
+        return "数据整理太慢"
+    if _has_keyword(text, ("video", "image", "audio", "visual", "3d")):
+        return "内容处理步骤多"
+    if _has_keyword(text, ("ai", "agent", "llm", "model", "rag")):
+        return "AI 落地任务不清"
+    return "功能证据待补齐"
+
+
+def _fallback_core_action(item: dict, name: str) -> str:
+    description = _clean_viewer_text(str(item.get("description") or ""))
+    if description:
+        return f"{name} 的仓库描述指向：{description}"
+    return f"{name} 需要先补 README 或官网证据，再生成详细口播"
+
+
+def _fallback_viewer_benefit(item: dict) -> str:
+    audience = _clean_viewer_text(str(item.get("audience") or ""))
+    if audience:
+        return f"适合{audience}先判断是否值得试用"
+    return "适合先收藏，等补足功能证据后再决定是否实测"
+
+
+def _proof_point(item: dict, stars: int, growth_num: int) -> str:
+    proof = _first_clean(str(item.get("proof_point") or ""), str(item.get("recommendation") or ""))
+    if proof:
+        return proof
+    topics = [str(topic) for topic in item.get("topics") or [] if str(topic).strip()]
+    parts = []
+    if stars:
+        parts.append(f"当前 {_star_display(stars)} stars")
+    if growth_num:
+        parts.append(f"日均增量约 +{_compact_number(growth_num)}")
+    if topics:
+        parts.append("标签：" + " / ".join(topics[:3]))
+    if item.get("homepage"):
+        parts.append("有官网或演示页可核对")
+    return "；".join(parts) or "公开信息不足，建议补 README 摘要后再入榜"
+
+
+def _visual_asset(item: dict) -> tuple[str, str]:
+    homepage = str(item.get("homepage") or "").strip()
+    if homepage:
+        return "官网 / 演示页", homepage
+    for key in ("readme_image_url", "image_url", "screenshot_url"):
+        source = str(item.get(key) or "").strip()
+        if source:
+            return "README 视觉证据", source
+    repo_url = str(item.get("repo_url") or item.get("html_url") or "").strip()
+    if repo_url:
+        return "GitHub 仓库页", repo_url
+    return "待补充真实截图", ""
+
+
+def _detail_reason(core_action: str, viewer_benefit: str, proof_point: str) -> str:
+    action = _ensure_sentence(core_action).rstrip("。")
+    benefit = _ensure_sentence(viewer_benefit).rstrip("。")
+    proof = _ensure_sentence(proof_point).rstrip("。")
+    return f"{action}；{benefit}。证据：{proof}。"
+
+
 def _project_reason(item: dict, purpose: str, outcome: str, stars: int) -> str:
     ranking = _clean_viewer_text(str(item.get("ranking_reason") or ""))
     benefit = _clean_viewer_text(str(item.get("viewer_benefit") or ""))
@@ -353,6 +506,14 @@ def _clean_viewer_text(text: str) -> str:
         "项目用途、适合人群和实际价值",
         "README",
         "仓库页做信息卡片",
+        "近期热度上升",
+        "值得关注",
+        "值得试",
+        "重点看",
+        "具体用途",
+        "实现效果",
+        "上手成本",
+        "项目描述较少",
     )
     compact = text.replace(" ", "")
     if any(phrase in text or phrase.replace(" ", "") in compact for phrase in blocked):

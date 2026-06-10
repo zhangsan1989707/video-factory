@@ -146,7 +146,7 @@ def _recommendation_reason(item: dict[str, Any]) -> str:
     tags = _topic_label(item)
     value = _localized_description(item)
     star_text = f"{stars:,}"
-    return f"{language} 项目，近期获得 {star_text} 个星标。{tags}，核心看点：{value}"
+    return f"{language} 项目，当前 {star_text} 个星标。{tags}，用途判断：{value}"
 
 
 def _risk_note(item: dict[str, Any]) -> str:
@@ -208,7 +208,7 @@ def _localized_description(item: dict[str, Any]) -> str:
     description = item.get("description") or ""
     text = _project_text(item)
     if not description:
-        return "项目描述较少，需要先打开仓库确认具体用途。"
+        return "缺少项目描述，建议跳过或人工确认后再入榜。"
     if _has_any_keyword(text, ("ppt", "powerpoint", "presentation", "slide", "slides")):
         return "用来生成或整理 PPT，把主题、结构和页面初稿更快搭出来。"
     if _has_any_keyword(text, ("figma", "design", "designer", "ui", "interface", "prototype")):
@@ -227,7 +227,12 @@ def _localized_description(item: dict[str, Any]) -> str:
         return "偏数据处理或分析工具，重点是降低整理、查询或分析数据的成本。"
     if _has_any_keyword(text, ("cli", "terminal", "shell", "developer")):
         return "偏开发者工具，重点是把重复命令或工程流程收拢成更短路径。"
-    return "近期热度上升，重点看它的具体用途、实现效果和上手成本。"
+    return f"仓库自述为“{_short_text(description, 54)}”，需要补充 README 或官网证据后再生成口播。"
+
+
+def _short_text(text: str, limit: int) -> str:
+    text = " ".join(text.split()).strip()
+    return text if len(text) <= limit else text[:limit].rstrip()
 
 
 def _topic_label(item: dict[str, Any]) -> str:

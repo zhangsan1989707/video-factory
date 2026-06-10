@@ -627,8 +627,8 @@ body {
         <div class="rank-num">{{ "%02d" | format(p.rank) }}</div>
         <div class="rank-content">
           <div class="rank-repo">{{ p.name }}</div>
-          <div class="rank-owner">{{ p.owner }} · {{ p.tagline }}</div>
-          <div class="rank-desc">{{ p.description }}</div>
+          <div class="rank-owner">{{ p.owner }} · {{ p.hook }}</div>
+          <div class="rank-desc">{{ p.proof_point }}</div>
           <div class="rank-footer">
             <div class="rank-lang"><div class="rank-lang-dot" style="background:{{ p.language_color }}"></div>{{ p.language }}</div>
             <div class="rank-stars">★ {{ p.stars_display }}</div>
@@ -672,7 +672,7 @@ body {
       <div class="detail-hook">⭐ {{ top1.hook }}</div>
       <div class="detail-owner-row">
         <div class="owner-avatar">{{ top1.owner_initial }}</div>
-        <span class="detail-owner">{{ top1.owner }} · MIT 开源协议</span>
+        <span class="detail-owner">{{ top1.owner }} · {{ top1.license }}</span>
         {% if top1.preview_url %}
         <span class="detail-preview">🌐 预览</span>
         {% endif %}
@@ -685,9 +685,9 @@ body {
       </div>
 
       <div class="purpose-box">
-        <div class="purpose-label">项目用途 / 实现效果</div>
-        <div class="purpose-text">{{ top1.purpose }}</div>
-        <div class="purpose-outcome">{{ top1.outcome }}</div>
+        <div class="purpose-label">事实卡 / 具体用途</div>
+        <div class="purpose-text">{{ top1.core_action }}</div>
+        <div class="purpose-outcome">{{ top1.viewer_benefit }}</div>
       </div>
 
       <div class="metrics-grid">
@@ -731,6 +731,11 @@ body {
         </div>
       </div>
 
+      <div class="reason-box">
+        <div class="reason-label">真实证据</div>
+        <div class="reason-text">{{ top1.proof_point }} · 视觉来源：{{ top1.visual_asset_label }}</div>
+      </div>
+
       <div>
         <div class="section-label">星标趋势 · 近 14 天</div>
         <div class="activity-chart">
@@ -743,6 +748,11 @@ body {
       <div class="reason-box">
         <div class="reason-label">上榜理由</div>
         <div class="reason-text">{{ top1.reason }}</div>
+      </div>
+
+      <div class="reason-box">
+        <div class="reason-label">谨慎点</div>
+        <div class="reason-text">{{ top1.risk_note }}</div>
       </div>
     </div>
   </div>

@@ -86,8 +86,10 @@ class HotlistV2RenderTest(unittest.TestCase):
         project = data["projects"][0]
         self.assertEqual(project["description"], "Terminal workflow helper")
         self.assertIn("把重复命令收拢成更短路径", project["purpose"])
-        self.assertIn("功能上", project["reason"])
+        self.assertIn("把重复命令收拢成更短路径", project["reason"])
+        self.assertIn("证据", project["reason"])
         self.assertNotIn("短视频", project["reason"])
+        self.assertNotIn("功能上", project["reason"])
 
     def test_ai_projects_get_specific_hooks_outcomes_and_tags(self) -> None:
         data = _data_from_projects([
@@ -124,6 +126,29 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertIn("#AI设计", design_project["audience_tags"])
         self.assertEqual(design_project["trend_heat"], "steady")
         self.assertNotEqual(ppt_project["outcome"], design_project["outcome"])
+        self.assertEqual(data["total_new_stars"], "374")
+        self.assertIn("证据", ppt_project["reason"])
+        self.assertNotIn("值得关注", ppt_project["reason"])
+
+    def test_fact_card_replaces_empty_hotlist_copy(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/unknown",
+                "name": "unknown",
+                "description_zh": "近期热度上升，重点看它的具体用途、实现效果和上手成本。",
+                "stars": 42,
+                "daily_growth": "",
+                "language": "",
+            }
+        ])
+
+        project = data["projects"][0]
+        self.assertEqual(data["total_new_stars"], "待确认")
+        self.assertEqual(project["core_problem"], "功能证据待补齐")
+        self.assertIn("证据", project["reason"])
+        self.assertIn("待补充真实截图", project["visual_asset_label"])
+        self.assertNotIn("近期热度上升", project["description"])
+        self.assertNotIn("具体用途", project["reason"])
 
     def test_duplicate_outcomes_are_rewritten(self) -> None:
         data = _data_from_projects([
