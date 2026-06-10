@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -419,6 +420,22 @@ def list_jobs() -> list[dict[str, Any]]:
             continue
         jobs.append(job)
     return sorted(jobs, key=lambda job: (str(job.get("updated_at") or ""), str(job.get("id") or "")), reverse=True)
+
+
+def delete_job(job_id: str) -> dict[str, Any]:
+    _validate_job_id(job_id)
+    job = read_job(job_id)
+    if not job or str(job.get("id") or "") != job_id:
+        raise ValueError(f"任务不存在: {job_id}")
+    job_dir = JOBS_DIR / job_id
+    jobs_root = JOBS_DIR.resolve()
+    if job_dir.is_symlink():
+        raise ValueError(f"任务目录不是普通目录: {job_id}")
+    resolved = job_dir.resolve()
+    if jobs_root not in resolved.parents or not resolved.is_dir():
+        raise ValueError(f"任务目录不存在: {job_id}")
+    shutil.rmtree(resolved)
+    return {"ok": True, "job_id": job_id}
 
 
 def append_log(job_id: str, message: str) -> None:

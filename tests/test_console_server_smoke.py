@@ -285,6 +285,88 @@ class ConsoleServerSmokeTest(unittest.TestCase):
         self.assertEqual(detail["job"]["stage"], "collecting_candidates")
         self.assertEqual(saved["status"], "awaiting_input")
 
+    def test_delete_job_endpoint_removes_history_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+            ):
+                job = create_job("GH-HOTLIST-20990101-DELETE", {})
+                (jobs_dir / job["id"] / "preview.png").write_bytes(b"image")
+
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                try:
+                    result = _delete(base_url, f"/api/jobs/{job['id']}")
+                    jobs = _get(base_url, "/api/jobs")
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+                job_dir_exists = (jobs_dir / job["id"]).exists()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["job_id"], "GH-HOTLIST-20990101-DELETE")
+        self.assertEqual(jobs["jobs"], [])
+        self.assertFalse(job_dir_exists)
+
+    def test_delete_job_endpoint_rejects_active_job(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+                patch("src.console.server.is_active", return_value=True),
+            ):
+                job = create_job("GH-HOTLIST-20990101-ACTIVE", {})
+
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                try:
+                    status = _delete_status(base_url, f"/api/jobs/{job['id']}")
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+                job_dir_exists = (jobs_dir / job["id"]).exists()
+
+        self.assertEqual(status, 400)
+        self.assertTrue(job_dir_exists)
+
+    def test_create_job_endpoint_allows_new_job_while_another_job_is_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+                patch("src.console.server.is_active", return_value=True),
+            ):
+                create_job("GH-HOTLIST-20990101-ACTIVE", {})
+
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                try:
+                    created = _post(base_url, "/api/jobs", {"project_count": 2})
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+        self.assertTrue(created["job"]["id"].startswith("GH-HOTLIST-"))
+        self.assertNotEqual(created["job"]["id"], "GH-HOTLIST-20990101-ACTIVE")
+
     def test_provider_test_endpoint_uses_inline_provider_config(self) -> None:
         seen = {}
 
@@ -633,6 +715,21 @@ def _post_status(base_url: str, path: str, payload: dict) -> int:
 def _get(base_url: str, path: str) -> dict:
     with urllib.request.urlopen(base_url + path, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _delete(base_url: str, path: str) -> dict:
+    request = urllib.request.Request(base_url + path, method="DELETE")
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _delete_status(base_url: str, path: str) -> int:
+    request = urllib.request.Request(base_url + path, method="DELETE")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
 
 
 def _get_status(url: str) -> int:

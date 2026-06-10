@@ -1166,7 +1166,7 @@ function setBusy(isBusy) {
     button.disabled = button.dataset.wasDisabled === "1";
     delete button.dataset.wasDisabled;
   });
-  if (!isBusy && state.currentJob) updateActionState(state.currentJob);
+  if (!isBusy) updateActionState(state.currentJob || { stage: "draft_pending", status: "draft_pending" });
 }
 
 function escapeHtml(value) {

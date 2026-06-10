@@ -701,6 +701,29 @@ textarea {
   text-align: left;
 }
 
+.history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.history-open {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.history-open:hover {
+  background: transparent;
+}
+
+.history-delete {
+  color: var(--error);
+}
+
 .artifact a {
   color: inherit;
   text-decoration: none;
@@ -730,7 +753,7 @@ textarea {
 }
 
 .artifact code,
-.history-item code,
+.history-open code,
 .preview-thumb code {
   display: block;
   margin-bottom: 5px;

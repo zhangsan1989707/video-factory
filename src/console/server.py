@@ -33,6 +33,7 @@ from src.console.store import (
     JOBS_DIR,
     append_log,
     config_snapshot,
+    delete_job,
     ensure_storage,
     job_artifacts,
     list_jobs,
@@ -213,6 +214,26 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                         return
             self._not_found()
         except (json.JSONDecodeError, ValueError) as exc:
+            self._json({"error": str(exc)}, status=_error_status(exc))
+        except Exception as exc:
+            self._json({"error": str(exc)}, status=500)
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        try:
+            if parsed.path.startswith("/api/jobs/"):
+                parts = parsed.path.strip("/").split("/")
+                if len(parts) == 3:
+                    job_id = parts[2]
+                    if not self._job_exists(job_id):
+                        self._not_found()
+                        return
+                    if is_active(job_id):
+                        raise ValueError("任务正在运行，不能删除")
+                    self._json(delete_job(job_id))
+                    return
+            self._not_found()
+        except ValueError as exc:
             self._json({"error": str(exc)}, status=_error_status(exc))
         except Exception as exc:
             self._json({"error": str(exc)}, status=500)

@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -12,6 +12,7 @@ async function run() {
   testTemplatePayloadUsesActiveTemplate();
   testRenderArtifactsShowsPreviewAndOfficialVideo();
   testRenderArtifactSummaryShowsPublishMetadata();
+  testRenderHistoryJobsShowsOpenAndDeleteActions();
   testRenderStageTimelineShowsRecentHistory();
   testAppendLogLineUsesRealNewlines();
   testRenderJobRefreshesEmbeddedStageHistory();
@@ -245,6 +246,32 @@ function testRenderArtifactSummaryShowsPublishMetadata() {
   assert.match(nodes.artifactSummary.innerHTML, /GH-HOTLIST-20990101-001-测试视频-v2\.mp4/);
   assert.match(nodes.artifactSummary.innerHTML, /GH-HOTLIST-20990101-001-%E6%B5%8B%E8%AF%95%E8%A7%86%E9%A2%91-v2\.mp4/);
   assert.match(nodes.artifactSummary.innerHTML, /GitHub \/ 开源项目 \/ AI工具/);
+}
+
+function testRenderHistoryJobsShowsOpenAndDeleteActions() {
+  const nodes = {
+    historyList: {
+      className: "",
+      innerHTML: "",
+      querySelectorAll() {
+        return [];
+      },
+    },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  renderHistoryJobs([
+    { id: "GH-HOTLIST-20990101-001", status: "completed", stage: "completed" },
+  ]);
+
+  assert.equal(nodes.historyList.className, "history-list");
+  assert.match(nodes.historyList.innerHTML, /data-job="GH-HOTLIST-20990101-001"/);
+  assert.match(nodes.historyList.innerHTML, /data-delete-job="GH-HOTLIST-20990101-001"/);
+  assert.match(nodes.historyList.innerHTML, /删除/);
 }
 
 function testRenderStageTimelineShowsRecentHistory() {
