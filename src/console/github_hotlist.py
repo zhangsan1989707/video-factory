@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -20,6 +21,7 @@ CACHE_TTL_SECONDS = {
     "weekly": 2 * 60 * 60,
     "monthly": 12 * 60 * 60,
 }
+CACHE_SCHEMA_VERSION = 2
 
 
 def created_after(time_window: str) -> str:
@@ -73,40 +75,51 @@ async def collect_candidates_with_meta(
         data = response.json()
         rate_limit = _rate_limit_label(response.headers)
 
-    candidates = []
-    for index, item in enumerate(data.get("items", [])[:limit], start=1):
-        owner = item.get("owner") or {}
-        candidates.append({
-            "rank": index,
-            "full_name": item.get("full_name", ""),
-            "name": item.get("name", ""),
-            "owner": owner.get("login", ""),
-            "description": item.get("description") or "",
-            "description_zh": _localized_description(item),
-            "stars": item.get("stargazers_count", 0),
-            "daily_growth": _estimated_daily_growth(item),
-            "forks": item.get("forks_count", 0),
-            "issues": item.get("open_issues_count", 0),
-            "language": item.get("language") or "",
-            "topics": item.get("topics") or [],
-            "repo_url": item.get("html_url", ""),
-            "homepage": item.get("homepage") or "",
-            "created_at": item.get("created_at", ""),
-            "updated_at": item.get("updated_at", ""),
-            "score": _content_score(item),
-            "recommendation": _recommendation_reason(item),
-            "risk": _risk_note(item),
-            "audience": _audience(item),
-            "visual_potential": _visual_potential(item),
-            "selected": index <= 10,
-        })
+        candidates = []
+        for index, item in enumerate(data.get("items", [])[:limit], start=1):
+            owner = item.get("owner") or {}
+            description = item.get("description") or ""
+            readme_excerpt = "" if description else await _fetch_readme_excerpt(client, headers, item)
+            enriched = {**item, "readme_excerpt": readme_excerpt}
+            description_source = "github_description" if description else ("readme" if readme_excerpt else "missing")
+            candidates.append({
+                "rank": index,
+                "full_name": item.get("full_name", ""),
+                "name": item.get("name", ""),
+                "owner": owner.get("login", ""),
+                "description": description,
+                "description_zh": _localized_description(enriched),
+                "description_source": description_source,
+                "repo_description_missing": not bool(description),
+                "readme_excerpt": readme_excerpt,
+                "stars": item.get("stargazers_count", 0),
+                "daily_growth": _estimated_daily_growth(item),
+                "forks": item.get("forks_count", 0),
+                "issues": item.get("open_issues_count", 0),
+                "language": item.get("language") or "",
+                "topics": item.get("topics") or [],
+                "repo_url": item.get("html_url", ""),
+                "homepage": item.get("homepage") or "",
+                "created_at": item.get("created_at", ""),
+                "updated_at": item.get("updated_at", ""),
+                "score": _content_score(enriched),
+                "recommendation": _recommendation_reason(enriched),
+                "risk": _risk_note(enriched),
+                "audience": _audience(enriched),
+                "visual_potential": _visual_potential(enriched),
+                "selected": index <= 10,
+            })
     result = {"items": candidates, "rate_limit": rate_limit, "cache_status": "fresh"}
     _write_cache(cache_key, result)
     return result
 
 
 def _cache_key(time_window: str, limit: int, params: dict[str, Any]) -> str:
-    payload = json.dumps({"time_window": time_window, "limit": limit, "params": params}, ensure_ascii=False, sort_keys=True)
+    payload = json.dumps(
+        {"version": CACHE_SCHEMA_VERSION, "time_window": time_window, "limit": limit, "params": params},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -152,6 +165,30 @@ def _cache_result(payload: dict[str, Any], status: str) -> dict[str, Any]:
         "rate_limit": payload.get("rate_limit") or "未检测",
         "cache_status": status,
     }
+
+
+async def _fetch_readme_excerpt(client: httpx.AsyncClient, headers: dict[str, str], item: dict[str, Any]) -> str:
+    full_name = str(item.get("full_name") or "")
+    if "/" not in full_name:
+        return ""
+    try:
+        response = await client.get(f"https://api.github.com/repos/{full_name}/readme", headers=headers)
+    except httpx.HTTPError:
+        return ""
+    if response.status_code >= 400:
+        return ""
+    try:
+        payload = response.json()
+    except ValueError:
+        return _short_text(response.text, 900)
+    content = str(payload.get("content") or "")
+    if not content:
+        return ""
+    try:
+        readme = base64.b64decode(content).decode("utf-8", errors="replace")
+    except (ValueError, OSError):
+        return ""
+    return _short_text(readme, 900)
 
 
 def _is_rate_limited(response: httpx.Response) -> bool:
@@ -203,7 +240,6 @@ def _content_score(item: dict[str, Any]) -> int:
     score = 40
     stars = int(item.get("stargazers_count") or 0)
     topics = item.get("topics") or []
-    description = item.get("description") or ""
     if stars >= 1000:
         score += 25
     elif stars >= 300:
@@ -216,7 +252,7 @@ def _content_score(item: dict[str, Any]) -> int:
         score += 8
     if topics:
         score += min(12, len(topics) * 3)
-    if _has_any_keyword(f"{description} {' '.join(topics)}", ("ai", "agent", "llm", "video")):
+    if _has_any_keyword(_project_text(item), ("ai", "agent", "llm", "video")):
         score += 10
     return min(score, 100)
 
@@ -233,7 +269,9 @@ def _recommendation_reason(item: dict[str, Any]) -> str:
 def _risk_note(item: dict[str, Any]) -> str:
     description = item.get("description") or ""
     if not description:
-        return "描述缺失，生成口播前需要人工确认用途。"
+        if item.get("readme_excerpt"):
+            return "GitHub 简介字段未填写，用途来自 README，生成口播前建议人工确认。"
+        return "GitHub 简介字段缺失，生成口播前需要人工确认用途。"
     if int(item.get("stargazers_count") or 0) < 50:
         return "热度偏低，建议确认是否真的适合入榜。"
     return "暂无明显风险，仍需避免夸大项目能力。"
@@ -280,6 +318,7 @@ def _project_text(item: dict[str, Any]) -> str:
         str(item.get("name") or ""),
         str(item.get("full_name") or ""),
         str(item.get("description") or ""),
+        str(item.get("readme_excerpt") or "")[:1200],
         " ".join(str(topic) for topic in item.get("topics") or []),
         str(item.get("language") or ""),
     ]).lower()
@@ -289,7 +328,10 @@ def _localized_description(item: dict[str, Any]) -> str:
     description = item.get("description") or ""
     text = _project_text(item)
     if not description:
-        return "缺少项目描述，建议跳过或人工确认后再入榜。"
+        intro = _readme_intro(str(item.get("readme_excerpt") or ""))
+        if intro:
+            return f"README 显示：{_short_text(intro, 54)}。"
+        return "GitHub 简介字段缺失，建议先打开 README 或官网确认用途。"
     if _has_any_keyword(text, ("ppt", "powerpoint", "presentation", "slide", "slides")):
         return "用来生成或整理 PPT，把主题、结构和页面初稿更快搭出来。"
     if _has_any_keyword(text, ("figma", "design", "designer", "ui", "interface", "prototype")):
@@ -309,6 +351,28 @@ def _localized_description(item: dict[str, Any]) -> str:
     if _has_any_keyword(text, ("cli", "terminal", "shell", "developer")):
         return "偏开发者工具，重点是把重复命令或工程流程收拢成更短路径。"
     return f"仓库自述为“{_short_text(description, 54)}”，需要补充 README 或官网证据后再生成口播。"
+
+
+def _readme_intro(readme: str) -> str:
+    in_code = False
+    for raw_line in readme.splitlines():
+        line = raw_line.strip()
+        if line.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        if not line or line.startswith(("!", "<", "|", "---")):
+            continue
+        if re.fullmatch(r"\[!\[[^\]]*]\([^)]+\)]\([^)]+\)", line):
+            continue
+        cleaned = re.sub(r"^#+\s*", "", line)
+        cleaned = re.sub(r"^[-*]\s+", "", cleaned)
+        cleaned = re.sub(r"\[([^\]]+)]\([^)]+\)", r"\1", cleaned)
+        cleaned = re.sub(r"[*_`>#]", "", cleaned).strip()
+        if len(cleaned) >= 18:
+            return cleaned
+    return ""
 
 
 def _short_text(text: str, limit: int) -> str:

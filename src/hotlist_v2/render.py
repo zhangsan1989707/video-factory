@@ -247,8 +247,14 @@ def _fork_display(item: dict) -> str:
 
 
 def _project_description(item: dict) -> str:
-    description_zh = _clean_viewer_text(str(item.get("description_zh") or ""))
+    raw_description_zh = " ".join(str(item.get("description_zh") or "").split()).strip()
+    description_zh = _clean_viewer_text(raw_description_zh)
     description = _clean_viewer_text(str(item.get("description") or ""))
+    if not description_zh and raw_description_zh.startswith("README 显示："):
+        description_zh = raw_description_zh.removeprefix("README 显示：").strip(" 。")
+    readme_intro = _readme_intro(str(item.get("readme") or item.get("readme_excerpt") or ""))
+    if not description_zh and not description and readme_intro:
+        return _ensure_sentence(readme_intro)
     return description_zh or description or "项目描述较少，需要打开仓库确认具体用途。"
 
 
@@ -358,7 +364,13 @@ def _project_fact_card(
         outcome,
     ) or _fallback_viewer_benefit(item)
     proof_point = _proof_point(item, stars, growth_num)
-    risk_note = _first_clean(str(item.get("risk") or "")) or "只按仓库公开信息判断，具体效果建议实测后再展开。"
+    risk_note = _first_clean(str(item.get("risk") or ""))
+    if not risk_note and item.get("repo_description_missing"):
+        if item.get("readme") or item.get("readme_excerpt"):
+            risk_note = "GitHub 简介字段未填写，用途来自 README，生成口播前建议人工确认。"
+        else:
+            risk_note = "GitHub 简介字段缺失，生成口播前需要人工确认用途。"
+    risk_note = risk_note or "只按仓库公开信息判断，具体效果建议实测后再展开。"
     one_line_hook = _first_clean(hook, core_problem) or _short_text(name, 15)
     visual_label, visual_source = _visual_asset(item)
     detail_reason = _detail_reason(core_action, viewer_benefit, proof_point)
@@ -399,6 +411,9 @@ def _is_weak_copy(text: str) -> bool:
         "需要打开仓库确认",
         "需要补充README",
         "需要补充一个真实使用场景",
+        "缺少项目描述",
+        "建议跳过",
+        "人工确认后再入榜",
     )
     return any(phrase in text or phrase.replace(" ", "") in compact for phrase in weak_phrases)
 
@@ -434,6 +449,28 @@ def _fallback_viewer_benefit(item: dict) -> str:
     if audience:
         return f"适合{audience}先判断是否值得试用"
     return "适合先收藏，等补足功能证据后再决定是否实测"
+
+
+def _readme_intro(readme: str) -> str:
+    in_code = False
+    for raw_line in readme.splitlines():
+        line = raw_line.strip()
+        if line.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        if not line or line.startswith(("!", "<", "|", "---")):
+            continue
+        if re.fullmatch(r"\[!\[[^\]]*]\([^)]+\)]\([^)]+\)", line):
+            continue
+        cleaned = re.sub(r"^#+\s*", "", line)
+        cleaned = re.sub(r"^[-*]\s+", "", cleaned)
+        cleaned = re.sub(r"\[([^\]]+)]\([^)]+\)", r"\1", cleaned)
+        cleaned = re.sub(r"[*_`>#]", "", cleaned).strip()
+        if len(cleaned) >= 18:
+            return cleaned
+    return ""
 
 
 def _proof_point(item: dict, stars: int, growth_num: int) -> str:

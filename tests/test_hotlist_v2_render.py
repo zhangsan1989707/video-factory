@@ -150,6 +150,30 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertNotIn("近期热度上升", project["description"])
         self.assertNotIn("具体用途", project["reason"])
 
+    def test_missing_repo_description_renders_readme_purpose(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "vorpus/performativeUI",
+                "name": "performativeUI",
+                "description": "",
+                "description_zh": "README 显示：AI-native React components for satirical product interfaces.",
+                "repo_description_missing": True,
+                "description_source": "readme",
+                "readme_excerpt": "# performative-ui\n\nAI-native React components for satirical product interfaces.",
+                "stars": 545,
+                "daily_growth": "+272",
+                "language": "TypeScript",
+                "repo_url": "https://github.com/vorpus/performativeUI",
+            }
+        ])
+
+        project = data["projects"][0]
+        self.assertIn("AI-native React components", project["description"])
+        self.assertIn("AI-native React components", project["purpose"])
+        self.assertIn("GitHub 简介字段未填写", project["risk_note"])
+        self.assertNotIn("缺少项目描述", project["description"])
+        self.assertNotIn("建议跳过", project["reason"])
+
     def test_duplicate_outcomes_are_rewritten(self) -> None:
         data = _data_from_projects([
             {

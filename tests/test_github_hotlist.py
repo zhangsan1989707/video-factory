@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -119,6 +120,28 @@ class GithubHotlistTest(unittest.TestCase):
         self.assertNotIn("围绕 AI 工具或模型工作流", ppt)
         self.assertNotIn("围绕 AI 工具或模型工作流", design)
 
+    def test_missing_repo_description_uses_readme_context(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/repos/demo/alpha/readme"):
+                readme = "# performative-ui\n\nAI-native React components for satirical product interfaces."
+                return httpx.Response(
+                    200,
+                    json={"content": base64.b64encode(readme.encode("utf-8")).decode("ascii"), "encoding": "base64"},
+                )
+            return _github_response(description=None, topics=["react", "ui"], language="TypeScript")
+
+        result = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=True))
+        item = result["items"][0]
+
+        self.assertEqual(item["description"], "")
+        self.assertEqual(item["description_source"], "readme")
+        self.assertEqual(item["repo_description_missing"], True)
+        self.assertIn("README 显示", item["description_zh"])
+        self.assertIn("AI-native React components", item["description_zh"])
+        self.assertNotIn("GitHub 简介字段", item["description_zh"])
+        self.assertIn("GitHub 简介字段未填写", item["risk"])
+        self.assertNotIn("建议跳过", item["description_zh"])
+
 
 async def _collect_with_transport(
     token: str,
@@ -143,7 +166,11 @@ async def _collect_with_transport(
             httpx.AsyncClient = original
 
 
-def _github_response() -> httpx.Response:
+def _github_response(
+    description: str | None = "AI agent workflow",
+    topics: list[str] | None = None,
+    language: str = "Python",
+) -> httpx.Response:
     return httpx.Response(
         200,
         headers={
@@ -157,12 +184,12 @@ def _github_response() -> httpx.Response:
                     "full_name": "demo/alpha",
                     "name": "alpha",
                     "owner": {"login": "demo"},
-                    "description": "AI agent workflow",
+                    "description": description,
                     "stargazers_count": 120,
                     "forks_count": 17,
                     "open_issues_count": 3,
-                    "language": "Python",
-                    "topics": ["ai"],
+                    "language": language,
+                    "topics": topics if topics is not None else ["ai"],
                     "html_url": "https://github.com/demo/alpha",
                     "homepage": "",
                     "created_at": "2026-01-01T00:00:00Z",
