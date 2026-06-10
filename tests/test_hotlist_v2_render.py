@@ -36,6 +36,25 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertEqual(len(script.segments), 13)
         self.assertGreater(script.total_duration, 16)
 
+    def test_audio_durations_extend_visual_timeline(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "一个值得关注的项目。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+
+        timeline = _timeline_context(data, segment_durations={"intro": 9.2, "project-1": 11.0})
+        script = _build_script_from_timeline(timeline)
+
+        self.assertEqual(timeline["intro_screen"]["duration"], 9.6)
+        self.assertEqual(timeline["detail_screens"][0]["duration"], 11.4)
+        self.assertEqual(timeline["list_screen"]["start"], 9.6)
+        self.assertEqual(script.segments[2].timestamp, timeline["detail_screens"][0]["start"])
+
 
 if __name__ == "__main__":
     unittest.main()

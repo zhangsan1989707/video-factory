@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import subprocess
@@ -13,7 +14,7 @@ from rich.console import Console
 
 from src.hotlist_v2.fetch import fetch_trending
 from src.hotlist_v2.template import DEFAULT_STYLE, render_composition
-from src.tts.edge_tts import generate_all_audio
+from src.tts.edge_tts import generate_all_audio, get_audio_duration
 from src.models import VideoScript, ScriptSegment
 
 console = Console()
@@ -105,27 +106,29 @@ async def render_hotlist_v2_from_data(
     work_dir = out.parent
     work_dir.mkdir(parents=True, exist_ok=True)
     timeline = _timeline_context(data, durations, narration_segments)
-    render_data = {**data, **timeline}
-
-    data_path = work_dir / "trending-data.json"
-    data_path.write_text(json.dumps(render_data, indent=2, ensure_ascii=False), encoding="utf-8")
     console.print(f"  ✓ Found {data['total_projects']} projects, {data['total_languages']} languages")
 
-    # Step 2: Render HTML composition
-    console.print("[bold cyan]Step 2/5:[/] Rendering HTML composition...")
-    html_path = work_dir / "composition.html"
-    render_composition(render_data, html_path, durations, style=style)
-    console.print(f"  ✓ HTML composition: {html_path}")
-
-    # Step 3: Generate TTS narration
-    console.print("[bold cyan]Step 3/5:[/] Generating TTS narration...")
+    # Step 2: Generate TTS narration first so the visual timeline can follow real speech length.
+    console.print("[bold cyan]Step 2/5:[/] Generating TTS narration...")
     script = _build_script_from_timeline(timeline)
     script_path = work_dir / "script.json"
-    script_path.write_text(json.dumps(script.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
     shutil.rmtree(work_dir / "audio", ignore_errors=True)
     await generate_all_audio(script, work_dir)
     audio_dir = work_dir / "audio"
+    segment_durations = _audio_segment_durations(script, audio_dir)
+    timeline = _timeline_context(data, durations, narration_segments, segment_durations=segment_durations)
+    script = _build_script_from_timeline(timeline)
+    script_path.write_text(json.dumps(script.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
     console.print(f"  ✓ TTS audio: {audio_dir}")
+
+    # Step 3: Render HTML composition
+    console.print("[bold cyan]Step 3/5:[/] Rendering HTML composition...")
+    render_data = {**data, **timeline}
+    data_path = work_dir / "trending-data.json"
+    data_path.write_text(json.dumps(render_data, indent=2, ensure_ascii=False), encoding="utf-8")
+    html_path = work_dir / "composition.html"
+    render_composition(render_data, html_path, durations, style=style)
+    console.print(f"  ✓ HTML composition: {html_path}")
 
     # Step 4: Render video with HyperFrames
     console.print("[bold cyan]Step 4/5:[/] Rendering video with HyperFrames...")
@@ -287,11 +290,13 @@ def _timeline_context(
     data: dict,
     durations: dict[str, int] | None = None,
     narration_segments: list[dict] | None = None,
+    segment_durations: dict[str, float] | None = None,
 ) -> dict:
     """Build one shared timeline for the HTML composition and TTS script."""
     projects = data.get("projects") or []
     narration = _narration_by_id(narration_segments or [])
     duration_overrides = durations or {}
+    audio_durations = segment_durations or {}
 
     intro_text = _narration_text(
         narration,
@@ -305,10 +310,10 @@ def _timeline_context(
         "这期都是真实开源项目。你想先看哪个？评论区告诉我。",
     )
 
-    intro_duration = _duration_override(duration_overrides, "intro_duration") or _spoken_duration(intro_text, 5.0, 7.0)
-    list_duration = _duration_override(duration_overrides, "list_duration") or _spoken_duration(list_text, 6.0, 8.0)
+    intro_duration = _screen_duration("intro", _duration_override(duration_overrides, "intro_duration") or _spoken_duration(intro_text, 5.0, 7.0), audio_durations)
+    list_duration = _screen_duration("list", _duration_override(duration_overrides, "list_duration") or _spoken_duration(list_text, 6.0, 8.0), audio_durations)
     detail_base = _duration_override(duration_overrides, "detail_duration")
-    hook_duration = _duration_override(duration_overrides, "hook_duration") or _spoken_duration(hook_text, 5.5, 8.0)
+    hook_duration = _screen_duration("hook", _duration_override(duration_overrides, "hook_duration") or _spoken_duration(hook_text, 5.5, 8.0), audio_durations)
 
     cursor = 0.0
     intro_screen = {
@@ -331,13 +336,14 @@ def _timeline_context(
     detail_screens = []
     for index, project in enumerate(projects, start=1):
         project_text = _narration_text(narration, f"project-{index}", _project_narration(project))
-        duration = detail_base or _spoken_duration(project_text, 5.4, 8.5)
+        target = f"project-{index}"
+        duration = _screen_duration(target, detail_base or _spoken_duration(project_text, 5.4, 8.5), audio_durations)
         detail_screens.append({
             "screen_id": f"screen-detail-{index:02d}",
             "start": cursor,
             "duration": duration,
             "narration": project_text,
-            "target": f"project-{index}",
+            "target": target,
             "project": project,
         })
         cursor += duration
@@ -412,6 +418,22 @@ def _spoken_duration(text: str, minimum: float, maximum: float) -> float:
     return round(max(minimum, min(maximum, estimate)), 1)
 
 
+def _screen_duration(target: str, visual_duration: float, audio_durations: dict[str, float]) -> float:
+    audio_duration = audio_durations.get(target)
+    if not audio_duration:
+        return round(visual_duration, 1)
+    return math.ceil(max(visual_duration, audio_duration + 0.35) * 10) / 10
+
+
+def _audio_segment_durations(script: VideoScript, audio_dir: Path) -> dict[str, float]:
+    durations = {}
+    for index, segment in enumerate(script.segments):
+        audio_path = audio_dir / f"segment-{index:03d}.mp3"
+        if audio_path.exists():
+            durations[segment.target] = get_audio_duration(audio_path)
+    return durations
+
+
 def _list_narration(projects: list[dict]) -> str:
     if not projects:
         return "先看完整榜单，本期 GitHub 热门项目都在这里。"
@@ -466,18 +488,18 @@ def _mix_audio(
     output_path: Path,
 ) -> None:
     """Mix TTS audio segments into the rendered video using FFmpeg."""
-    from moviepy import AudioFileClip, VideoFileClip, concatenate_audioclips
+    from moviepy import AudioFileClip, CompositeAudioClip, VideoFileClip
 
     video = VideoFileClip(str(video_path))
     audio_clips = []
     for i, segment in enumerate(script.segments):
         audio_path = audio_dir / f"segment-{i:03d}.mp3"
         if audio_path.exists():
-            clip = AudioFileClip(str(audio_path))
+            clip = AudioFileClip(str(audio_path)).with_start(float(segment.timestamp))
             audio_clips.append(clip)
 
     if audio_clips:
-        final_audio = concatenate_audioclips(audio_clips)
+        final_audio = CompositeAudioClip(audio_clips).with_duration(video.duration)
         if final_audio.duration > video.duration:
             final_audio = final_audio.subclipped(0, video.duration)
         video = video.with_audio(final_audio)
