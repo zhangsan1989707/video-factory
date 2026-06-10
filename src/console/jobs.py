@@ -1390,8 +1390,13 @@ def _viewer_safe_value(text: str) -> str:
         "终端截图可展示",
         "截图可展示",
         "画面潜力",
+        "画面表达空间",
         "信息卡片",
         "可用 README、标签和仓库页",
+        "适合做成中文短视频",
+        "短视频切入点",
+        "适合讲清楚",
+        "项目用途、适合人群和实际价值",
     )
     compact = text.replace(" ", "")
     for phrase in blocked:

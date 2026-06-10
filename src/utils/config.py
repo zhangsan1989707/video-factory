@@ -22,7 +22,7 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
 
 # TTS 配置
 TTS_VOICE = "zh-CN-YunxiNeural"
-TTS_RATE = "+40%"
+TTS_RATE = "+30%"
 
 # 视频配置
 VIDEO_FPS = 30
@@ -37,6 +37,6 @@ MAX_DURATION = 60
 
 # BGM 配置
 BGM_DIR = ROOT_DIR / "bgm"
-BGM_VOLUME = 0.15
+BGM_VOLUME = 0.13
 BGM_FADE_IN = 1.0
 BGM_FADE_OUT = 1.0

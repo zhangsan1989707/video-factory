@@ -160,24 +160,29 @@ def _data_from_projects(projects: list[dict]) -> dict:
         owner, name = _split_full_name(full_name)
         name = str(item.get("name") or name or full_name)
         topics = [str(topic) for topic in (item.get("topics") or [])[:8]]
+        description = _project_description(item)
+        purpose = _project_purpose(item, description)
+        outcome = _project_outcome(item, description)
         normalized.append({
             "rank": index,
             "name": name,
             "owner": owner,
             "owner_initial": owner[:1].upper() if owner else "?",
             "tagline": str(item.get("tagline") or item.get("audience") or "开源热点"),
-            "description": str(item.get("description_zh") or item.get("description") or ""),
+            "description": description,
+            "purpose": purpose,
+            "outcome": outcome,
             "language": language,
             "language_color": language_color,
             "stars": stars,
             "stars_display": _star_display(stars),
             "daily_growth": str(item.get("daily_growth") or item.get("stars_delta") or "热度上升"),
-            "forks": int(item.get("forks") or item.get("forks_count") or 0),
+            "forks": _fork_display(item),
             "issues": int(item.get("issues") or item.get("open_issues_count") or 0),
             "topics": topics,
             "tech_tags": _tech_tags(topics, language),
             "star_history": _star_history(stars, index),
-            "reason": str(item.get("project_highlight") or item.get("viewer_benefit") or item.get("recommendation") or item.get("ranking_reason") or ""),
+            "reason": _project_reason(item, purpose, outcome, stars),
             "repo_url": str(item.get("repo_url") or item.get("html_url") or ""),
         })
 
@@ -209,6 +214,97 @@ def _star_display(stars: int) -> str:
     if stars >= 1000:
         return f"{stars / 1000:.1f}k"
     return str(stars)
+
+
+def _fork_display(item: dict) -> str:
+    for key in ("forks", "forks_count"):
+        if key in item and item.get(key) is not None:
+            try:
+                return f"{int(item.get(key) or 0):,}"
+            except (TypeError, ValueError):
+                return str(item.get(key))
+    return "未知"
+
+
+def _project_description(item: dict) -> str:
+    description_zh = _clean_viewer_text(str(item.get("description_zh") or ""))
+    description = _clean_viewer_text(str(item.get("description") or ""))
+    return description_zh or description or "项目描述较少，需要打开仓库确认具体用途。"
+
+
+def _project_purpose(item: dict, description: str) -> str:
+    for key in ("project_highlight", "viewer_benefit"):
+        text = _clean_viewer_text(str(item.get(key) or ""))
+        if text:
+            return text
+    return description
+
+
+def _project_outcome(item: dict, description: str) -> str:
+    text = _project_text(item)
+    if _has_keyword(text, ("ai", "agent", "llm", "model", "rag")):
+        return "把模型能力落到具体任务和工作流里。"
+    if _has_keyword(text, ("video", "image", "audio", "visual", "3d")):
+        return "减少内容生成、处理或可视化时的来回切换。"
+    if _has_keyword(text, ("react", "vue", "frontend", "ui", "css")):
+        return "更快做出可见界面，降低样式和交互试错成本。"
+    if _has_keyword(text, ("data", "database", "analytics", "sql")):
+        return "把数据整理、查询或分析流程变得更直接。"
+    if _has_keyword(text, ("cli", "terminal", "shell", "developer")):
+        return "把重复命令和工程操作收拢成更短路径。"
+    return description.rstrip("。") + "。"
+
+
+def _project_reason(item: dict, purpose: str, outcome: str, stars: int) -> str:
+    ranking = _clean_viewer_text(str(item.get("ranking_reason") or ""))
+    benefit = _clean_viewer_text(str(item.get("viewer_benefit") or ""))
+    highlight = _clean_viewer_text(str(item.get("project_highlight") or ""))
+    parts = []
+    if highlight and highlight != purpose:
+        parts.append(f"功能上，{highlight.rstrip('。')}。")
+    else:
+        parts.append(f"功能上，{purpose.rstrip('。')}。")
+    parts.append(f"效果上，{outcome.rstrip('。')}。")
+    if benefit and benefit not in " ".join(parts):
+        parts.append(f"价值上，{benefit.rstrip('。')}。")
+    if ranking:
+        parts.append(ranking.rstrip("。") + "。")
+    elif stars:
+        parts.append(f"{_star_display(stars)} 个 Star 说明它已经获得开发者关注。")
+    return "".join(parts)
+
+
+def _clean_viewer_text(text: str) -> str:
+    text = " ".join(text.split()).strip()
+    if not text:
+        return ""
+    blocked = (
+        "适合做成中文短视频",
+        "短视频切入点",
+        "适合讲清楚",
+        "画面表达空间",
+        "场景感讲清楚",
+        "项目用途、适合人群和实际价值",
+        "README",
+        "仓库页做信息卡片",
+    )
+    compact = text.replace(" ", "")
+    if any(phrase in text or phrase.replace(" ", "") in compact for phrase in blocked):
+        return ""
+    return text
+
+
+def _project_text(item: dict) -> str:
+    return " ".join([
+        str(item.get("description") or ""),
+        str(item.get("description_zh") or ""),
+        " ".join(str(topic) for topic in item.get("topics") or []),
+        str(item.get("language") or ""),
+    ]).lower()
+
+
+def _has_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(re.search(rf"(^|[^a-z0-9]){re.escape(keyword)}([^a-z0-9]|$)", text) for keyword in keywords)
 
 
 def _language_color(language: str) -> str:

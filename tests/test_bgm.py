@@ -23,7 +23,7 @@ class BgmTest(unittest.TestCase):
                 normalize_audio.side_effect = lambda path: path
                 post_process_video(video, bgm_path=bgm)
 
-            add_bgm.assert_called_once_with(video, bgm, video, volume=0.15)
+            add_bgm.assert_called_once_with(video, bgm, video, volume=0.13)
 
 
 if __name__ == "__main__":

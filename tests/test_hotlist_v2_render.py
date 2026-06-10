@@ -55,6 +55,40 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertEqual(timeline["list_screen"]["start"], 9.6)
         self.assertEqual(script.segments[2].timestamp, timeline["detail_screens"][0]["start"])
 
+    def test_missing_forks_render_as_unknown_instead_of_zero(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description": "CLI helper",
+                "stars": 120,
+                "language": "Python",
+            }
+        ])
+
+        self.assertEqual(data["projects"][0]["forks"], "未知")
+
+    def test_detail_copy_filters_producer_advice(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description": "Terminal workflow helper",
+                "description_zh": "适合做成中文短视频切入点：可以从项目用途、适合人群和实际价值三个角度介绍。",
+                "project_highlight": "把重复命令收拢成更短路径",
+                "viewer_benefit": "减少终端和文档之间来回切换",
+                "stars": 120,
+                "forks": 8,
+                "language": "Python",
+            }
+        ])
+
+        project = data["projects"][0]
+        self.assertEqual(project["description"], "Terminal workflow helper")
+        self.assertIn("把重复命令收拢成更短路径", project["purpose"])
+        self.assertIn("功能上", project["reason"])
+        self.assertNotIn("短视频", project["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

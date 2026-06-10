@@ -31,7 +31,7 @@ from src.planner.shot_plan import (
     generate_shot_plan,
     generate_single_review_shot_plan,
 )
-from src.utils.config import OUTPUT_DIR, TTS_VOICE, VIDEO_FPS
+from src.utils.config import BGM_VOLUME, OUTPUT_DIR, TTS_VOICE, VIDEO_FPS
 
 console = Console()
 
@@ -137,7 +137,7 @@ async def run_pipeline(
     from_plan: str | None = None,
     style: str = "default",
     no_bgm: bool = False,
-    bgm_volume: float = 0.25,
+    bgm_volume: float = BGM_VOLUME,
     bgm_path: str | None = None,
     stage_callback: Callable[[str, str], None] | None = None,
 ) -> Path:

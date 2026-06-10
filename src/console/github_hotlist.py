@@ -146,7 +146,7 @@ def _recommendation_reason(item: dict[str, Any]) -> str:
     tags = _topic_label(item)
     value = _localized_description(item)
     star_text = f"{stars:,}"
-    return f"{language} 项目，近期获得 {star_text} 个星标。{tags}，适合做成中文短视频切入点：{value}"
+    return f"{language} 项目，近期获得 {star_text} 个星标。{tags}，核心看点：{value}"
 
 
 def _risk_note(item: dict[str, Any]) -> str:
@@ -189,18 +189,18 @@ def _localized_description(item: dict[str, Any]) -> str:
     if not description:
         return "项目描述较少，需要先打开仓库确认具体用途。"
     if _has_any_keyword(text, ("aircraft", "flight", "projector", "raspberry", "hardware", "sdr")):
-        return "偏硬件、实时数据或空间展示，适合用场景感讲清楚它的玩法。"
+        return "偏硬件、实时数据或空间展示，重点是把复杂设备或数据流变成可操作场景。"
     if _has_any_keyword(text, ("video", "image", "audio", "visual", "3d")):
-        return "和多媒体生成或可视化有关，画面表达空间比较大。"
+        return "用于多媒体生成、处理或可视化，重点是把内容产出变成可复用流程。"
     if _has_any_keyword(text, ("ai", "agent", "llm", "model", "rag")):
-        return "围绕 AI 工具或模型工作流，适合讲清楚它解决的具体问题。"
+        return "围绕 AI 工具或模型工作流，重点是把模型能力接进具体任务。"
     if _has_any_keyword(text, ("react", "vue", "frontend", "ui", "css")):
-        return "偏前端或界面工具，适合用效果展示和场景对比来讲。"
+        return "偏前端或界面工具，重点是更快搭出可见界面和交互效果。"
     if _has_any_keyword(text, ("data", "database", "analytics", "sql")):
-        return "偏数据处理或分析工具，适合从使用场景和效率提升切入。"
+        return "偏数据处理或分析工具，重点是降低整理、查询或分析数据的成本。"
     if _has_any_keyword(text, ("cli", "terminal", "shell", "developer")):
-        return "偏开发者工具，适合用命令行或工作流演示来讲。"
-    return "近期热度上升，可以从项目用途、适合人群和实际价值三个角度介绍。"
+        return "偏开发者工具，重点是把重复命令或工程流程收拢成更短路径。"
+    return "近期热度上升，重点看它的具体用途、实现效果和上手成本。"
 
 
 def _topic_label(item: dict[str, Any]) -> str:
