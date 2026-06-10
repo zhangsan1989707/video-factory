@@ -992,6 +992,8 @@ class ConsoleProvidersTest(unittest.TestCase):
         self.assertEqual(message, "ok")
         self.assertEqual(calls[0]["kwargs"]["api_key"], "sk-draft")
         self.assertEqual(calls[0]["kwargs"]["base_url"], "https://draft.example/v1")
+        self.assertEqual(calls[0]["kwargs"]["timeout"], 120)
+        self.assertEqual(calls[0]["kwargs"]["max_retries"], 0)
         self.assertEqual(calls[1]["request"]["model"], "draft-model")
 
     def test_provider_test_merges_saved_key_when_inline_key_is_blank(self) -> None:

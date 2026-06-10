@@ -34,6 +34,10 @@ function post(path, body = {}) {
   return api(path, { method: "POST", body: JSON.stringify(body) });
 }
 
+function del(path) {
+  return api(path, { method: "DELETE" });
+}
+
 async function boot() {
   if (window.location.protocol === "file:") {
     document.body.insertAdjacentHTML(
@@ -51,6 +55,7 @@ function bindEvents() {
     button.addEventListener("click", () => switchTab(button.dataset.tab));
   });
   $("nextActionBtn").addEventListener("click", runNextAction);
+  $("newJobBtn").addEventListener("click", createDraft);
   $("confirmSelectionBtn").addEventListener("click", confirmSelection);
   $("saveScriptBtn").addEventListener("click", saveScript);
   $("regenerateCandidatesBtn").addEventListener("click", regenerateCandidates);
@@ -118,15 +123,26 @@ async function loadJobs() {
     list.textContent = "暂无历史任务。";
     return;
   }
+  renderHistoryJobs(data.jobs);
+}
+
+function renderHistoryJobs(jobs) {
+  const list = $("historyList");
   list.className = "history-list";
-  list.innerHTML = data.jobs.map((job) => `
-    <button class="history-item" data-job="${escapeAttr(job.id || "")}">
-      <code>${escapeHtml(job.id || "")}</code>
-      <span class="status ${escapeAttr(job.status || "")}">${escapeHtml(job.stage || "")}</span>
-    </button>
+  list.innerHTML = jobs.map((job) => `
+    <div class="history-item">
+      <button class="history-open" data-job="${escapeAttr(job.id || "")}">
+        <code>${escapeHtml(job.id || "")}</code>
+        <span class="status ${escapeAttr(job.status || "")}">${escapeHtml(job.stage || "")}</span>
+      </button>
+      <button class="history-delete tiny" data-delete-job="${escapeAttr(job.id || "")}" title="删除历史任务">删除</button>
+    </div>
   `).join("");
   list.querySelectorAll("[data-job]").forEach((item) => {
     item.addEventListener("click", () => loadJob(item.dataset.job));
+  });
+  list.querySelectorAll("[data-delete-job]").forEach((item) => {
+    item.addEventListener("click", () => deleteHistoryJob(item.dataset.deleteJob));
   });
 }
 
@@ -159,6 +175,7 @@ async function createDraft() {
     renderJob(created.job);
     switchTab("progress");
     renderLogs("任务已创建，正在拉取候选项目...\n");
+    startPollingCurrentJob();
 
     const result = await post(`/api/jobs/${state.currentJobId}/candidates`);
     state.candidates = result.candidates || [];
@@ -174,6 +191,46 @@ async function createDraft() {
   }
 }
 
+async function deleteHistoryJob(jobId) {
+  if (!jobId) return;
+  if (!confirmDelete(`删除历史任务 ${jobId}？对应产物目录也会一并删除。`)) return;
+  setBusy(true);
+  try {
+    await del(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (state.currentJobId === jobId) clearCurrentJob();
+    await loadJobs();
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function confirmDelete(message) {
+  return typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm(message);
+}
+
+function clearCurrentJob() {
+  state.currentJobId = "";
+  state.currentJob = null;
+  state.candidates = [];
+  state.segments = [];
+  state.qualityReport = null;
+  $("currentJobId").textContent = "未创建";
+  $("currentStage").textContent = "等待生成候选草稿";
+  $("currentModelCall").textContent = "model: -";
+  $("openJobFolderBtn").disabled = true;
+  renderJobError("");
+  renderDiagnostics({});
+  renderCandidates();
+  renderScript();
+  renderLogs("");
+  renderStageTimeline([]);
+  renderArtifactSummary({});
+  renderArtifacts({});
+  updateActionState({ stage: "draft_pending", status: "draft_pending" });
+}
+
 async function collectCandidatesForCurrentJob() {
   if (!state.currentJobId) {
     alert("请先创建任务");
@@ -182,7 +239,8 @@ async function collectCandidatesForCurrentJob() {
   setBusy(true);
   try {
     switchTab("progress");
-    renderLogs(`${$("logBox").textContent}\\n正在重新拉取候选项目...\\n`);
+    appendLogLine("正在重新拉取候选项目...");
+    startPollingCurrentJob();
     const result = await post(`/api/jobs/${state.currentJobId}/candidates`);
     state.candidates = result.candidates || [];
     renderJob(result.job);
@@ -207,7 +265,8 @@ async function regenerateCandidates() {
   setBusy(true);
   try {
     switchTab("progress");
-    renderLogs(`${$("logBox").textContent}\\n正在重新生成候选项目...\\n`);
+    appendLogLine("正在重新生成候选项目...");
+    startPollingCurrentJob();
     const result = await post(`/api/jobs/${state.currentJobId}/regenerate-candidates`);
     state.candidates = result.candidates || [];
     state.segments = [];
@@ -238,6 +297,9 @@ async function confirmSelection() {
   }
   setBusy(true);
   try {
+    switchTab("progress");
+    appendLogLine("正在生成口播脚本...");
+    startPollingCurrentJob();
     const result = await post(`/api/jobs/${state.currentJobId}/selection`, { items: selected });
     state.segments = result.segments || [];
     renderJob(result.job);
@@ -260,7 +322,8 @@ async function regenerateScript() {
   setBusy(true);
   try {
     switchTab("progress");
-    renderLogs(`${$("logBox").textContent}\\n正在重新生成口播脚本...\\n`);
+    appendLogLine("正在重新生成口播脚本...");
+    startPollingCurrentJob();
     const result = await post(`/api/jobs/${state.currentJobId}/regenerate-script`);
     state.segments = result.segments || [];
     state.qualityReport = null;
@@ -330,7 +393,7 @@ async function validatePlan() {
   setBusy(true);
   try {
     switchTab("progress");
-    renderLogs(`${$("logBox").textContent}\n正在校验计划文件...\n`);
+    appendLogLine("正在校验计划文件...");
     const validated = await post(`/api/jobs/${state.currentJobId}/validate-plan`);
     renderJob(validated.job);
     renderArtifacts(validated.artifacts || {});
@@ -351,7 +414,7 @@ async function renderVideo() {
   setBusy(true);
   try {
     switchTab("progress");
-    renderLogs(`${$("logBox").textContent}\\n正在生成最终视频，请不要关闭控制台...\\n`);
+    appendLogLine("正在生成最终视频，请不要关闭控制台...");
     const result = await post(`/api/jobs/${state.currentJobId}/render-video`);
     renderJob(result.job);
     await refreshCurrentJob();
@@ -373,7 +436,7 @@ async function regenerateVideo() {
   setBusy(true);
   try {
     switchTab("progress");
-    renderLogs(`${$("logBox").textContent}\\n正在重新生成最终视频，请不要关闭控制台...\\n`);
+    appendLogLine("正在重新生成最终视频，请不要关闭控制台...");
     const result = await post(`/api/jobs/${state.currentJobId}/regenerate-video`);
     renderJob(result.job);
     await refreshCurrentJob();
@@ -752,6 +815,13 @@ function renderLogs(logs) {
   $("logBox").textContent = logs || "暂无日志。";
 }
 
+function appendLogLine(message) {
+  const box = $("logBox");
+  const current = box.textContent === "暂无日志。" ? "" : box.textContent;
+  const prefix = current && !current.endsWith("\n") ? `${current}\n` : current;
+  renderLogs(`${prefix}${message}\n`);
+}
+
 function renderStageTimeline(history) {
   const box = $("stageTimeline");
   if (!box) return;
@@ -1124,5 +1194,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, updateRegenerateActions };
 }

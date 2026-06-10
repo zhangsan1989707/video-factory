@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateOrder, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -13,6 +13,7 @@ async function run() {
   testRenderArtifactsShowsPreviewAndOfficialVideo();
   testRenderArtifactSummaryShowsPublishMetadata();
   testRenderStageTimelineShowsRecentHistory();
+  testAppendLogLineUsesRealNewlines();
   testRenderJobRefreshesEmbeddedStageHistory();
   testBusyRestoreKeepsLatestJobActionState();
   testSyncDetailStateReplacesCandidateAndScriptSnapshots();
@@ -272,6 +273,26 @@ function testRenderStageTimelineShowsRecentHistory() {
   assert.match(nodes.stageTimeline.innerHTML, /等待确认项目/);
   assert.match(nodes.stageTimeline.innerHTML, /awaiting_input · 09:02:03/);
   assert.match(nodes.stageTimeline.innerHTML, /stage-step current/);
+}
+
+function testAppendLogLineUsesRealNewlines() {
+  const nodes = {
+    logBox: { textContent: "[10:00:00] 已完成" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  appendLogLine("正在重新生成口播脚本...");
+
+  assert.equal(nodes.logBox.textContent, "[10:00:00] 已完成\n正在重新生成口播脚本...\n");
+  assert.doesNotMatch(nodes.logBox.textContent, /\\n/);
+
+  nodes.logBox.textContent = "暂无日志。";
+  appendLogLine("正在重新拉取候选项目...");
+  assert.equal(nodes.logBox.textContent, "正在重新拉取候选项目...\n");
 }
 
 function testRenderJobRefreshesEmbeddedStageHistory() {

@@ -11,6 +11,9 @@ from openai import OpenAI
 from src.console.store import CONFIG_DIR, DEFAULT_MODEL_ROUTING, DEFAULT_PROVIDERS, bool_value, read_json
 
 
+MODEL_TIMEOUT_SECONDS = 120
+
+
 def route_snapshot(task: str) -> dict[str, str]:
     routing = read_json(CONFIG_DIR / "model-routing.json", DEFAULT_MODEL_ROUTING)
     route = routing.get(task) or {}
@@ -109,7 +112,7 @@ def _openai_client(provider_id: str, provider_config: dict[str, Any] | None = No
     api_key = str(provider.get("api_key") or "")
     if not api_key:
         return None
-    kwargs: dict[str, str] = {"api_key": api_key}
+    kwargs: dict[str, Any] = {"api_key": api_key, "timeout": MODEL_TIMEOUT_SECONDS, "max_retries": 0}
     base_url = str(provider.get("base_url") or "")
     if base_url:
         kwargs["base_url"] = base_url
