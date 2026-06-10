@@ -89,6 +89,63 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertIn("功能上", project["reason"])
         self.assertNotIn("短视频", project["reason"])
 
+    def test_ai_projects_get_specific_hooks_outcomes_and_tags(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "gorden/GordenSuperPPTSkills",
+                "name": "GordenSuperPPTSkills",
+                "description": "AI powered PowerPoint presentation workflow",
+                "topics": ["ai", "ppt", "workflow"],
+                "stars": 3290,
+                "daily_growth": "+329",
+                "language": "Python",
+            },
+            {
+                "full_name": "baoyu/baoyu-design",
+                "name": "baoyu-design",
+                "description": "Claude agent skills for generating UI design drafts",
+                "topics": ["ai", "design", "claude"],
+                "stars": 980,
+                "daily_growth": "+45",
+                "language": "JavaScript",
+            },
+        ])
+
+        ppt_project, design_project = data["projects"]
+        self.assertIn("PPT", ppt_project["hook"])
+        self.assertIn("PPT", ppt_project["outcome"])
+        self.assertIn("#PPT自动化", ppt_project["audience_tags"])
+        self.assertIn("🔥", ppt_project["trend_label"])
+
+        self.assertIn("设计", design_project["hook"])
+        self.assertIn("设计", design_project["outcome"])
+        self.assertIn("#AI设计", design_project["audience_tags"])
+        self.assertNotEqual(ppt_project["outcome"], design_project["outcome"])
+
+    def test_duplicate_outcomes_are_rewritten(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/agent-one",
+                "name": "agent-one",
+                "description": "AI agent workflow",
+                "topics": ["ai", "agent"],
+                "stars": 100,
+                "language": "Python",
+            },
+            {
+                "full_name": "demo/agent-two",
+                "name": "agent-two",
+                "description": "AI agent workflow",
+                "topics": ["ai", "agent"],
+                "stars": 90,
+                "language": "Python",
+            },
+        ])
+
+        first, second = data["projects"]
+        self.assertNotEqual(first["outcome"], second["outcome"])
+        self.assertIn("更具体地说", second["outcome"])
+
 
 if __name__ == "__main__":
     unittest.main()

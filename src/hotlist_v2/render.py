@@ -7,6 +7,7 @@ import math
 import re
 import shutil
 import subprocess
+from difflib import SequenceMatcher
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -163,12 +164,14 @@ def _data_from_projects(projects: list[dict]) -> dict:
         description = _project_description(item)
         purpose = _project_purpose(item, description)
         outcome = _project_outcome(item, description)
+        hook = _project_hook(item, name)
         normalized.append({
             "rank": index,
             "name": name,
             "owner": owner,
             "owner_initial": owner[:1].upper() if owner else "?",
             "tagline": str(item.get("tagline") or item.get("audience") or "开源热点"),
+            "hook": hook,
             "description": description,
             "purpose": purpose,
             "outcome": outcome,
@@ -177,14 +180,17 @@ def _data_from_projects(projects: list[dict]) -> dict:
             "stars": stars,
             "stars_display": _star_display(stars),
             "daily_growth": str(item.get("daily_growth") or item.get("stars_delta") or "热度上升"),
+            "trend_label": _trend_label(item),
             "forks": _fork_display(item),
             "issues": int(item.get("issues") or item.get("open_issues_count") or 0),
             "topics": topics,
             "tech_tags": _tech_tags(topics, language),
+            "audience_tags": _audience_tags(item, topics),
             "star_history": _star_history(stars, index),
             "reason": _project_reason(item, purpose, outcome, stars),
             "repo_url": str(item.get("repo_url") or item.get("html_url") or ""),
         })
+    _dedupe_project_copy(normalized)
 
     now = datetime.now(timezone(timedelta(hours=8)))
     languages = [{"name": name, "color": color} for name, color in list(languages_seen.items())[:6]]
@@ -241,9 +247,22 @@ def _project_purpose(item: dict, description: str) -> str:
 
 
 def _project_outcome(item: dict, description: str) -> str:
+    for key in ("project_outcome", "implementation_effect", "outcome"):
+        text = _clean_viewer_text(str(item.get(key) or ""))
+        if text:
+            return _ensure_sentence(text)
+
     text = _project_text(item)
+    if _has_keyword(text, ("ppt", "powerpoint", "presentation", "slide", "slides")):
+        return "把需求整理成 PPT 大纲、页面结构和备注文案，少从空白页开始。"
+    if _has_keyword(text, ("figma", "design", "designer", "ui", "interface", "prototype")):
+        return "把界面想法转成可编辑的设计或前端结构，减少反复描述和手工搭页面。"
+    if _has_keyword(text, ("claude", "agent-skill", "agent-skills", "skill")):
+        return "把常用任务封装成 Claude 能调用的技能，少写重复提示词和流程说明。"
+    if _has_keyword(text, ("code", "coding", "developer", "devtool", "github")):
+        return "把开发中的检索、生成或协作步骤变短，适合直接嵌进工程流程。"
     if _has_keyword(text, ("ai", "agent", "llm", "model", "rag")):
-        return "把模型能力落到具体任务和工作流里。"
+        return _specific_ai_outcome(item, description)
     if _has_keyword(text, ("video", "image", "audio", "visual", "3d")):
         return "减少内容生成、处理或可视化时的来回切换。"
     if _has_keyword(text, ("react", "vue", "frontend", "ui", "css")):
@@ -252,7 +271,40 @@ def _project_outcome(item: dict, description: str) -> str:
         return "把数据整理、查询或分析流程变得更直接。"
     if _has_keyword(text, ("cli", "terminal", "shell", "developer")):
         return "把重复命令和工程操作收拢成更短路径。"
-    return description.rstrip("。") + "。"
+    return _ensure_sentence(description)
+
+
+def _project_hook(item: dict, name: str) -> str:
+    for key in ("hook", "project_hook", "headline"):
+        text = _clean_viewer_text(str(item.get(key) or ""))
+        if text:
+            return _short_text(text, 15)
+
+    text = _project_text(item)
+    name_text = name.lower()
+    combined = f"{name_text} {text}"
+    if _has_keyword(combined, ("ppt", "powerpoint", "presentation", "slide", "slides")):
+        return "一句话生成 PPT"
+    if _has_keyword(combined, ("figma", "design", "designer", "ui", "interface", "prototype")):
+        return "自然语言做设计"
+    if _has_keyword(combined, ("claude", "agent-skill", "agent-skills", "skill")):
+        return "把任务变成技能"
+    if _has_keyword(combined, ("cli", "terminal", "shell")):
+        return "命令行少走弯路"
+    if _has_keyword(combined, ("video", "image", "audio", "visual", "3d")):
+        return "更快生成内容"
+    if _has_keyword(combined, ("data", "database", "analytics", "sql")):
+        return "数据处理更直接"
+    if _has_keyword(combined, ("ai", "agent", "llm", "model", "rag")):
+        return "AI 工作流提速"
+    return "值得试的新项目"
+
+
+def _specific_ai_outcome(item: dict, description: str) -> str:
+    text = description.strip("。") or str(item.get("name") or "这个项目")
+    if len(text) > 34:
+        text = text[:34].rstrip()
+    return f"围绕“{text}”做具体自动化，避免只停留在聊天式试用。"
 
 
 def _project_reason(item: dict, purpose: str, outcome: str, stars: int) -> str:
@@ -296,15 +348,151 @@ def _clean_viewer_text(text: str) -> str:
 
 def _project_text(item: dict) -> str:
     return " ".join([
+        str(item.get("name") or ""),
+        str(item.get("full_name") or ""),
         str(item.get("description") or ""),
         str(item.get("description_zh") or ""),
+        str(item.get("readme") or item.get("readme_excerpt") or "")[:1200],
         " ".join(str(topic) for topic in item.get("topics") or []),
         str(item.get("language") or ""),
     ]).lower()
 
 
 def _has_keyword(text: str, keywords: tuple[str, ...]) -> bool:
-    return any(re.search(rf"(^|[^a-z0-9]){re.escape(keyword)}([^a-z0-9]|$)", text) for keyword in keywords)
+    lowered = text.lower()
+    return any(
+        keyword in lowered if len(keyword) >= 3 else re.search(rf"(^|[^a-z0-9]){re.escape(keyword)}([^a-z0-9]|$)", lowered)
+        for keyword in keywords
+    )
+
+
+def _ensure_sentence(text: str) -> str:
+    text = text.strip()
+    if not text:
+        return "项目描述较少，需要打开仓库确认具体用途。"
+    return text if text.endswith(("。", "！", "？", ".", "!", "?")) else text + "。"
+
+
+def _short_text(text: str, limit: int) -> str:
+    text = " ".join(text.split()).strip("。")
+    return text if len(text) <= limit else text[:limit].rstrip()
+
+
+def _trend_label(item: dict) -> str:
+    explicit = _clean_viewer_text(str(item.get("trend_label") or ""))
+    if explicit:
+        return explicit
+
+    growth_text = str(item.get("daily_growth") or item.get("stars_delta") or "").strip()
+    growth_num = _growth_number(growth_text)
+    history = [int(v) for v in item.get("star_history") or [] if isinstance(v, int | float)]
+    if len(history) >= 28:
+        recent = sum(history[-14:]) / 14
+        previous = sum(history[-28:-14]) / 14
+        ratio = recent / previous if previous else 1
+    else:
+        ratio = 1.25 if growth_num >= 100 else 1.0
+
+    if growth_num >= 300 or ratio >= 1.6:
+        word = "爆发"
+        icon = "🔥"
+    elif growth_num > 0 or ratio >= 0.9:
+        word = "稳步上升"
+        icon = "📈"
+    else:
+        word = "降温"
+        icon = "📉"
+
+    if growth_num:
+        return f"{icon} +{_compact_number(growth_num)}/天 {word}"
+    if growth_text:
+        return f"{icon} {growth_text} {word}"
+    return f"{icon} 热度{word}"
+
+
+def _growth_number(text: str) -> int:
+    match = re.search(r"([+-]?\d+(?:\.\d+)?)\s*([kK千万]?)", text.replace(",", ""))
+    if not match:
+        return 0
+    value = float(match.group(1))
+    unit = match.group(2).lower()
+    if unit in {"k", "千"}:
+        value *= 1000
+    elif unit == "万":
+        value *= 10000
+    return max(0, int(value))
+
+
+def _compact_number(value: int) -> str:
+    if value >= 10000:
+        return f"{value / 10000:.1f}万"
+    if value >= 1000:
+        return f"{value / 1000:.1f}k"
+    return str(value)
+
+
+def _audience_tags(item: dict, topics: list[str]) -> list[str]:
+    text = _project_text(item)
+    tags: list[str] = []
+    rules = [
+        (("ppt", "powerpoint", "presentation", "slide", "slides"), "#PPT自动化"),
+        (("figma", "design", "designer", "ui", "interface", "prototype"), "#AI设计"),
+        (("claude", "agent-skill", "agent-skills"), "#Claude插件"),
+        (("agent", "workflow", "automation"), "#AI工作流"),
+        (("frontend", "react", "vue", "css"), "#前端辅助"),
+        (("cli", "terminal", "shell"), "#开发工具"),
+        (("data", "database", "analytics", "sql"), "#数据处理"),
+        (("video", "image", "audio", "visual"), "#内容创作"),
+    ]
+    for keywords, tag in rules:
+        if len(tags) >= 3:
+            break
+        if tag not in tags and _has_keyword(text, keywords):
+            tags.append(tag)
+    for topic in topics:
+        if len(tags) >= 3:
+            break
+        topic_text = topic.strip()
+        if topic_text and len(topic_text) <= 16:
+            tag = _topic_audience_tag(topic_text)
+            if tag not in tags:
+                tags.append(tag)
+    return tags[:3] or ["#开源项目", "#效率工具"]
+
+
+def _topic_audience_tag(topic: str) -> str:
+    mapping = {
+        "ai": "#AI工具",
+        "llm": "#大模型",
+        "ppt": "#PPT自动化",
+        "workflow": "#工作流",
+        "design": "#AI设计",
+        "claude": "#Claude插件",
+        "frontend": "#前端辅助",
+    }
+    return mapping.get(topic.lower(), f"#{topic}")
+
+
+def _dedupe_project_copy(projects: list[dict]) -> None:
+    seen_outcomes: list[str] = []
+    for project in projects:
+        outcome = str(project.get("outcome") or "")
+        if any(_copy_similarity(outcome, seen) > 0.8 for seen in seen_outcomes):
+            hook = str(project.get("hook") or project.get("name") or "这个项目")
+            description = str(project.get("description") or "").rstrip("。")
+            if len(description) > 30:
+                description = description[:30].rstrip()
+            project["outcome"] = _ensure_sentence(f"更具体地说，{hook}：{description or '把项目主题做成可直接使用的流程'}")
+            project["reason"] = _project_reason(project, str(project.get("purpose") or ""), str(project.get("outcome") or ""), int(project.get("stars") or 0))
+        seen_outcomes.append(str(project.get("outcome") or ""))
+
+
+def _copy_similarity(left: str, right: str) -> float:
+    left = re.sub(r"\s+", "", left)
+    right = re.sub(r"\s+", "", right)
+    if not left or not right:
+        return 0.0
+    return SequenceMatcher(None, left, right).ratio()
 
 
 def _language_color(language: str) -> str:

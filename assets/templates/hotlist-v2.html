@@ -330,6 +330,10 @@ body {
   font-family: var(--font-mono); font-size: 48px; font-weight: 700;
   color: var(--text-primary); line-height: 1.16; margin-bottom: 12px;
 }
+.detail-hook {
+  font-size: 26px; font-weight: 700; color: var(--accent-amber);
+  margin: -2px 0 14px; line-height: 1.25;
+}
 .detail-owner-row { display: flex; align-items: center; gap: 12px; }
 .owner-avatar {
   width: 42px; height: 42px; border-radius: 50%;
@@ -380,6 +384,11 @@ body {
 .tech-tag.go { color: #10b981; border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.07); }
 .tech-tag.ai { color: #8b5cf6; border-color: rgba(139,92,246,0.3); background: rgba(139,92,246,0.07); }
 .tech-tag.default { color: var(--text-secondary); border-color: rgba(255,255,255,0.15); }
+.audience-tag {
+  font-family: var(--font-mono); font-size: 18px; padding: 8px 16px;
+  border-radius: 8px; color: var(--accent-green);
+  border: 1px solid rgba(16,185,129,0.28); background: rgba(16,185,129,0.07);
+}
 
 .activity-chart {
   display: flex; align-items: flex-end; gap: 6px; height: 84px;
@@ -600,7 +609,7 @@ body {
           <div class="rank-footer">
             <div class="rank-lang"><div class="rank-lang-dot" style="background:{{ p.language_color }}"></div>{{ p.language }}</div>
             <div class="rank-stars">★ {{ p.stars_display }}</div>
-            <div class="rank-new">{{ p.daily_growth }}</div>
+            <div class="rank-new">{{ p.trend_label }}</div>
           </div>
         </div>
       </div>
@@ -629,6 +638,7 @@ body {
         第 {{ "%02d" | format(top1.rank) }} 名
       </div>
       <div class="detail-repo-name">{{ top1.name }}</div>
+      <div class="detail-hook">⭐ {{ top1.hook }}</div>
       <div class="detail-owner-row">
         <div class="owner-avatar">{{ top1.owner_initial }}</div>
         <span class="detail-owner">{{ top1.owner }} · MIT 开源协议</span>
@@ -654,8 +664,8 @@ body {
         </div>
         <div class="metric-card hot">
           <span class="metric-icon">↑</span>
-          <span class="metric-val">{{ top1.daily_growth }}</span>
-          <span class="metric-lbl">日均涨星</span>
+          <span class="metric-val" style="font-size:32px;line-height:1.12;">{{ top1.trend_label }}</span>
+          <span class="metric-lbl">星标趋势</span>
         </div>
         <div class="metric-card">
           <span class="metric-icon" style="font-size:16px">⑂</span>
@@ -674,6 +684,15 @@ body {
         <div class="tag-row">
           {% for tag in top1.tech_tags %}
           <div class="tech-tag {% if 'TypeScript' in tag %}ts{% elif 'Python' in tag %}py{% elif 'Rust' in tag %}rs{% elif 'Go' in tag %}go{% elif 'AI' in tag or '智能' in tag or '大模型' in tag %}ai{% else %}default{% endif %}">{{ tag }}</div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div>
+        <div class="section-label">适合</div>
+        <div class="tag-row">
+          {% for tag in top1.audience_tags %}
+          <div class="audience-tag">{{ tag }}</div>
           {% endfor %}
         </div>
       </div>
