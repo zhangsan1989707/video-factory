@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import unittest
+from contextlib import ExitStack
+from pathlib import Path
+from unittest.mock import patch
 
 import httpx
 
@@ -16,7 +20,7 @@ class GithubHotlistTest(unittest.TestCase):
             seen_headers.update(request.headers)
             return _github_response()
 
-        result = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler)))
+        result = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=True))
 
         self.assertNotIn("authorization", seen_headers)
         self.assertRegex(result["rate_limit"], r"^59/60，重置 \d{2}:\d{2}$")
@@ -32,7 +36,7 @@ class GithubHotlistTest(unittest.TestCase):
             seen_headers.update(request.headers)
             return _github_response()
 
-        result = asyncio.run(_collect_with_transport("ghp_test", httpx.MockTransport(handler)))
+        result = asyncio.run(_collect_with_transport("ghp_test", httpx.MockTransport(handler), force_refresh=True))
 
         self.assertEqual(seen_headers.get("authorization"), "Bearer ghp_test")
         self.assertEqual(result["items"][0]["selected"], True)
@@ -50,9 +54,50 @@ class GithubHotlistTest(unittest.TestCase):
             )
 
         with self.assertRaisesRegex(ValueError, r"HTTP 403 API rate limit exceeded") as raised:
-            asyncio.run(_collect_with_transport("", httpx.MockTransport(handler)))
+            asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=True))
 
         self.assertIn("GitHub API 额度 0/60，重置", str(raised.exception))
+
+    def test_collect_candidates_reuses_fresh_cache(self) -> None:
+        calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return _github_response()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            first = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=True, cache_dir=cache_dir))
+            second = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), cache_dir=cache_dir))
+
+        self.assertEqual(calls, 1)
+        self.assertEqual(first["cache_status"], "fresh")
+        self.assertEqual(second["cache_status"], "hit")
+        self.assertEqual(second["items"][0]["full_name"], "demo/alpha")
+
+    def test_collect_candidates_uses_stale_cache_on_rate_limit(self) -> None:
+        def success_handler(request: httpx.Request) -> httpx.Response:
+            return _github_response()
+
+        def limited_handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                403,
+                headers={
+                    "x-ratelimit-remaining": "0",
+                    "x-ratelimit-limit": "30",
+                    "x-ratelimit-reset": "1893456000",
+                },
+                json={"message": "API rate limit exceeded"},
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            asyncio.run(_collect_with_transport("", httpx.MockTransport(success_handler), force_refresh=True, cache_dir=cache_dir))
+            result = asyncio.run(_collect_with_transport("", httpx.MockTransport(limited_handler), force_refresh=True, cache_dir=cache_dir))
+
+        self.assertEqual(result["cache_status"], "stale_rate_limit")
+        self.assertEqual(result["items"][0]["full_name"], "demo/alpha")
 
     def test_heuristic_descriptions_are_project_specific(self) -> None:
         ppt = github_hotlist._localized_description({
@@ -74,18 +119,28 @@ class GithubHotlistTest(unittest.TestCase):
         self.assertNotIn("围绕 AI 工具或模型工作流", ppt)
         self.assertNotIn("围绕 AI 工具或模型工作流", design)
 
-async def _collect_with_transport(token: str, transport: httpx.MockTransport):
+
+async def _collect_with_transport(
+    token: str,
+    transport: httpx.MockTransport,
+    force_refresh: bool = False,
+    cache_dir: Path | None = None,
+):
     original = httpx.AsyncClient
 
     def client_factory(*args, **kwargs):
         kwargs["transport"] = transport
         return original(*args, **kwargs)
 
-    httpx.AsyncClient = client_factory
-    try:
-        return await github_hotlist.collect_candidates_with_meta("weekly", token=token, limit=1)
-    finally:
-        httpx.AsyncClient = original
+    with ExitStack() as stack:
+        if cache_dir is None:
+            cache_dir = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+        stack.enter_context(patch("src.console.github_hotlist.CACHE_DIR", cache_dir))
+        httpx.AsyncClient = client_factory
+        try:
+            return await github_hotlist.collect_candidates_with_meta("weekly", token=token, limit=1, force_refresh=force_refresh)
+        finally:
+            httpx.AsyncClient = original
 
 
 def _github_response() -> httpx.Response:

@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
+from pathlib import Path
 import re
 from typing import Any
 
 import httpx
 
+from src.utils.config import OUTPUT_DIR
+
 GITHUB_SEARCH_API = "https://api.github.com/search/repositories"
+CACHE_DIR = OUTPUT_DIR / "cache" / "github-hotlist"
+CACHE_TTL_SECONDS = {
+    "daily": 15 * 60,
+    "weekly": 2 * 60 * 60,
+    "monthly": 12 * 60 * 60,
+}
 
 
 def created_after(time_window: str) -> str:
@@ -21,17 +32,30 @@ async def collect_candidates(
     time_window: str,
     token: str = "",
     limit: int = 30,
+    force_refresh: bool = False,
 ) -> list[dict[str, Any]]:
     """Collect recent repositories using GitHub Search API."""
-    return (await collect_candidates_with_meta(time_window, token=token, limit=limit))["items"]
+    return (await collect_candidates_with_meta(time_window, token=token, limit=limit, force_refresh=force_refresh))["items"]
 
 
 async def collect_candidates_with_meta(
     time_window: str,
     token: str = "",
     limit: int = 30,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
     """Collect recent repositories and return GitHub response metadata."""
+    params = {
+        "q": f"created:>={created_after(time_window)} stars:>10 archived:false",
+        "sort": "stars",
+        "order": "desc",
+        "per_page": min(limit, 100),
+    }
+    cache_key = _cache_key(time_window, limit, params)
+    cached = _read_cache(cache_key)
+    if cached and not force_refresh and not _cache_expired(cached, time_window):
+        return _cache_result(cached, "hit")
+
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "github-video-console",
@@ -40,16 +64,11 @@ async def collect_candidates_with_meta(
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    params = {
-        "q": f"created:>={created_after(time_window)} stars:>10 archived:false",
-        "sort": "stars",
-        "order": "desc",
-        "per_page": min(limit, 100),
-    }
-
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(GITHUB_SEARCH_API, headers=headers, params=params)
         if response.status_code >= 400:
+            if cached and _is_rate_limited(response):
+                return _cache_result(cached, "stale_rate_limit")
             raise ValueError(_github_error_message(response))
         data = response.json()
         rate_limit = _rate_limit_label(response.headers)
@@ -81,7 +100,69 @@ async def collect_candidates_with_meta(
             "visual_potential": _visual_potential(item),
             "selected": index <= 10,
         })
-    return {"items": candidates, "rate_limit": rate_limit}
+    result = {"items": candidates, "rate_limit": rate_limit, "cache_status": "fresh"}
+    _write_cache(cache_key, result)
+    return result
+
+
+def _cache_key(time_window: str, limit: int, params: dict[str, Any]) -> str:
+    payload = json.dumps({"time_window": time_window, "limit": limit, "params": params}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _cache_path(cache_key: str) -> Path:
+    return CACHE_DIR / f"{cache_key}.json"
+
+
+def _read_cache(cache_key: str) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(_cache_path(cache_key).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return payload if isinstance(payload, dict) and isinstance(payload.get("items"), list) else None
+
+
+def _write_cache(cache_key: str, result: dict[str, Any]) -> None:
+    payload = {
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "items": result.get("items") or [],
+        "rate_limit": result.get("rate_limit") or "未检测",
+    }
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _cache_path(cache_key).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _cache_expired(payload: dict[str, Any], time_window: str) -> bool:
+    try:
+        created = datetime.fromisoformat(str(payload.get("created_at") or ""))
+    except ValueError:
+        return True
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    ttl = CACHE_TTL_SECONDS.get(time_window, CACHE_TTL_SECONDS["weekly"])
+    return datetime.now(timezone.utc) - created > timedelta(seconds=ttl)
+
+
+def _cache_result(payload: dict[str, Any], status: str) -> dict[str, Any]:
+    return {
+        "items": payload.get("items") or [],
+        "rate_limit": payload.get("rate_limit") or "未检测",
+        "cache_status": status,
+    }
+
+
+def _is_rate_limited(response: httpx.Response) -> bool:
+    message = ""
+    try:
+        message = str((response.json() or {}).get("message") or "")
+    except ValueError:
+        pass
+    return response.status_code in {403, 429} and (
+        response.headers.get("x-ratelimit-remaining") == "0" or "rate limit" in message.lower()
+    )
 
 
 def _estimated_daily_growth(item: dict[str, Any]) -> str:
