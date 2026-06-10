@@ -1944,7 +1944,7 @@ class ConsoleJobsTest(unittest.TestCase):
 
             self.assertEqual(job["time_window"], "weekly")
             params = job["template_params"]
-            self.assertEqual(params["project_count"], 10)
+            self.assertEqual(params["project_count"], 5)
             self.assertEqual(params["style"], "tech_hotspot")
             self.assertEqual(params["render_engine"], "hyperframes")
             self.assertEqual(params["subtitle_mode"], "large_hook")
@@ -1960,7 +1960,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 bad = create_job("GH-HOTLIST-20990101-BAD-COUNT", {"project_count": "many"})
 
             self.assertEqual(small["project_count"], 5)
-            self.assertEqual(bad["project_count"], 10)
+            self.assertEqual(bad["project_count"], 5)
 
     def test_render_video_records_failed_pipeline_stage_and_log_tail(self) -> None:
         async def failing_pipeline(**kwargs):

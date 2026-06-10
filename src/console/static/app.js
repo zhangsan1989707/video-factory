@@ -741,7 +741,7 @@ function renderCandidates() {
 }
 
 function candidateAutoLimit() {
-  return Number((state.currentJob && state.currentJob.project_count) || $("projectCount").value || 10);
+  return Number((state.currentJob && state.currentJob.project_count) || $("projectCount").value || 5);
 }
 
 function candidateChecked(item, index) {
@@ -1057,7 +1057,7 @@ function renderScheduler(schedule) {
   $("scheduleFrequency").value = schedule.frequency || "daily";
   $("scheduleTime").value = schedule.time || "09:00";
   $("scheduleWindow").value = schedule.time_window || "daily";
-  $("scheduleProjectCount").value = String(schedule.project_count || 10);
+  $("scheduleProjectCount").value = String(schedule.project_count || 5);
   const lastRun = schedule.last_run_date ? `上次运行: ${schedule.last_run_date}` : "尚未运行";
   $("scheduleStatus").textContent = `定时任务只生成候选草稿，不会自动确认或渲染。${lastRun}`;
 }
@@ -1183,7 +1183,7 @@ function updateSelectionState() {
   const button = $("confirmSelectionBtn");
   if (!button || !state.candidates.length) return;
   const selectedCount = document.querySelectorAll("#candidateRows input[type='checkbox']:checked").length;
-  const limit = Number($("projectCount").value || 10);
+  const limit = Number($("projectCount").value || 5);
   const canConfirm = $("nextActionBtn").dataset.action === "confirm-selection";
   const summary = selectionButtonState(selectedCount, limit, canConfirm);
   button.textContent = summary.label;
@@ -1191,7 +1191,7 @@ function updateSelectionState() {
 }
 
 function selectionButtonState(selectedCount, limit, canConfirm) {
-  const safeLimit = Number(limit || 10);
+  const safeLimit = Number(limit || 5);
   return {
     label: selectedCount > safeLimit
       ? `已选 ${selectedCount} / 最多 ${safeLimit}`

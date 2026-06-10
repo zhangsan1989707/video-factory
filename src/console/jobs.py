@@ -106,7 +106,7 @@ def save_selection(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not items:
         raise ValueError("至少需要选择 1 个项目")
 
-    project_count = int(job.get("project_count") or 10)
+    project_count = int(job.get("project_count") or 5)
     if len(items) > project_count:
         raise ValueError(f"最多只能选择 {project_count} 个项目，当前选择 {len(items)} 个")
     selected = _selected_from_candidate_snapshot(job_id, items)

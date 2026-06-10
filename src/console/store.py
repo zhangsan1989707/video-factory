@@ -80,7 +80,7 @@ DEFAULT_SCHEDULER = {
     "frequency": "daily",
     "time": "09:00",
     "time_window": "daily",
-    "project_count": 10,
+    "project_count": 5,
     "template_params": {},
     "last_run_date": "",
 }
@@ -88,7 +88,7 @@ DEFAULT_SCHEDULER = {
 DEFAULT_TEMPLATES = {
     "active_template": "github_hotlist_vertical_v1",
     "github_hotlist_vertical_v1": {
-        "project_count": 10,
+        "project_count": 5,
         "style": "tech_hotspot",
         "render_engine": "hyperframes",
         "subtitle_mode": "large_hook",
@@ -680,9 +680,9 @@ def _provider_items(data: dict[str, Any]) -> list[dict[str, Any]]:
 
 def normalize_project_count(value: Any) -> int:
     try:
-        count = int(value or 10)
+        count = int(value or 5)
     except (TypeError, ValueError):
-        return 10
+        return 5
     return 5 if count <= 5 else 10
 
 

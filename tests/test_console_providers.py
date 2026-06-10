@@ -185,7 +185,7 @@ class ConsoleProvidersTest(unittest.TestCase):
 
             active = templates["active_template"]
             self.assertEqual(active, DEFAULT_TEMPLATES["active_template"])
-            self.assertEqual(templates[active]["project_count"], 10)
+            self.assertEqual(templates[active]["project_count"], 5)
             self.assertEqual(templates[active]["style"], DEFAULT_TEMPLATES[active]["style"])
             self.assertEqual(templates[active]["orientation"], "vertical")
 

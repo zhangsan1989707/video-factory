@@ -281,7 +281,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
                 })
 
             saved = read_json(config_dir / "scheduler.json", {})
-            self.assertEqual(saved["project_count"], 10)
+            self.assertEqual(saved["project_count"], 5)
 
     def test_scheduler_config_normalizes_invalid_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -378,7 +378,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
             self.assertEqual(scheduler["frequency"], "daily")
             self.assertEqual(scheduler["time"], "09:00")
             self.assertEqual(scheduler["time_window"], "daily")
-            self.assertEqual(scheduler["project_count"], 10)
+            self.assertEqual(scheduler["project_count"], 5)
             self.assertEqual(scheduler["template_params"], {})
             self.assertEqual(scheduler["last_run_date"], "20990102")
 
@@ -409,7 +409,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
                 result = run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
 
             self.assertTrue(result["started"])
-            self.assertEqual(result["job"]["project_count"], 10)
+            self.assertEqual(result["job"]["project_count"], 5)
 
     def test_scheduler_uses_normalized_legacy_time_window_and_template_params(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
