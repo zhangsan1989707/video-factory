@@ -2,13 +2,23 @@
 
 from pathlib import Path
 
-from moviepy import AudioClip, AudioFileClip, ImageSequenceClip, concatenate_audioclips
+from moviepy import AudioClip, AudioFileClip, VideoClip, concatenate_audioclips
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import numpy as np
 from rich.console import Console
 
 from src.models import AssetManifest, ShotPlan, VideoScript
 from src.utils.config import VIDEO_FPS, VIDEO_WIDTH_V, VIDEO_HEIGHT_V
+from src.utils.render import (
+    get_font,
+    ease_out,
+    clamp01,
+    short_text,
+    create_cursor,
+    wrap_text,
+    cover_crop,
+    contain,
+)
 
 console = Console()
 
@@ -24,71 +34,22 @@ RANK_YELLOW = (255, 216, 77)
 LINE_BLUE = (74, 93, 117)
 
 
-def _font(size: int):
-    try:
-        return ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", size)
-    except Exception:
-        return ImageFont.load_default()
-
-
-def _wrap_text(text: str, font, max_width: int) -> list[str]:
-    lines = []
-    current = ""
-    for char in text:
-        test = current + char
-        width = ImageDraw.Draw(Image.new("RGB", (1, 1))).textbbox((0, 0), test, font=font)[2]
-        if width > max_width and current:
-            lines.append(current)
-            current = char
-        else:
-            current = test
-    if current:
-        lines.append(current)
-    return lines[:4]
-
-
-def _short_text(text: str, limit: int) -> str:
-    text = " ".join(text.replace("\n", " ").split())
-    return text if len(text) <= limit else text[: limit - 1] + "..."
-
 
 def _asset_map(manifest: AssetManifest) -> dict[str, str]:
     return {asset.id: asset.path for asset in manifest.assets}
 
 
-def _cover_crop(img: Image.Image, width: int, height: int) -> Image.Image:
-    src_w, src_h = img.size
-    scale = max(width / src_w, height / src_h)
-    new_size = (max(1, int(src_w * scale)), max(1, int(src_h * scale)))
-    resized = img.resize(new_size, Image.Resampling.LANCZOS)
-    left = (resized.width - width) // 2
-    top = (resized.height - height) // 2
-    return resized.crop((left, top, left + width, top + height))
 
-
-def _contain(img: Image.Image, width: int, height: int) -> Image.Image:
-    src_w, src_h = img.size
-    scale = min(width / src_w, height / src_h)
-    new_size = (max(1, int(src_w * scale)), max(1, int(src_h * scale)))
-    return img.resize(new_size, Image.Resampling.LANCZOS)
-
-
-def _ease(t: float) -> float:
-    return 1 - (1 - t) * (1 - t)
-
-
-def _clamp01(value: float) -> float:
-    return max(0.0, min(1.0, value))
 
 
 def _appear(progress: float, start: float = 0.0, end: float = 0.6) -> float:
     if end <= start:
         return 1.0
-    return _ease(_clamp01((progress - start) / (end - start)))
+    return ease_out(clamp01((progress - start) / (end - start)))
 
 
 def _fade(fill: tuple[int, int, int], opacity: float) -> tuple[int, int, int, int]:
-    return (*fill, int(255 * _clamp01(opacity)))
+    return (*fill, int(255 * clamp01(opacity)))
 
 
 def _open_asset(asset_path: str) -> Image.Image | None:
@@ -99,15 +60,6 @@ def _open_asset(asset_path: str) -> Image.Image | None:
     except Exception:
         return None
 
-
-def _cursor() -> Image.Image:
-    img = Image.new("RGBA", (70, 70), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    points = [(8, 6), (8, 56), (22, 42), (34, 64), (44, 58), (32, 36), (52, 34)]
-    draw.polygon(points, fill=(0, 0, 0, 230))
-    inner = [(13, 14), (13, 47), (23, 37), (35, 57), (39, 55), (29, 31), (43, 30)]
-    draw.polygon(inner, fill=(255, 255, 255, 255))
-    return img
 
 
 def _target_rect(kind: str, card_x: int, card_y: int, visual_w: int, visual_h: int) -> tuple[int, int, int, int]:
@@ -151,7 +103,7 @@ def _project_name(title: str) -> str:
 def _hotlist_bg(asset_path: str, width: int, height: int, progress: float = 0.0) -> Image.Image:
     try:
         asset = Image.open(asset_path).convert("RGB")
-        bg = _cover_crop(asset, width, height).filter(ImageFilter.GaussianBlur(radius=34))
+        bg = cover_crop(asset, width, height).filter(ImageFilter.GaussianBlur(radius=34))
         frame = bg.convert("RGBA")
         frame.alpha_composite(Image.new("RGBA", (width, height), (*BG, 224)))
     except Exception:
@@ -202,10 +154,10 @@ def _draw_pill(draw: ImageDraw.ImageDraw, text: str, x: int, y: int, font, fill=
 
 
 def _draw_rank_tag(draw: ImageDraw.ImageDraw, text: str, x: int, y: int, body: str, width: int, opacity: float = 1.0) -> None:
-    accent_font = _font(34)
-    body_font = _font(40)
+    accent_font = get_font(34)
+    body_font = get_font(40)
     accent_bbox = draw.textbbox((0, 0), text, font=accent_font)
-    body_lines = _wrap_text(body, body_font, width - x - 190)[:1]
+    body_lines = wrap_text(body, body_font, width - x - 190)[:1]
     body_text = body_lines[0] if body_lines else body
     dot_r = 8
     draw.ellipse((x, y + 28, x + dot_r * 2, y + 28 + dot_r * 2), fill=(*LINE_BLUE, int(220 * opacity)))
@@ -219,13 +171,13 @@ def _treatment_parts(treatment: str) -> list[str]:
 
 def _draw_voice_subtitle(frame: Image.Image, subtitle: str, width: int, height: int) -> None:
     draw = ImageDraw.Draw(frame)
-    subtitle_font = _font(42)
+    subtitle_font = get_font(42)
     box_w = int(width * 0.84)
     box_x = (width - box_w) // 2
-    lines = _wrap_text(subtitle, subtitle_font, box_w - 72)
+    lines = wrap_text(subtitle, subtitle_font, box_w - 72)
     if len(lines) > 3:
         lines = lines[:3]
-        lines[-1] = _short_text(lines[-1], 18)
+        lines[-1] = short_text(lines[-1], 18)
     box_h = 36 + len(lines) * 58
     box_y = height - 292
     draw.rounded_rectangle(
@@ -265,7 +217,7 @@ def _hotlist_rows(treatment: str) -> list[str]:
 
 
 def _draw_micro_footer(draw: ImageDraw.ImageDraw, text: str, width: int, height: int) -> None:
-    font = _font(28)
+    font = get_font(28)
     bbox = draw.textbbox((0, 0), text, font=font)
     draw.text(((width - (bbox[2] - bbox[0])) // 2, height - 106), text, fill=(*TEXT_MUTED, 118), font=font)
 
@@ -319,8 +271,8 @@ def _draw_screenshot_panel(
     for i, color in enumerate(((255, 95, 87), (255, 189, 46), (40, 201, 64))):
         panel_draw.ellipse((24 + i * 30, 14, 40 + i * 30, 30), fill=(*color, int(180 * appear)))
 
-    visual = _contain(asset, w - 34, h - chrome_h - 30)
-    zoom = 1.0 + 0.018 * _ease(progress)
+    visual = contain(asset, w - 34, h - chrome_h - 30)
+    zoom = 1.0 + 0.018 * ease_out(progress)
     visual = visual.resize((int(visual.width * zoom), int(visual.height * zoom)), Image.Resampling.LANCZOS).convert("RGBA")
     visual.putalpha(alpha)
     vx = (w - visual.width) // 2
@@ -335,15 +287,15 @@ def _draw_fallback_signal(draw: ImageDraw.ImageDraw, x: int, y: int, w: int, h: 
     appear = _appear(progress, 0.28, 0.68)
     top = y + int((1 - appear) * 28)
     draw.rounded_rectangle((x, top, x + w, top + h), radius=22, fill=(*PANEL, int(164 * appear)), outline=(*LINE_BLUE, int(105 * appear)), width=2)
-    label_font = _font(36)
-    value_font = _font(58)
+    label_font = get_font(36)
+    value_font = get_font(58)
     _draw_centered_in_rect(draw, "项目信号", (x, top + 46, x + w, top + 104), label_font, _fade(TEXT_MUTED, appear))
     items = ("README", "GitHub", "开源趋势")
     iy = top + 164
     for i, item in enumerate(items):
         item_appear = _appear(progress, 0.38 + i * 0.08, 0.78 + i * 0.08)
         draw.ellipse((x + 86, iy + 18, x + 104, iy + 36), fill=_fade(LINE_BLUE, item_appear))
-        draw.text((x + 132, iy), item, fill=_fade(TEXT_BODY, item_appear), font=value_font if i == 0 else _font(44))
+        draw.text((x + 132, iy), item, fill=_fade(TEXT_BODY, item_appear), font=value_font if i == 0 else get_font(44))
         iy += 92
 
 
@@ -352,16 +304,16 @@ def _render_opening_frame(shot_title: str, subtitle: str, asset_path: str, progr
     draw = ImageDraw.Draw(frame)
     name = _project_name(shot_title)
     subtitle_line = "Top 10 开源项目速览" if "热榜" in name else name
-    small_font = _font(38)
-    title_font = _font(112)
-    date_font = _font(42)
+    small_font = get_font(38)
+    title_font = get_font(112)
+    date_font = get_font(42)
 
     a1 = _appear(progress, 0.0, 0.35)
     a2 = _appear(progress, 0.12, 0.52)
     a3 = _appear(progress, 0.32, 0.72)
     _draw_centered(draw, "GitHub 热榜", 268 - int((1 - a1) * 24), small_font, _fade(TEXT_MUTED, a1 * 0.9), width)
     _draw_glow_centered(frame, "本期热榜", 448 - int((1 - a2) * 32), title_font, _fade(TEXT_MAIN, a2), width)
-    _draw_centered(draw, subtitle_line, 622, _font(58), _fade(TEXT_BODY, a2 * 0.96), width)
+    _draw_centered(draw, subtitle_line, 622, get_font(58), _fade(TEXT_BODY, a2 * 0.96), width)
     line_w = int((width - 420) * a3)
     draw.line((width // 2 - line_w // 2, 780, width // 2 + line_w // 2, 780), fill=_fade(LINE_BLUE, a3 * 0.86), width=3)
     _draw_centered(draw, "1 秒看懂是什么，3 秒判断值不值得看", 840, date_font, _fade(TEXT_MUTED, a3), width)
@@ -376,9 +328,9 @@ def _render_single_hook_frame(subtitle: str, treatment: str, asset_path: str, pr
     parts = _treatment_parts(treatment)
     name = parts[1] if len(parts) > 1 else "GitHub 项目"
     stars = parts[2] if len(parts) > 2 else "Star"
-    _draw_centered(draw, stars, 310, _font(122), (255, 220, 44, 250), width)
-    _draw_centered(draw, name, 500, _font(92), (255, 255, 255, 250), width)
-    _draw_centered(draw, "它能解决什么问题？", 640, _font(48), (28, 170, 255, 240), width)
+    _draw_centered(draw, stars, 310, get_font(122), (255, 220, 44, 250), width)
+    _draw_centered(draw, name, 500, get_font(92), (255, 255, 255, 250), width)
+    _draw_centered(draw, "它能解决什么问题？", 640, get_font(48), (28, 170, 255, 240), width)
     _draw_voice_subtitle(frame, subtitle, width, height)
     return frame.convert("RGB")
 
@@ -388,11 +340,11 @@ def _render_single_judgment_frame(subtitle: str, treatment: str, asset_path: str
     draw = ImageDraw.Draw(frame)
     parts = _treatment_parts(treatment)
     name = parts[1] if len(parts) > 1 else "这个项目"
-    _draw_centered(draw, "我的判断", 280, _font(54), (190, 215, 235, 190), width)
-    _draw_centered(draw, name, 410, _font(92), (255, 255, 255, 250), width)
+    _draw_centered(draw, "我的判断", 280, get_font(54), (190, 215, 235, 190), width)
+    _draw_centered(draw, name, 410, get_font(92), (255, 255, 255, 250), width)
     draw.rounded_rectangle((126, 640, width - 126, 980), radius=30, fill=(8, 31, 58, 175), outline=(45, 160, 255, 130), width=2)
-    _draw_centered(draw, "不是普通工具介绍", 710, _font(56), (255, 255, 255, 245), width)
-    _draw_centered(draw, "而是一个能带来启发的产品样本", 810, _font(50), (28, 170, 255, 240), width)
+    _draw_centered(draw, "不是普通工具介绍", 710, get_font(56), (255, 255, 255, 245), width)
+    _draw_centered(draw, "而是一个能带来启发的产品样本", 810, get_font(50), (28, 170, 255, 240), width)
     _draw_voice_subtitle(frame, subtitle, width, height)
     return frame.convert("RGB")
 
@@ -403,18 +355,18 @@ def _render_single_project_card_frame(subtitle: str, treatment: str, asset_path:
     parts = _treatment_parts(treatment)
     name = parts[1] if len(parts) > 1 else "GitHub 项目"
     language = parts[2] if len(parts) > 2 else "开源"
-    _draw_centered(draw, name, 270, _font(92), (255, 255, 255, 250), width)
-    _draw_centered(draw, "项目观察卡", 400, _font(46), (190, 215, 235, 190), width)
+    _draw_centered(draw, name, 270, get_font(92), (255, 255, 255, 250), width)
+    _draw_centered(draw, "项目观察卡", 400, get_font(46), (190, 215, 235, 190), width)
     x = 170
     for tag in ("能做什么", "带来什么", "为什么推荐", language):
-        x += _draw_pill(draw, tag, x, 560, _font(36)) + 16
+        x += _draw_pill(draw, tag, x, 560, get_font(36)) + 16
         if x > width - 260:
             x = 170
     draw.rounded_rectangle((110, 760, width - 110, 1120), radius=28, fill=(10, 30, 54, 170), outline=(55, 170, 255, 130), width=2)
     for i, point in enumerate(("真实页面", "README 证据", "源码来源"), start=1):
         y = 810 + (i - 1) * 88
-        draw.text((170, y), f"0{i}", fill=(30, 180, 255, 235), font=_font(38))
-        draw.text((260, y), point, fill=(245, 250, 255, 240), font=_font(42))
+        draw.text((170, y), f"0{i}", fill=(30, 180, 255, 235), font=get_font(38))
+        draw.text((260, y), point, fill=(245, 250, 255, 240), font=get_font(42))
     _draw_voice_subtitle(frame, subtitle, width, height)
     return frame.convert("RGB")
 
@@ -423,9 +375,9 @@ def _render_ranking_frame(shot_title: str, subtitle: str, asset_path: str, progr
     frame = _hotlist_bg(asset_path, width, height)
     draw = ImageDraw.Draw(frame)
     name = _project_name(shot_title)
-    title_font = _font(96)
-    row_font = _font(42)
-    meta_font = _font(36)
+    title_font = get_font(96)
+    row_font = get_font(42)
+    meta_font = get_font(36)
 
     _draw_centered(draw, "本期观察", 170, meta_font, (190, 215, 235, 180), width)
     _draw_centered(draw, "GitHub 热榜雷达", 250, title_font, (255, 255, 255, 245), width)
@@ -434,7 +386,7 @@ def _render_ranking_frame(shot_title: str, subtitle: str, asset_path: str, progr
     y = 500
     for i, row in enumerate(rows, start=1):
         appear = min(1.0, max(0.0, progress * 4 - (i - 1) * 0.35))
-        x = 78 + int((1 - _ease(appear)) * 60)
+        x = 78 + int((1 - ease_out(appear)) * 60)
         fill = (12, 32, 58, int(120 + 80 * appear))
         outline = (25, 150, 255, int(70 + 90 * appear))
         draw.rounded_rectangle((x, y, width - 78, y + 82), radius=18, fill=fill, outline=outline, width=2)
@@ -456,8 +408,8 @@ def _render_hotlist_ranking_frame(subtitle: str, treatment: str, asset_path: str
     max_rows = min(10, len(rows))
     row_spacing = min(96, (height - 660) // max(max_rows, 1))
     title_a = _appear(progress, 0.0, 0.38)
-    _draw_centered(draw, "GitHub 本期热榜", 176 - int((1 - title_a) * 24), _font(78), _fade(TEXT_MAIN, title_a), width)
-    _draw_centered(draw, "Top 10 开源项目速览", 276, _font(36), _fade(TEXT_MUTED, title_a), width)
+    _draw_centered(draw, "GitHub 本期热榜", 176 - int((1 - title_a) * 24), get_font(78), _fade(TEXT_MAIN, title_a), width)
+    _draw_centered(draw, "Top 10 开源项目速览", 276, get_font(36), _fade(TEXT_MUTED, title_a), width)
     y = 384
     for i, row in enumerate(rows[:max_rows], start=1):
         appear = _appear(progress, 0.12 + (i - 1) * 0.045, 0.48 + (i - 1) * 0.045)
@@ -467,15 +419,15 @@ def _render_hotlist_ranking_frame(subtitle: str, treatment: str, asset_path: str
         outline = (*LINE_BLUE, int(36 + 58 * appear))
         draw.rounded_rectangle((x, y, width - 84, y + row_h), radius=15, fill=fill, outline=outline, width=1)
         rank_fill = RANK_YELLOW if i == 1 else TEXT_MUTED
-        draw.text((x + 26, y + 17), f"#{i}", fill=_fade(rank_fill, appear), font=_font(32))
+        draw.text((x + 26, y + 17), f"#{i}", fill=_fade(rank_fill, appear), font=get_font(32))
         row_text = row.split(" ", 1)[1] if row.startswith("#") and " " in row else row
         if " Star" in row_text:
             name_part, stars_part = row_text.rsplit(" ", 2)[0], " ".join(row_text.rsplit(" ", 2)[1:])
-            draw.text((x + 102, y + 17), _short_text(name_part, 18), fill=_fade(TEXT_BODY, appear), font=_font(32))
-            stars_bbox = draw.textbbox((0, 0), stars_part, font=_font(30))
-            draw.text((width - 112 - (stars_bbox[2] - stars_bbox[0]), y + 19), stars_part, fill=_fade(STAR_GREEN, appear), font=_font(30))
+            draw.text((x + 102, y + 17), short_text(name_part, 18), fill=_fade(TEXT_BODY, appear), font=get_font(32))
+            stars_bbox = draw.textbbox((0, 0), stars_part, font=get_font(30))
+            draw.text((width - 112 - (stars_bbox[2] - stars_bbox[0]), y + 19), stars_part, fill=_fade(STAR_GREEN, appear), font=get_font(30))
         else:
-            draw.text((x + 102, y + 17), _short_text(row_text, 28), fill=_fade(TEXT_BODY, appear), font=_font(32))
+            draw.text((x + 102, y + 17), short_text(row_text, 28), fill=_fade(TEXT_BODY, appear), font=get_font(32))
         y += row_spacing
     _draw_voice_subtitle(frame, subtitle, width, height)
     return frame.convert("RGB")
@@ -494,8 +446,8 @@ def _render_hotlist_rank_card_frame(subtitle: str, treatment: str, asset_path: s
 
     hook_appear = _appear(progress, 0.0, 0.34)
     if hook:
-        hook_font = _font(34)
-        hook_text = _short_text(hook, 22)
+        hook_font = get_font(34)
+        hook_text = short_text(hook, 22)
         bbox = draw.textbbox((0, 0), hook_text, font=hook_font)
         pill_w = min(width - 160, bbox[2] - bbox[0] + 56)
         pill_x = (width - pill_w) // 2
@@ -503,8 +455,8 @@ def _render_hotlist_rank_card_frame(subtitle: str, treatment: str, asset_path: s
         draw.rounded_rectangle((pill_x, pill_y, pill_x + pill_w, pill_y + 62), radius=20, fill=_fade(PANEL, hook_appear * 0.72), outline=_fade(LINE_BLUE, hook_appear * 0.45), width=1)
         _draw_centered(draw, hook_text, pill_y + 13, hook_font, _fade(TEXT_MUTED, hook_appear), width)
 
-    title_font = _font(112)
-    title_lines = _wrap_text(name, title_font, width - 180)[:2]
+    title_font = get_font(112)
+    title_lines = wrap_text(name, title_font, width - 180)[:2]
     title_y = 264
     title_appear = _appear(progress, 0.08, 0.48)
     for line in title_lines:
@@ -513,7 +465,7 @@ def _render_hotlist_rank_card_frame(subtitle: str, treatment: str, asset_path: s
 
     meta_y = title_y + 2
     meta_appear = _appear(progress, 0.2, 0.58)
-    stars_font = _font(58)
+    stars_font = get_font(58)
     stars_bbox = draw.textbbox((0, 0), stars_text, font=stars_font)
     stars_w = stars_bbox[2] - stars_bbox[0]
     stars_x = (width - stars_w) // 2
@@ -524,7 +476,7 @@ def _render_hotlist_rank_card_frame(subtitle: str, treatment: str, asset_path: s
         badge_x = width - 190
     badge_pop = 1 + int(8 * (1 - abs(meta_appear - 0.72)) * meta_appear)
     draw.rounded_rectangle((badge_x - badge_pop, badge_y - badge_pop, badge_x + 84 + badge_pop, badge_y + 54 + badge_pop), radius=18, fill=_fade(RANK_YELLOW, meta_appear * 0.94))
-    draw.text((badge_x + 14, badge_y + 7), f"#{rank}", fill=_fade(BG, meta_appear), font=_font(34))
+    draw.text((badge_x + 14, badge_y + 7), f"#{rank}", fill=_fade(BG, meta_appear), font=get_font(34))
 
     bar_y = meta_y + 88
     bar_w = int(width * 0.44)
@@ -558,9 +510,9 @@ def _render_rank_card_frame(shot_title: str, subtitle: str, asset_path: str, pro
     frame = _hotlist_bg(asset_path, width, height)
     draw = ImageDraw.Draw(frame)
     name = _project_name(shot_title)
-    rank_font = _font(118)
-    name_font = _font(74)
-    meta_font = _font(34)
+    rank_font = get_font(118)
+    name_font = get_font(74)
+    meta_font = get_font(34)
 
     cx = width // 2
     cy = 520
@@ -575,30 +527,30 @@ def _render_rank_card_frame(shot_title: str, subtitle: str, asset_path: str, pro
         x += _draw_pill(draw, tag, x, 960, meta_font) + 18
 
     draw.rounded_rectangle((120, 1120, width - 120, 1332), radius=28, fill=(10, 30, 54, 180), outline=(55, 170, 255, 130), width=2)
-    lines = _wrap_text(subtitle, _font(46), width - 300)
+    lines = wrap_text(subtitle, get_font(46), width - 300)
     y = 1170
     for line in lines[:2]:
-        _draw_centered(draw, line, y, _font(46), (245, 250, 255, 245), width)
+        _draw_centered(draw, line, y, get_font(46), (245, 250, 255, 245), width)
         y += 62
 
-    draw.text((width // 2 - 64, height - 104), name, fill=(180, 200, 220, 110), font=_font(30))
+    draw.text((width // 2 - 64, height - 104), name, fill=(180, 200, 220, 110), font=get_font(30))
     return frame.convert("RGB")
 
 
 def _render_breakdown_frame(shot_title: str, subtitle: str, asset_path: str, progress: float, width: int, height: int) -> Image.Image:
     frame = _hotlist_bg(asset_path, width, height)
     draw = ImageDraw.Draw(frame)
-    title_font = _font(58)
-    item_font = _font(38)
+    title_font = get_font(58)
+    item_font = get_font(38)
     _draw_centered(draw, "为什么值得看", 210, title_font, (255, 255, 255, 246), width)
 
     y = 430
     for i, point in enumerate(_split_points(subtitle), start=1):
         appear = min(1.0, max(0.0, progress * 4 - (i - 1) * 0.55))
-        top = y + int((1 - _ease(appear)) * 36)
+        top = y + int((1 - ease_out(appear)) * 36)
         draw.rounded_rectangle((92, top, width - 92, top + 220), radius=24, fill=(8, 31, 58, int(145 + 45 * appear)), outline=(45, 160, 255, int(70 + 80 * appear)), width=2)
-        draw.text((126, top + 34), f"0{i}", fill=(30, 180, 255, 230), font=_font(42))
-        lines = _wrap_text(point, item_font, width - 300)
+        draw.text((126, top + 34), f"0{i}", fill=(30, 180, 255, 230), font=get_font(42))
+        lines = wrap_text(point, item_font, width - 300)
         text_y = top + 42
         for line in lines[:2]:
             draw.text((220, text_y), line, fill=(245, 250, 255, 240), font=item_font)
@@ -613,16 +565,16 @@ def _render_closing_frame(shot_title: str, subtitle: str, asset_path: str, progr
     frame = _hotlist_bg(asset_path, width, height)
     draw = ImageDraw.Draw(frame)
     name = _project_name(shot_title)
-    _draw_centered(draw, "本期项目", 270, _font(48), (190, 215, 235, 190), width)
+    _draw_centered(draw, "本期项目", 270, get_font(48), (190, 215, 235, 190), width)
 
     project_text = subtitle.split("。")[0]
     for prefix in ("本期项目：", "本期项目:"):
         project_text = project_text.replace(prefix, "")
     project_text = project_text.replace("你想先看哪个方向？", "")
-    tags = [_short_text(tag.strip(), 14) for tag in project_text.split("、") if tag.strip()][:4]
+    tags = [short_text(tag.strip(), 14) for tag in project_text.split("、") if tag.strip()][:4]
     x = 110
     y = 500
-    tag_font = _font(44)
+    tag_font = get_font(44)
     for tag in tags:
         bbox = draw.textbbox((0, 0), tag, font=tag_font)
         estimated_w = bbox[2] - bbox[0] + 42
@@ -632,10 +584,10 @@ def _render_closing_frame(shot_title: str, subtitle: str, asset_path: str, progr
         w = _draw_pill(draw, tag, x, y, tag_font, fill=(20, 153, 255, 96))
         x += w + 22
 
-    _draw_centered(draw, f"{name} 值得先收藏再试", 760, _font(58), (255, 255, 255, 246), width)
-    _draw_centered(draw, "你还想看哪个 GitHub 方向？", 870, _font(48), (28, 170, 255, 245), width)
+    _draw_centered(draw, f"{name} 值得先收藏再试", 760, get_font(58), (255, 255, 255, 246), width)
+    _draw_centered(draw, "你还想看哪个 GitHub 方向？", 870, get_font(48), (28, 170, 255, 245), width)
     _draw_voice_subtitle(frame, subtitle, width, height)
-    draw.text((width // 2 - 98, height - 104), "关注我 · 下周见", fill=(180, 200, 220, 130), font=_font(30))
+    draw.text((width // 2 - 98, height - 104), "关注我 · 下周见", fill=(180, 200, 220, 130), font=get_font(30))
     return frame.convert("RGB")
 
 
@@ -645,15 +597,15 @@ def _render_plain_closing_frame(subtitle: str, asset_path: str, progress: float,
     title_a = _appear(progress, 0.0, 0.42)
     tag_a = _appear(progress, 0.22, 0.68)
     cta_a = _appear(progress, 0.48, 0.88)
-    _draw_centered(draw, "下期拆哪个方向？", 360 - int((1 - title_a) * 30), _font(70), _fade(TEXT_MAIN, title_a), width)
+    _draw_centered(draw, "下期拆哪个方向？", 360 - int((1 - title_a) * 30), get_font(70), _fade(TEXT_MAIN, title_a), width)
     rows = _hotlist_rows(treatment)
     tags = []
     if rows:
-        tags = [_short_text(_row_name(row), 10) for row in rows[:4]]
+        tags = [short_text(_row_name(row), 10) for row in rows[:4]]
     if not tags:
         tags = ["AI", "运维", "独立开发", "工具站"]
 
-    tag_font = _font(42)
+    tag_font = get_font(42)
     rows_to_draw = [tags[:2], tags[2:4]]
     for row_idx, tag_row in enumerate(rows_to_draw):
         if not tag_row:
@@ -673,7 +625,7 @@ def _render_plain_closing_frame(subtitle: str, asset_path: str, progress: float,
             x += widths[col_idx] + 18
 
     draw.line((250, 772, width - 250, 772), fill=_fade(LINE_BLUE, cta_a * 0.84), width=3)
-    _draw_centered(draw, "评论区告诉我", 834, _font(56), _fade(TEXT_BODY, cta_a), width)
+    _draw_centered(draw, "评论区告诉我", 834, get_font(56), _fade(TEXT_BODY, cta_a), width)
     _draw_voice_subtitle(frame, subtitle, width, height)
     _draw_micro_footer(draw, "关注我 · 下期见", width, height)
     return frame.convert("RGB")
@@ -723,12 +675,12 @@ def _render_frame(
     frame = _hotlist_bg(asset_path, width, height)
     draw = ImageDraw.Draw(frame)
 
-    title_font = _font(50)
-    subtitle_font = _font(46)
-    note_font = _font(26)
-    hint_font = _font(30)
+    title_font = get_font(50)
+    subtitle_font = get_font(46)
+    note_font = get_font(26)
+    hint_font = get_font(30)
 
-    title_lines = _wrap_text(shot_title, title_font, width - 120)
+    title_lines = wrap_text(shot_title, title_font, width - 120)
     y = 96
     for line in title_lines[:2]:
         draw.text((60, y), line, fill=(255, 255, 255, 245), font=title_font)
@@ -736,8 +688,8 @@ def _render_frame(
 
     visual_h = 1040
     visual_y = 360
-    visual = _contain(asset, width - 96, visual_h)
-    zoom = 1.0 + 0.035 * _ease(progress)
+    visual = contain(asset, width - 96, visual_h)
+    zoom = 1.0 + 0.035 * ease_out(progress)
     visual = visual.resize((int(visual.width * zoom), int(visual.height * zoom)), Image.Resampling.LANCZOS)
     card_x = (width - visual.width) // 2
     card_y = visual_y + (visual_h - visual.height) // 2
@@ -759,12 +711,12 @@ def _render_frame(
         start = (width - 150, height - 470)
         end = (target[0] + 26, target[1] + 28)
         move = min(1.0, progress / 0.45)
-        cx = int(start[0] + (end[0] - start[0]) * _ease(move))
-        cy = int(start[1] + (end[1] - start[1]) * _ease(move))
-        cursor = _cursor()
+        cx = int(start[0] + (end[0] - start[0]) * ease_out(move))
+        cy = int(start[1] + (end[1] - start[1]) * ease_out(move))
+        cursor = create_cursor(70)
         frame.alpha_composite(cursor, (cx, cy))
 
-    subtitle_lines = _wrap_text(subtitle, subtitle_font, width - 130)
+    subtitle_lines = wrap_text(subtitle, subtitle_font, width - 130)
     box_h = 42 + len(subtitle_lines) * 58
     box_y = height - 250 - box_h // 2
     draw.rounded_rectangle((48, box_y, width - 48, box_y + box_h), radius=24, fill=(0, 0, 0, 132))
@@ -800,8 +752,9 @@ def compose_vertical_video(
         else:
             audio_durations.append(_segment.duration)
 
-    frames = []
-    preview_dir.mkdir(parents=True, exist_ok=True)
+    # Pre-compute per-shot metadata for lazy frame generation
+    shot_meta = []
+    t = 0.0
     for i, shot in enumerate(shot_plan.shots):
         segment = script.segments[i] if i < len(script.segments) else None
         subtitle = segment.narration if segment else shot.subtitle
@@ -809,34 +762,65 @@ def compose_vertical_video(
         asset_path = asset_paths.get(shot.visual_asset, "")
         num_frames = max(1, int(duration * fps))
         dynamic_frames = min(num_frames, max(8, int(duration * 5)))
-        rendered_frames = []
-        preview_frame = None
-        for frame_i in range(dynamic_frames):
-            progress = frame_i / max(1, dynamic_frames - 1)
-            frame = _render_frame(
-                shot_plan.title,
-                subtitle,
-                asset_path,
-                shot.visual_treatment,
-                progress,
-                VIDEO_WIDTH_V,
-                VIDEO_HEIGHT_V,
-            )
-            if frame_i == min(dynamic_frames - 1, max(0, int(dynamic_frames * 0.55))):
-                preview_frame = frame
-            rendered_frames.append(np.array(frame))
-        for frame_i in range(num_frames):
-            source_i = min(dynamic_frames - 1, int(frame_i * dynamic_frames / num_frames))
-            frames.append(rendered_frames[source_i])
-        if preview_frame:
-            preview_frame.save(preview_dir / f"shot-{i + 1:02d}.png")
+        shot_meta.append({
+            "start": t,
+            "duration": duration,
+            "subtitle": subtitle,
+            "asset_path": asset_path,
+            "treatment": shot.visual_treatment,
+            "dynamic_frames": dynamic_frames,
+        })
+        t += duration
+    total_duration = t
 
-    video_clip = ImageSequenceClip(frames, fps=fps)
+    # Save preview frames in a separate pass (only a few frames per shot)
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    for i, meta in enumerate(shot_meta):
+        progress = 0.55
+        frame = _render_frame(
+            shot_plan.title,
+            meta["subtitle"],
+            meta["asset_path"],
+            meta["treatment"],
+            progress,
+            VIDEO_WIDTH_V,
+            VIDEO_HEIGHT_V,
+        )
+        frame.save(preview_dir / f"shot-{i + 1:02d}.png")
+
+    # Lazy frame generation via make_frame callback — avoids OOM
+    def make_frame(t: float):
+        # Find which shot this time falls into
+        shot_idx = 0
+        for i, meta in enumerate(shot_meta):
+            if t >= meta["start"]:
+                shot_idx = i
+        meta = shot_meta[shot_idx]
+        elapsed = t - meta["start"]
+        progress = min(1.0, elapsed / meta["duration"]) if meta["duration"] > 0 else 1.0
+        # Map progress to dynamic frame index (same logic as before)
+        dynamic_frames = meta["dynamic_frames"]
+        source_i = min(dynamic_frames - 1, int(progress * dynamic_frames))
+        frame_progress = source_i / max(1, dynamic_frames - 1)
+        frame = _render_frame(
+            shot_plan.title,
+            meta["subtitle"],
+            meta["asset_path"],
+            meta["treatment"],
+            frame_progress,
+            VIDEO_WIDTH_V,
+            VIDEO_HEIGHT_V,
+        )
+        return np.array(frame)
+
+    video_clip = VideoClip(make_frame, duration=total_duration)
+    final_audio = None
     if audio_clips:
         final_audio = concatenate_audioclips(audio_clips)
         video_clip = video_clip.with_audio(final_audio)
     else:
-        video_clip = video_clip.with_audio(AudioClip(lambda t: 0, duration=len(frames) / fps, fps=44100))
+        silent = AudioClip(lambda t: 0, duration=total_duration, fps=44100)
+        video_clip = video_clip.with_audio(silent)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     console.print("  编码竖屏视频...")
@@ -850,6 +834,8 @@ def compose_vertical_video(
         logger=None,
     )
     video_clip.close()
+    if final_audio is not None:
+        final_audio.close()
     for clip in audio_clips:
         clip.close()
     console.print(f"  ✓ 竖屏视频已保存到: {output_path}")
