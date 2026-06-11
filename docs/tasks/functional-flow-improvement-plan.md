@@ -118,7 +118,7 @@
 
 ### P0-4 修正 HyperFrames 阶段显示
 
-状态：`todo`
+状态：`done`
 
 问题：
 
@@ -128,6 +128,17 @@ HyperFrames 分支会先把状态设为 `generating_tts`，随后很快设为 `c
 
 - 为 `render_hotlist_v2_from_projects` 增加阶段回调，细分 TTS、HTML composition、HyperFrames render、audio mix、post process。
 - 前端阶段时间线展示这些真实阶段。
+
+验收证据：
+
+- `2026-06-11`：`.venv/bin/python tests/test_console_jobs.py`
+- `2026-06-11`：`.venv/bin/python tests/test_hotlist_v2_render.py`
+- `2026-06-11`：`node tests/test_console_static_app.js`
+- 回归覆盖：
+  - `test_render_video_auto_validates_unchecked_plan`
+  - `test_render_video_records_precise_hyperframes_failed_stage`
+  - `test_hyperframes_render_emits_stage_callbacks_in_real_order`
+  - `testFailedJobsExposeRetryActions`
 
 验收标准：
 
@@ -357,5 +368,6 @@ git diff --check
 
 | 日期 | 更新 | 证据 |
 | --- | --- | --- |
+| 2026-06-11 | 完成 P0-4：HyperFrames 渲染改为按真实步骤记录 `generating_tts -> composing_html -> rendering_hyperframes -> mixing_audio -> post_processing` | `.venv/bin/python tests/test_console_jobs.py` ; `.venv/bin/python tests/test_hotlist_v2_render.py` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P0-1：重新生成、重选项目、重存脚本与渲染失败时保留历史正式视频版本，仅清理当前 `final.mp4` 与工作产物 | `.venv/bin/python tests/test_console_jobs.py` |
 | 2026-06-11 | 创建全功能流程持续改进计划 | 基于控制台、CLI、任务编排、热榜抓取、渲染、预检与测试覆盖审计 |

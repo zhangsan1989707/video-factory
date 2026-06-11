@@ -10,6 +10,7 @@ import subprocess
 from difflib import SequenceMatcher
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+from typing import Callable
 
 from rich.console import Console
 
@@ -55,6 +56,7 @@ async def render_hotlist_v2_from_projects(
     durations: dict[str, int] | None = None,
     style: str = DEFAULT_STYLE,
     narration_segments: list[dict] | None = None,
+    stage_callback: Callable[[str, str], None] | None = None,
 ) -> Path:
     """Render a hotlist v2 video from already selected console project data."""
     data = _data_from_projects(projects)
@@ -64,6 +66,7 @@ async def render_hotlist_v2_from_projects(
         durations=durations,
         style=style,
         narration_segments=narration_segments,
+        stage_callback=stage_callback,
     )
 
 
@@ -101,6 +104,7 @@ async def render_hotlist_v2_from_data(
     durations: dict[str, int] | None = None,
     style: str = DEFAULT_STYLE,
     narration_segments: list[dict] | None = None,
+    stage_callback: Callable[[str, str], None] | None = None,
 ) -> Path:
     """Render a hotlist v2 video from normalized template data."""
     out = output_path or OUTPUT_DIR / "final.mp4"
@@ -110,6 +114,7 @@ async def render_hotlist_v2_from_data(
     console.print(f"  ✓ Found {data['total_projects']} projects, {data['total_languages']} languages")
 
     # Step 2: Generate TTS narration first so the visual timeline can follow real speech length.
+    _emit_stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
     console.print("[bold cyan]Step 2/5:[/] Generating TTS narration...")
     script = _build_script_from_timeline(timeline)
     script_path = work_dir / "script.json"
@@ -123,6 +128,7 @@ async def render_hotlist_v2_from_data(
     console.print(f"  ✓ TTS audio: {audio_dir}")
 
     # Step 3: Render HTML composition
+    _emit_stage(stage_callback, "composing_html", "开始生成 HTML 画面。")
     console.print("[bold cyan]Step 3/5:[/] Rendering HTML composition...")
     render_data = {**data, **timeline}
     data_path = work_dir / "trending-data.json"
@@ -132,17 +138,24 @@ async def render_hotlist_v2_from_data(
     console.print(f"  ✓ HTML composition: {html_path}")
 
     # Step 4: Render video with HyperFrames
+    _emit_stage(stage_callback, "rendering_hyperframes", "开始使用 HyperFrames 渲染动画视频。")
     console.print("[bold cyan]Step 4/5:[/] Rendering video with HyperFrames...")
     raw_video = work_dir / "raw.mp4"
     _render_hyperframes(html_path, raw_video)
     console.print(f"  ✓ Raw video: {raw_video}")
 
     # Step 5: Mix TTS audio into video
+    _emit_stage(stage_callback, "mixing_audio", "开始混合 TTS 音频。")
     console.print("[bold cyan]Step 5/5:[/] Mixing TTS audio...")
     _mix_audio(raw_video, script, audio_dir, out)
     console.print(f"  ✓ [bold green]Final video:[/] {out}")
 
     return out
+
+
+def _emit_stage(stage_callback: Callable[[str, str], None] | None, stage: str, message: str) -> None:
+    if stage_callback:
+        stage_callback(stage, message)
 
 
 def _data_from_projects(projects: list[dict]) -> dict:

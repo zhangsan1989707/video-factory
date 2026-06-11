@@ -365,7 +365,16 @@ def start_render_job(job_id: str) -> dict:
     job = job_detail(job_id)["job"]
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
-    if str(job.get("stage") or "") not in {"preparing_plan", "capturing_assets", "generating_tts", "composing_video", "post_processing"}:
+    if str(job.get("stage") or "") not in {
+        "preparing_plan",
+        "capturing_assets",
+        "generating_tts",
+        "composing_video",
+        "composing_html",
+        "rendering_hyperframes",
+        "mixing_audio",
+        "post_processing",
+    }:
         raise ValueError(f"当前阶段不能生成最终视频: {job.get('stage') or 'unknown'}")
     started = start_async_job(job_id, render_video, on_error=record_render_background_failure)
     if not started:

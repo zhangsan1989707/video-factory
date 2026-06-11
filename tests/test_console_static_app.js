@@ -96,6 +96,9 @@ function testFailedJobsExposeRetryActions() {
     ["capturing_assets", "render-video", "重试：采集素材"],
     ["generating_tts", "render-video", "重试：生成语音"],
     ["composing_video", "render-video", "重试：合成视频"],
+    ["composing_html", "render-video", "重试：生成画面"],
+    ["rendering_hyperframes", "render-video", "重试：渲染动画"],
+    ["mixing_audio", "render-video", "重试：混合音频"],
     ["post_processing", "render-video", "重试：后处理"],
   ];
 

@@ -754,6 +754,9 @@ function nextActionForJob(job) {
       capturing_assets: "render-video",
       generating_tts: "render-video",
       composing_video: "render-video",
+      composing_html: "render-video",
+      rendering_hyperframes: "render-video",
+      mixing_audio: "render-video",
       post_processing: "render-video",
     };
     const retryAction = retryActions[stage];
@@ -956,6 +959,9 @@ function stageLabel(stage) {
     capturing_assets: "采集素材",
     generating_tts: "生成语音",
     composing_video: "合成视频",
+    composing_html: "生成画面",
+    rendering_hyperframes: "渲染动画",
+    mixing_audio: "混合音频",
     post_processing: "后处理",
     completed: "已完成",
     failed: "失败",

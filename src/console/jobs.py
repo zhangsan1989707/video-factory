@@ -406,7 +406,20 @@ async def render_video(job_id: str) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
-    _require_stage(job, {"preparing_plan", "capturing_assets", "generating_tts", "composing_video", "post_processing"}, "当前阶段不能生成最终视频")
+    _require_stage(
+        job,
+        {
+            "preparing_plan",
+            "capturing_assets",
+            "generating_tts",
+            "composing_video",
+            "composing_html",
+            "rendering_hyperframes",
+            "mixing_audio",
+            "post_processing",
+        },
+        "当前阶段不能生成最终视频",
+    )
 
     job_dir = JOBS_DIR / job_id
     try:
@@ -422,7 +435,7 @@ async def render_video(job_id: str) -> dict[str, Any]:
         raise_if_cancelled(job_id)
 
         append_log(job_id, "开始生成最终视频。这个阶段会生成语音并合成 mp4。")
-        update_job(job_id, status="running", stage="capturing_assets", failed_stage="", error="", cancel_requested=False)
+        update_job(job_id, status="running", failed_stage="", error="", cancel_requested=False)
 
         def on_pipeline_stage(stage: str, message: str) -> None:
             raise_if_cancelled(job_id)
@@ -434,15 +447,14 @@ async def render_video(job_id: str) -> dict[str, Any]:
         visual_style = _visual_style(job)
         if _render_engine(job) == "hyperframes":
             raise_if_cancelled(job_id)
-            update_job(job_id, status="running", stage="generating_tts")
             append_log(job_id, f"使用 HyperFrames 模板渲染：{visual_style}。")
-            update_job(job_id, status="running", stage="composing_video")
             narration_segments = read_json(job_dir / "narration.json", {}).get("segments") or []
             await render_hotlist_v2_from_projects(
                 selected,
                 output_path=output_path,
                 style=visual_style,
                 narration_segments=narration_segments,
+                stage_callback=on_pipeline_stage,
             )
             raise_if_cancelled(job_id)
             update_job(job_id, status="running", stage="post_processing")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,7 +8,7 @@ from unittest.mock import patch
 
 from jinja2 import Environment, FileSystemLoader
 
-from src.hotlist_v2.render import _build_script_from_timeline, _data_from_projects, _timeline_context, render_hotlist_v2_previews_from_projects
+from src.hotlist_v2.render import _build_script_from_timeline, _data_from_projects, _timeline_context, render_hotlist_v2_from_projects, render_hotlist_v2_previews_from_projects
 from src.hotlist_v2.template import DEFAULT_STYLE, STYLE_PROFILES, TEMPLATE_DIR, list_template_styles, normalize_style, render_composition, supported_styles
 
 
@@ -79,6 +80,55 @@ class HotlistV2RenderTest(unittest.TestCase):
                 self.assertEqual(len(previews), 4)
                 self.assertIn(f'data-style="{style}"', html)
                 self.assertEqual(screen_ids, ["screen-intro", "screen-list", "screen-detail-01", "screen-hook"])
+
+    def test_hyperframes_render_emits_stage_callbacks_in_real_order(self) -> None:
+        projects = [
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "适合做成中文短视频切入点。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ]
+        stages = []
+
+        async def fake_tts(script, work_dir):
+            (work_dir / "audio").mkdir(parents=True, exist_ok=True)
+
+        def fake_render_composition(render_data, html_path, durations=None, style=DEFAULT_STYLE):
+            html_path.write_text("<html></html>", encoding="utf-8")
+
+        def fake_render_hyperframes(html_path, raw_video):
+            raw_video.write_bytes(b"raw")
+
+        def fake_mix_audio(raw_video, script, audio_dir, out):
+            out.write_bytes(b"final")
+
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "final.mp4"
+            with (
+                patch("src.hotlist_v2.render.generate_all_audio", side_effect=fake_tts),
+                patch("src.hotlist_v2.render._audio_segment_durations", return_value={"intro": 2.0, "project-1": 3.0, "outro": 2.0}),
+                patch("src.hotlist_v2.render.render_composition", side_effect=fake_render_composition),
+                patch("src.hotlist_v2.render._render_hyperframes", side_effect=fake_render_hyperframes),
+                patch("src.hotlist_v2.render._mix_audio", side_effect=fake_mix_audio),
+            ):
+                result = asyncio.run(
+                    render_hotlist_v2_from_projects(
+                        projects,
+                        output_path=output,
+                        stage_callback=lambda stage, message: stages.append((stage, message)),
+                    )
+                )
+
+        self.assertEqual(result, output)
+        self.assertEqual([stage for stage, _message in stages], [
+            "generating_tts",
+            "composing_html",
+            "rendering_hyperframes",
+            "mixing_audio",
+        ])
 
     def test_template_falls_back_to_default_style_profile_when_missing(self) -> None:
         data = _data_from_projects([

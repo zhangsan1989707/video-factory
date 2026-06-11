@@ -930,6 +930,12 @@ class ConsoleJobsTest(unittest.TestCase):
 
         async def hyperframes(projects, output_path=None, **kwargs):
             render_calls.append({"projects": projects, "output_path": output_path, **kwargs})
+            stage_callback = kwargs.get("stage_callback")
+            if stage_callback:
+                stage_callback("generating_tts", "开始生成 TTS 语音。")
+                stage_callback("composing_html", "开始生成 HTML 画面。")
+                stage_callback("rendering_hyperframes", "开始使用 HyperFrames 渲染动画视频。")
+                stage_callback("mixing_audio", "开始混合 TTS 音频。")
             Path(output_path).write_bytes(b"video")
             return Path(output_path)
 
@@ -962,7 +968,53 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(len(render_calls), 1)
                 self.assertEqual(render_calls[0]["style"], "tech_hotspot")
                 self.assertEqual([segment["id"] for segment in render_calls[0]["narration_segments"]], ["intro", "project-1", "project-2", "outro"])
+                self.assertIn("stage_callback", render_calls[0])
                 self.assertEqual(result["job"]["plan_validation"]["status"], "passed")
+                relevant = [
+                    item["stage"]
+                    for item in result["job"]["stage_history"]
+                    if item["stage"] in {"generating_tts", "composing_html", "rendering_hyperframes", "mixing_audio", "post_processing"}
+                ]
+                self.assertEqual(
+                    relevant,
+                    ["generating_tts", "composing_html", "rendering_hyperframes", "mixing_audio", "post_processing"],
+                )
+
+    def test_render_video_records_precise_hyperframes_failed_stage(self) -> None:
+        async def pipeline(**kwargs):
+            return Path(kwargs["from_plan"])
+
+        async def hyperframes(projects, output_path=None, **kwargs):
+            stage_callback = kwargs.get("stage_callback")
+            if stage_callback:
+                stage_callback("generating_tts", "开始生成 TTS 语音。")
+                stage_callback("composing_html", "开始生成 HTML 画面。")
+            raise RuntimeError("html composition crashed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.run_pipeline", side_effect=pipeline),
+                patch("src.console.jobs.render_hotlist_v2_from_projects", side_effect=hyperframes),
+            ):
+                job = create_job("GH-HOTLIST-20990101-HF-STAGE-FAIL", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+
+                with self.assertRaisesRegex(RuntimeError, "html composition crashed"):
+                    asyncio.run(render_video(job["id"]))
+
+                detail = job_detail(job["id"])
+
+                self.assertEqual(detail["job"]["status"], "failed")
+                self.assertEqual(detail["job"]["stage"], "composing_html")
+                self.assertEqual(detail["failed_stage"], "composing_html")
+                self.assertIn("开始生成 HTML 画面。", detail["logs"])
+                self.assertIn("html composition crashed", detail["log_tail"])
 
     def test_render_video_uses_selected_hyperframes_style(self) -> None:
         async def pipeline(**kwargs):
