@@ -592,6 +592,28 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertFalse((job_dir / "shot_plan.json").exists())
                 self.assertEqual(result["job"]["stage"], "awaiting_project_confirmation")
 
+    def test_regenerate_candidates_passes_force_refresh(self) -> None:
+        collected_kwargs = []
+
+        async def collect(**kwargs):
+            collected_kwargs.append(kwargs)
+            return {"items": _extra_projects(2), "rate_limit": "ok"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.collect_candidates_with_meta", side_effect=collect),
+            ):
+                job = create_job("GH-HOTLIST-20990101-FORCE-REFRESH", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+
+                asyncio.run(regenerate_candidates(job["id"]))
+
+                self.assertTrue(len(collected_kwargs) >= 1)
+                self.assertTrue(collected_kwargs[0].get("force_refresh"), "regenerate_candidates should pass force_refresh=True")
+
     def test_regenerate_script_keeps_selection_and_clears_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
