@@ -1472,6 +1472,7 @@ def _quality_check_script(
             "risk_flags": [],
             "factual_notes": [],
             "overclaim_notes": [],
+            "issues": [],
             "readability_score": None,
             "provider": route.get("provider_name") or route.get("provider") or "",
             "model": route.get("model") or "",
@@ -1563,14 +1564,22 @@ def _sanitize_quality_report(
     status = str(data.get("status") or "caution").strip().lower()
     if status not in {"pass", "caution"}:
         status = "caution"
+    risk_flags = _short_list(data.get("risk_flags"), 8, 160)
+    factual_notes = _short_list(data.get("factual_notes"), 8, 180)
+    overclaim_notes = _short_list(data.get("overclaim_notes"), 8, 180)
     return {
         "status": status,
         "passed": status == "pass",
         "verified": status == "pass",
         "summary": summary,
-        "risk_flags": _short_list(data.get("risk_flags"), 8, 160),
-        "factual_notes": _short_list(data.get("factual_notes"), 8, 180),
-        "overclaim_notes": _short_list(data.get("overclaim_notes"), 8, 180),
+        "risk_flags": risk_flags,
+        "factual_notes": factual_notes,
+        "overclaim_notes": overclaim_notes,
+        "issues": [
+            *[_quality_issue("风险", text) for text in risk_flags],
+            *[_quality_issue("事实", text) for text in factual_notes],
+            *[_quality_issue("夸大", text) for text in overclaim_notes],
+        ][:8],
         "readability_score": _score_or_none(data.get("readability_score")),
         "provider": route.get("provider_name") or route.get("provider") or "",
         "model": route.get("model") or "",
@@ -1588,6 +1597,7 @@ def _quality_report_error(status: str, route: dict[str, Any], error: str, error_
         "risk_flags": [],
         "factual_notes": [],
         "overclaim_notes": [],
+        "issues": [],
         "readability_score": None,
         "provider": route.get("provider_name") or route.get("provider") or "",
         "model": route.get("model") or "",
@@ -1601,10 +1611,12 @@ def _with_local_fact_checks(
     projects: list[dict[str, Any]],
     segments: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    report = _bind_quality_issues(report, projects, segments)
     local_flags = _local_fact_flags(projects, segments)
     if local_flags:
         report = dict(report)
-        report["risk_flags"] = [*report.get("risk_flags", []), *local_flags][:8]
+        report["risk_flags"] = [*report.get("risk_flags", []), *[flag["text"] for flag in local_flags]][:8]
+        report["issues"] = [*report.get("issues", []), *local_flags][:8]
         report["status"] = "caution"
         report["passed"] = False
         report["summary"] = "脚本存在需要人工复核的事实一致性风险。"
@@ -1613,9 +1625,9 @@ def _with_local_fact_checks(
     return report
 
 
-def _local_fact_flags(projects: list[dict[str, Any]], segments: list[dict[str, Any]]) -> list[str]:
+def _local_fact_flags(projects: list[dict[str, Any]], segments: list[dict[str, Any]]) -> list[dict[str, str]]:
     by_id = {str(segment.get("id") or ""): str(segment.get("text") or "") for segment in segments}
-    flags = []
+    flags: list[dict[str, str]] = []
     for index, project in enumerate(projects, start=1):
         feature = _sanitize_feature_extract(project.get("feature_extract")) or _fallback_feature_extract(project)
         action = feature.get("core_action") or ""
@@ -1629,15 +1641,103 @@ def _local_fact_flags(projects: list[dict[str, Any]], segments: list[dict[str, A
             _readme_excerpt(project),
         ])
         support = _fact_similarity(action, source)
-        narration = by_id.get(f"project-{index}", "")
+        segment_id = f"project-{index}"
+        narration = by_id.get(segment_id, "")
         mention = _fact_similarity(action, narration)
         if support < 0.18:
-            flags.append(f"{project.get('full_name') or project.get('name')}: core_action 与项目描述/README 支撑不足，请复核。")
+            flags.append(_quality_issue(
+                "风险",
+                f"{project.get('full_name') or project.get('name')}: core_action 与项目描述/README 支撑不足，请复核。",
+                segment_id,
+            ))
         elif mention < 0.12:
-            flags.append(f"{project.get('full_name') or project.get('name')}: 口播未明显使用 core_action，请重写该段。")
+            flags.append(_quality_issue(
+                "风险",
+                f"{project.get('full_name') or project.get('name')}: 口播未明显使用 core_action，请重写该段。",
+                segment_id,
+            ))
         if _contains_growth_overclaim(narration):
-            flags.append(f"{project.get('full_name') or project.get('name')}: daily_growth 仅为估算日均 star，口播不应表述为真实新增 star。")
+            flags.append(_quality_issue(
+                "风险",
+                f"{project.get('full_name') or project.get('name')}: daily_growth 仅为估算日均 star，口播不应表述为真实新增 star。",
+                segment_id,
+            ))
     return flags
+
+
+def _bind_quality_issues(
+    report: dict[str, Any],
+    projects: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    issues = []
+    for issue in report.get("issues") or []:
+        normalized = _normalize_quality_issue(issue, projects, segments)
+        if normalized:
+            issues.append(normalized)
+    if not issues:
+        return report
+    patched = dict(report)
+    patched["issues"] = issues[:8]
+    return patched
+
+
+def _normalize_quality_issue(
+    issue: Any,
+    projects: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> dict[str, str] | None:
+    if isinstance(issue, str):
+        issue_type = "风险"
+        text = _short_text(issue, 180)
+        segment_id = ""
+    elif isinstance(issue, dict):
+        issue_type = _short_text(str(issue.get("type") or "风险"), 16) or "风险"
+        text = _short_text(str(issue.get("text") or ""), 180)
+        segment_id = _short_text(str(issue.get("segment_id") or ""), 32)
+    else:
+        return None
+    if not text:
+        return None
+    if segment_id and any(str(segment.get("id") or "") == segment_id for segment in segments):
+        return _quality_issue(issue_type, text, segment_id)
+    matched_segment = _match_quality_segment(text, projects, segments)
+    return _quality_issue(issue_type, text, matched_segment)
+
+
+def _match_quality_segment(text: str, projects: list[dict[str, Any]], segments: list[dict[str, Any]]) -> str:
+    normalized = _normalize_fact_text(text)
+    if not normalized:
+        return ""
+    for index, project in enumerate(projects, start=1):
+        for alias in (project.get("full_name"), project.get("name")):
+            alias_text = _normalize_fact_text(str(alias or ""))
+            if alias_text and alias_text in normalized:
+                return f"project-{index}"
+    best_segment = ""
+    best_score = 0.0
+    for segment in segments:
+        segment_id = str(segment.get("id") or "")
+        segment_text = _normalize_fact_text(str(segment.get("text") or ""))
+        if not segment_id or not segment_text:
+            continue
+        if segment_text in normalized or normalized in segment_text:
+            return segment_id
+        score = SequenceMatcher(None, normalized, segment_text).ratio()
+        if score > best_score:
+            best_score = score
+            best_segment = segment_id
+    return best_segment if best_score >= 0.2 else ""
+
+
+def _quality_issue(issue_type: str, text: str, segment_id: str = "") -> dict[str, str]:
+    issue = {
+        "type": _short_text(issue_type, 16) or "风险",
+        "text": _short_text(text, 180),
+    }
+    if segment_id:
+        issue["segment_id"] = _short_text(segment_id, 32)
+    return issue
 
 
 def _contains_growth_overclaim(text: str) -> bool:
@@ -1679,6 +1779,10 @@ def _fact_tokens(text: str) -> set[str]:
         for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{2,}|[\u4e00-\u9fff]{2,}", text)
         if token.lower() not in {"github", "readme", "project", "项目", "工具", "用户"}
     }
+
+
+def _normalize_fact_text(text: str) -> str:
+    return re.sub(r"\s+", "", str(text or "").lower())
 
 
 def _short_error_details(items: list[dict[str, Any]]) -> list[dict[str, str]]:

@@ -518,6 +518,13 @@ td small {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.script-segment.focused {
+  border-color: rgba(201, 100, 66, 0.88);
+  background: #fff3e8;
+  box-shadow: 0 0 0 3px rgba(201, 100, 66, 0.12);
 }
 
 .script-segment label {

@@ -1928,9 +1928,48 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(report["status"], "pass")
                 self.assertEqual(report["provider"], "Mock")
                 self.assertEqual(report["readability_score"], 92)
+                self.assertEqual(report["issues"], [])
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"][-1]["task"], "fact_check")
                 self.assertEqual(saved["model_calls"][-1]["status"], "success")
+
+    def test_save_script_binds_quality_issues_to_project_segments(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
+                patch("src.console.jobs.chat_json_detail", return_value={
+                    "data": {
+                        "status": "caution",
+                        "summary": "第 1 名口播有事实风险。",
+                        "risk_flags": [],
+                        "factual_notes": ["demo/alpha 这段把效果说满了，建议收敛。"],
+                        "overclaim_notes": [],
+                        "readability_score": 80,
+                    },
+                    "route": {"provider_name": "Mock", "model": "mock-model"},
+                    "raw": "{}",
+                    "error": "",
+                }),
+            ):
+                job = create_job("GH-HOTLIST-20990101-QA-ISSUES", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+
+                result = save_script(job["id"], {"segments": selection["segments"]})
+
+                self.assertEqual(result["job"]["status"], "awaiting_input")
+                report = read_json(jobs_dir / job["id"] / "quality_report.json", {})
+                self.assertEqual(report["issues"][0]["type"], "事实")
+                self.assertEqual(report["issues"][0]["segment_id"], "project-1")
 
     def test_save_script_writes_publish_pack(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2002,6 +2041,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(report["status"], "caution")
                 self.assertFalse(report["passed"])
                 self.assertTrue(any("估算日均 star" in flag for flag in report["risk_flags"]))
+                self.assertTrue(any(issue.get("segment_id") == "project-1" for issue in report["issues"]))
 
     def test_save_script_blocks_when_fact_check_returns_invalid_json_until_overridden(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2033,6 +2073,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 report = read_json(jobs_dir / job["id"] / "quality_report.json", {})
                 self.assertEqual(report["status"], "invalid_json")
                 self.assertFalse(report["passed"])
+                self.assertEqual(report["issues"], [])
                 raw = read_json(jobs_dir / job["id"] / "ai-response-fact_check.json", {})
                 self.assertEqual(raw["raw"], "坏响应")
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
@@ -2062,6 +2103,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(report["status"], "unverified")
                 self.assertFalse(report["passed"])
                 self.assertFalse(report["verified"])
+                self.assertEqual(report["issues"], [])
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"], [])
 

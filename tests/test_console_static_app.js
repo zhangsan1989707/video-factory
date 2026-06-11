@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, nextActionForJob, qualityBlocksRender, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, focusScriptSegment, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -23,6 +23,9 @@ async function run() {
   testSyncDetailStateReplacesCandidateAndScriptSnapshots();
   testSelectionButtonStateShowsLimit();
   testCandidateDefaultsUseProjectCount();
+  testQualityNotesPreferStructuredIssues();
+  testFocusScriptSegmentHighlightsTarget();
+  testRenderQualityReportShowsLocateAction();
   await testCreateDraftDoesNotCollectCandidates();
   await testProviderTestKeepsUnsavedFormValues();
 }
@@ -623,6 +626,102 @@ function testCandidateDefaultsUseProjectCount() {
   assert.equal(candidateOrder({}, 0), 1);
   assert.equal(candidateOrder({}, 5), "");
   assert.equal(candidateChecked({ selected: false }, 0), false);
+}
+
+function testQualityNotesPreferStructuredIssues() {
+  assert.deepEqual(qualityNotes({
+    issues: [{ type: "风险", text: "定位到第 1 段", segment_id: "project-1" }],
+    risk_flags: ["旧字段"],
+  }), [{ type: "风险", text: "定位到第 1 段", segment_id: "project-1" }]);
+}
+
+function testFocusScriptSegmentHighlightsTarget() {
+  let focused = false;
+  let scrolled = false;
+  const classNames = new Set();
+  const textarea = { focus() { focused = true; } };
+  const segment = {
+    classList: {
+      add(name) { classNames.add(name); },
+      remove(name) { classNames.delete(name); },
+    },
+    querySelector(selector) {
+      assert.equal(selector, "textarea");
+      return textarea;
+    },
+    scrollIntoView() {
+      scrolled = true;
+    },
+  };
+  global.document = {
+    querySelector(selector) {
+      assert.equal(selector, '[data-segment-id="project-1"]');
+      return segment;
+    },
+    querySelectorAll(selector) {
+      assert.equal(selector, ".script-segment.focused");
+      return [];
+    },
+  };
+  global.window = { setTimeout(fn) { fn(); } };
+
+  assert.equal(focusScriptSegment("project-1"), true);
+  assert.equal(focused, true);
+  assert.equal(scrolled, true);
+  assert.equal(classNames.has("focused"), false);
+}
+
+function testRenderQualityReportShowsLocateAction() {
+  const clickHandlers = [];
+  const qualityReport = {
+    hidden: true,
+    className: "",
+    innerHTML: "",
+    querySelectorAll(selector) {
+      assert.equal(selector, "[data-quality-segment-id]");
+      return [{
+        dataset: { qualitySegmentId: "project-1" },
+        addEventListener(event, handler) {
+          assert.equal(event, "click");
+          clickHandlers.push(handler);
+        },
+      }];
+    },
+  };
+  const textarea = { focus() {} };
+  const segment = {
+    classList: { add() {}, remove() {} },
+    querySelector() { return textarea; },
+    scrollIntoView() {},
+  };
+  global.document = {
+    getElementById(id) {
+      assert.equal(id, "qualityReport");
+      return qualityReport;
+    },
+    querySelector(selector) {
+      assert.equal(selector, '[data-segment-id="project-1"]');
+      return segment;
+    },
+    querySelectorAll(selector) {
+      if (selector === ".script-segment.focused") return [];
+      throw new Error(`unexpected querySelectorAll: ${selector}`);
+    },
+  };
+  global.window = { setTimeout() {} };
+  state.qualityReport = {
+    status: "caution",
+    summary: "需要处理",
+    provider: "Mock",
+    model: "mock-model",
+    issues: [{ type: "风险", text: "alpha 这一段过度承诺", segment_id: "project-1" }],
+  };
+
+  renderQualityReport();
+
+  assert.equal(qualityReport.hidden, false);
+  assert.match(qualityReport.innerHTML, /定位段落/);
+  assert.equal(clickHandlers.length, 1);
 }
 
 async function testProviderTestKeepsUnsavedFormValues() {

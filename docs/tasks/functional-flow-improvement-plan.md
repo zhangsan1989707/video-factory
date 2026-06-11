@@ -205,7 +205,7 @@ HyperFrames 分支会先把状态设为 `generating_tts`，随后很快设为 `c
 
 ### P1-2 做成可操作的脚本质检闭环
 
-状态：`todo`
+状态：`done`
 
 问题：
 
@@ -222,6 +222,18 @@ HyperFrames 分支会先把状态设为 `generating_tts`，随后很快设为 `c
 - 质检失败时，用户能从风险项跳到对应段落。
 - 修改后重新确认口播会重新运行质检。
 - 忽略风险会写入 `quality_report.json`。
+
+验收证据：
+
+- `2026-06-11`：`.venv/bin/python -m pytest tests/test_console_jobs.py -q`
+- `2026-06-11`：`node tests/test_console_static_app.js`
+- 回归覆盖：
+  - `test_save_script_binds_quality_issues_to_project_segments`
+  - `test_save_script_flags_growth_overclaim_in_quality_report`
+  - `test_save_script_blocks_when_fact_check_returns_invalid_json_until_overridden`
+  - `testQualityNotesPreferStructuredIssues`
+  - `testFocusScriptSegmentHighlightsTarget`
+  - `testRenderQualityReportShowsLocateAction`
 
 参考位置：
 

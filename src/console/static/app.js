@@ -863,7 +863,14 @@ function renderQualityReport() {
             <tr>
               <th>${escapeHtml(note.type)}</th>
               <td>${escapeHtml(note.text)}</td>
-              <td><button class="tiny" type="button" disabled title="请先在口播编辑框中修改后重新确认">修正建议</button></td>
+              <td>
+                <button
+                  class="tiny"
+                  type="button"
+                  data-quality-segment-id="${escapeAttr(note.segment_id || "")}"
+                  ${note.segment_id ? "" : 'disabled title="当前风险未定位到具体段落"'}
+                >${note.segment_id ? "定位段落" : "未定位"}</button>
+              </td>
             </tr>
           `).join("")}
         </tbody>
@@ -872,14 +879,41 @@ function renderQualityReport() {
     ${report.manual_override ? '<small>已人工确认忽略风险。</small>' : ""}
     ${report.error ? `<small>${escapeHtml(report.error)}</small>` : ""}
   `;
+  box.querySelectorAll("[data-quality-segment-id]").forEach((button) => {
+    button.addEventListener("click", () => focusScriptSegment(button.dataset.qualitySegmentId || ""));
+  });
 }
 
 function qualityNotes(report) {
+  if (Array.isArray(report.issues) && report.issues.length) {
+    return report.issues.map((issue) => ({
+      type: issue.type || "风险",
+      text: issue.text || "",
+      segment_id: issue.segment_id || "",
+    })).filter((issue) => issue.text).slice(0, 8);
+  }
   return [
-    ...(report.risk_flags || []).map((text) => ({ type: "风险", text })),
-    ...(report.factual_notes || []).map((text) => ({ type: "事实", text })),
-    ...(report.overclaim_notes || []).map((text) => ({ type: "夸大", text })),
+    ...(report.risk_flags || []).map((text) => ({ type: "风险", text, segment_id: "" })),
+    ...(report.factual_notes || []).map((text) => ({ type: "事实", text, segment_id: "" })),
+    ...(report.overclaim_notes || []).map((text) => ({ type: "夸大", text, segment_id: "" })),
   ].slice(0, 8);
+}
+
+function focusScriptSegment(segmentId) {
+  if (!segmentId) return false;
+  const segment = document.querySelector(`[data-segment-id="${segmentId}"]`);
+  if (!segment) return false;
+  document.querySelectorAll(".script-segment.focused").forEach((node) => node.classList.remove("focused"));
+  segment.classList.add("focused");
+  if (typeof segment.scrollIntoView === "function") {
+    segment.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  const textarea = segment.querySelector("textarea");
+  if (textarea && typeof textarea.focus === "function") textarea.focus();
+  if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+    window.setTimeout(() => segment.classList.remove("focused"), 1800);
+  }
+  return true;
 }
 
 function qualityBlocksRender(report) {
@@ -1304,5 +1338,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, nextActionForJob, qualityBlocksRender, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, focusScriptSegment, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
 }
