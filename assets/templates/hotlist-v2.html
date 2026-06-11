@@ -34,6 +34,26 @@
   --font-display: {{ palette.font_display }};
   --font-body: {{ palette.font_body }};
   --font-mono: {{ palette.font_mono }};
+  /* deep-restore card tokens */
+  --s-card-bg: {{ palette.card_bg }};
+  --s-card-border: {{ palette.card_border }};
+  --s-card-radius: {{ palette.card_border_radius }};
+  --s-card-shadow: {{ palette.card_shadow }};
+  --s-item-radius: {{ palette.item_border_radius }};
+  --s-badge-radius: {{ palette.badge_border_radius }};
+  --s-border-w: {{ palette.border_width }};
+  --s-border-c: {{ palette.border_color }};
+  --s-stat-chip-bg: {{ palette.stat_chip_bg }};
+  --s-stat-chip-border: {{ palette.stat_chip_border }};
+  --s-stat-chip-radius: {{ palette.stat_chip_radius }};
+  --s-stat-chip-shadow: {{ palette.stat_chip_shadow }};
+  --s-metric-bg: {{ palette.metric_card_bg }};
+  --s-metric-border: {{ palette.metric_card_border }};
+  --s-metric-radius: {{ palette.metric_card_radius }};
+  --s-reason-radius: {{ palette.reason_border_radius }};
+  --s-hook-card-bg: {{ palette.hook_card_bg }};
+  --s-hook-card-border: {{ palette.hook_card_border }};
+  --s-hook-card-radius: {{ palette.hook_card_radius }};
 }
 
 body {
@@ -60,6 +80,7 @@ body {
   background: repeating-linear-gradient(0deg, transparent, transparent 2px,
     rgba(var(--accent-cyan-rgb), 0.01) 2px, rgba(var(--accent-cyan-rgb), 0.01) 4px);
   pointer-events: none; z-index: 50;
+  {% if palette.show_scanline == "0" %}display: none;{% endif %}
 }
 
 .grid-bg {
@@ -69,6 +90,7 @@ body {
     linear-gradient(90deg, rgba(var(--accent-cyan-rgb), 0.1) 1px, transparent 1px);
   background-size: 36px 36px;
   mask-image: radial-gradient(ellipse 90% 70% at 50% 42%, black, transparent);
+  {% if palette.show_grid == "0" %}display: none;{% endif %}
 }
 
 /* === GLOW ORBS === */
@@ -147,9 +169,9 @@ body {
   animation: fadeInUp 0.6s ease both; animation-delay: 0.4s;
 }
 .stat-chip {
-  flex: 1; background: var(--bg-panel); border: 1px solid var(--border-blue);
-  border-radius: 22px; padding: 26px 18px; text-align: center;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 18px 60px rgba(0,0,0,0.18);
+  flex: 1; background: var(--s-stat-chip-bg); border: var(--s-stat-chip-border);
+  border-radius: var(--s-stat-chip-radius); padding: 26px 18px; text-align: center;
+  box-shadow: var(--s-stat-chip-shadow);
 }
 .stat-num {
   font-family: var(--font-display); font-size: 50px; font-weight: 700;
@@ -224,13 +246,13 @@ body {
 
 .rank-list { flex: 1; display: flex; flex-direction: column; gap: 12px; }
 .rank-item {
-  background: rgba(13, 23, 40, 0.94); border: 1px solid rgba(255,255,255,0.11);
-  border-radius: 20px; padding: 18px 22px;
+  background: var(--s-card-bg); border: var(--s-card-border);
+  border-radius: var(--s-item-radius); padding: 18px 22px;
   display: flex; align-items: flex-start; gap: 18px;
   position: relative; overflow: hidden;
   animation: slideInLeft 0.5s ease both;
   min-height: 130px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  box-shadow: var(--s-card-shadow);
 }
 .rank-list.dense {
   gap: 10px;
@@ -393,8 +415,8 @@ body {
 }
 .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .metric-card {
-  background: rgba(13, 23, 40, 0.95); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 18px; padding: 24px; text-align: center;
+  background: var(--s-metric-bg); border: var(--s-metric-border);
+  border-radius: var(--s-metric-radius); padding: 24px; text-align: center;
 }
 .metric-card.hot {
   border-color: rgba(var(--accent-cyan-rgb), 0.3);
@@ -446,7 +468,7 @@ body {
 
 .reason-box {
   background: var(--bg-panel); border: 1px solid rgba(var(--accent-cyan-rgb), 0.15);
-  border-radius: 18px; padding: 22px 24px;
+  border-radius: var(--s-reason-radius); padding: 22px 24px;
   display: flex; align-items: center; gap: 14px;
 }
 .reason-label {
@@ -492,8 +514,8 @@ body {
 
 .hook-body { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .hook-highlight-card {
-  background: rgba(13, 23, 40, 0.95); border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 18px; padding: 16px; display: grid;
+  background: var(--s-hook-card-bg); border: var(--s-hook-card-border);
+  border-radius: var(--s-hook-card-radius); padding: 16px; display: grid;
   grid-template-columns: 54px minmax(0, 1fr); align-items: center; column-gap: 14px; row-gap: 4px;
   animation: fadeInUp 0.5s ease both;
   min-height: 96px;
@@ -553,6 +575,163 @@ body {
   text-align: center; font-family: var(--font-mono); font-size: 18px; color: var(--text-dim);
 }
 .hook-follow-text span { color: var(--accent-purple); }
+
+/* ================================================================
+   STYLE-SPECIFIC OVERRIDES — deep restoration per visual style
+   ================================================================ */
+
+{% if style_key == "apple_minimal" %}
+/* === Apple Minimal: glass cards, subtle blur, thin borders === */
+.stat-chip, .lang-tag, .intro-cta, .intro-date {
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+}
+.rank-item { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.intro-screen {
+  background: linear-gradient(180deg, #ffffff 0%, #f5f5f7 40%, #ffffff 100%);
+}
+.list-screen, .detail-screen, .hook-screen { background: #ffffff; }
+.detail-hero-card {
+  background: linear-gradient(135deg, rgba(var(--accent-cyan-rgb), 0.02), #ffffff 60%);
+  border: 0.5px solid rgba(0,0,0,0.06);
+}
+.hook-btn.primary {
+  background: var(--accent-cyan); border: none; color: #ffffff;
+}
+.intro-badge {
+  background: rgba(var(--accent-cyan-rgb), 0.06); border: 0.5px solid rgba(var(--accent-cyan-rgb), 0.15);
+}
+{% endif %}
+
+{% if style_key == "claude_warm" %}
+/* === Claude Warm: warm shadows, orange accents, soft cards === */
+.stat-chip, .lang-tag, .intro-cta, .metric-card, .hook-highlight-card, .rank-item {
+  box-shadow: 0 1px 3px rgba(120,80,20,0.06);
+}
+.rank-item.top-1 { box-shadow: 0 2px 8px rgba(217,119,6,0.08); }
+.intro-screen {
+  background: linear-gradient(170deg, #fef9f4 0%, #faf7f2 30%, #fdfbf7 60%, #fef9f4 100%);
+}
+.list-screen, .detail-screen, .hook-screen { background: #fef9f4; }
+.detail-hero-card {
+  background: linear-gradient(135deg, rgba(var(--accent-cyan-rgb), 0.03), #ffffff 60%);
+  border: 1px solid rgba(217,119,6,0.15);
+}
+.hook-btn.primary {
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  border: none; color: #ffffff; box-shadow: 0 4px 14px rgba(217,119,6,0.3);
+}
+.intro-badge {
+  background: rgba(var(--accent-cyan-rgb), 0.08); border: 1px solid rgba(var(--accent-cyan-rgb), 0.15);
+}
+{% endif %}
+
+{% if style_key == "sspai_editorial" %}
+/* === SSPai Editorial: magazine-style, square corners, red accents === */
+.intro-screen {
+  background: linear-gradient(180deg, #ffffff 0%, #faf9f7 100%);
+}
+.list-screen, .detail-screen, .hook-screen { background: #ffffff; }
+.stat-chip { padding: 20px 18px; }
+.intro-cta {
+  background: rgba(var(--accent-cyan-rgb), 0.04);
+  border: 1px solid rgba(var(--accent-cyan-rgb), 0.2);
+  border-radius: 0;
+}
+.detail-hero-card {
+  background: #ffffff; border: 1px solid #e8e6e1;
+  box-shadow: inset 4px 0 0 var(--accent-cyan);
+}
+.hook-btn.primary {
+  background: var(--accent-cyan); border: none; color: #ffffff; border-radius: 0;
+}
+.hook-btn.secondary { border-radius: 0; }
+.intro-badge { border-radius: 0; }
+.header-badge { border-radius: 0; }
+.rank-item.top-1::before { border-radius: 0; }
+/* SSPai red line accent */
+.intro-screen::before {
+  content: ''; position: absolute; bottom: 100px; left: 72px;
+  width: 40px; height: 2px; background: var(--accent-cyan);
+}
+{% endif %}
+
+{% if style_key == "bytedance_product" %}
+/* === ByteDance Product: clean, gradient spots, rounded badges === */
+.intro-screen {
+  background: linear-gradient(180deg, #f7f8fa 0%, #ffffff 50%, #f7f8fa 100%);
+}
+.list-screen, .detail-screen, .hook-screen { background: var(--canvas-bg); }
+.detail-hero-card {
+  background: #ffffff; border: none;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06), inset 4px 0 0 var(--accent-cyan);
+}
+.hook-btn.primary {
+  background: var(--accent-cyan); border: none; color: #ffffff;
+  box-shadow: 0 2px 10px rgba(50,89,232,0.35);
+}
+.intro-badge {
+  background: linear-gradient(135deg, var(--accent-cyan), rgba(var(--accent-cyan-rgb), 0.8));
+  border: none; color: #ffffff;
+}
+.stat-chip { background: #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+.rank-item { box-shadow: 0 1px 6px rgba(0,0,0,0.03); }
+/* ByteDance gradient spot decoration */
+.intro-screen::after {
+  content: ''; position: absolute; width: 400px; height: 400px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(var(--accent-cyan-rgb), 0.08), transparent 70%);
+  top: 10%; right: -100px; pointer-events: none;
+}
+{% endif %}
+
+{% if style_key == "chinese_editorial" %}
+/* === Chinese Editorial: traditional motifs, red+gold, serif fonts === */
+.intro-screen {
+  background: linear-gradient(180deg, var(--canvas-bg) 0%, #fffaf0 50%, var(--canvas-bg) 100%);
+}
+.list-screen, .detail-screen, .hook-screen { background: var(--canvas-bg); }
+.detail-hero-card {
+  background: linear-gradient(135deg, rgba(201,168,76,0.06), #ffffff 40%);
+  border: 1.5px solid rgba(201,168,76,0.3);
+  box-shadow: inset 5px 0 0 var(--accent-cyan);
+}
+.hook-btn.primary {
+  background: var(--accent-cyan); border: none; color: var(--canvas-bg);
+}
+.intro-badge {
+  background: rgba(var(--accent-cyan-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-cyan-rgb), 0.3);
+}
+/* Chinese ornamental divider */
+.chinese-divider {
+  display: flex; align-items: center; gap: 14px; justify-content: center;
+  margin: 20px 0;
+}
+.chinese-divider .line { width: 40px; height: 1px; background: var(--accent-amber); }
+.chinese-divider .dot { width: 6px; height: 6px; background: var(--accent-cyan); border-radius: 50%; }
+/* Cloud decoration */
+.cloud-deco {
+  position: absolute; width: 100%; height: 100%; top: 0; left: 0;
+  pointer-events: none; opacity: 0.06; z-index: 0;
+}
+.cloud-deco svg { width: 100%; height: 100%; }
+/* Seal stamp */
+.chinese-seal {
+  width: 80px; height: 80px; border: 2px solid var(--accent-cyan);
+  display: flex; align-items: center; justify-content: center;
+  transform: rotate(-8deg); margin: 0 auto 40px;
+  font-family: var(--font-display); font-size: 28px;
+  color: var(--accent-cyan); letter-spacing: 0.1em;
+}
+/* Reason box Chinese style */
+.reason-box {
+  background: linear-gradient(135deg, rgba(201,168,76,0.08), transparent);
+  border: 1px dashed var(--accent-amber);
+}
+{% endif %}
+
+{% if style_key == "tech_hotspot" %}
+/* === Tech Hotspot: cyber grid, neon glows (default, no overrides needed) === */
+{% endif %}
 </style>
 </head>
 <body>
@@ -563,15 +742,27 @@ body {
 <div class="screen clip" data-start="{{ intro_screen.start }}" data-duration="{{ intro_screen.duration }}" id="screen-intro">
   <div class="scanline"></div>
   <div class="grid-bg"></div>
+  {% if palette.show_glow_orbs == "1" %}
   <div class="glow-orb glow-cyan" style="top:-100px;left:-150px;"></div>
   <div class="glow-orb glow-purple" style="bottom:200px;right:-100px;"></div>
+  {% endif %}
+  {% if palette.show_orbit_rings == "1" %}
   <div class="orbit-rings">
     <div class="orbit-ring"></div>
     <div class="orbit-ring"></div>
     <div class="orbit-ring"></div>
   </div>
+  {% endif %}
+  {% if style_key == "chinese_editorial" %}
+  <div class="cloud-deco">
+    <svg viewBox="0 0 1080 1920"><path d="M100,600 Q250,520 400,560 Q500,480 650,520 Q750,440 900,500 Q1000,460 1080,520" fill="none" stroke="#c9a84c" stroke-width="2" opacity="0.4"/><path d="M60,700 Q180,620 320,660 Q440,580 580,640 Q700,560 840,620 Q940,580 1080,640" fill="none" stroke="#c9a84c" stroke-width="1.5" opacity="0.25"/></svg>
+  </div>
+  {% endif %}
 
   <div class="intro-screen">
+    {% if style_key == "chinese_editorial" %}
+    <div class="chinese-seal">榜</div>
+    {% endif %}
     <div class="intro-badge">
       <div class="badge-dot"></div>
       GitHub 热榜速递
@@ -620,9 +811,13 @@ body {
 <!-- ======== SCREEN 2: LIST ======== -->
 <div class="screen clip" data-start="{{ list_screen.start }}" data-duration="{{ list_screen.duration }}" id="screen-list">
   <div class="scanline"></div>
+  {% if palette.show_glow_orbs == "1" %}
   <div class="glow-orb glow-cyan" style="top:-150px;left:-200px;opacity:0.6;"></div>
   <div class="glow-orb glow-blue" style="bottom:-100px;right:-150px;opacity:0.5;"></div>
+  {% endif %}
+  {% if palette.show_grid == "1" %}
   <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(var(--accent-cyan-rgb), 0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(var(--accent-cyan-rgb), 0.03) 1px,transparent 1px);background-size:24px 24px;pointer-events:none;"></div>
+  {% endif %}
 
   <div class="list-screen">
     <div class="list-header">
@@ -646,8 +841,8 @@ body {
         <div class="rank-num">{{ "%02d" | format(p.rank) }}</div>
         <div class="rank-content">
           <div class="rank-repo">{{ p.name }}</div>
-          <div class="rank-owner">{{ p.owner }} · {{ p.hook }}</div>
-          <div class="rank-desc">{{ p.proof_point }}</div>
+          <div class="rank-owner">{{ p.owner or "未知作者" }} · {{ p.hook or "开源热点" }}</div>
+          <div class="rank-desc">{{ p.proof_point or "暂无更多证据信息" }}</div>
           <div class="rank-footer">
             <div class="rank-lang"><div class="rank-lang-dot" style="background:{{ p.language_color }}"></div>{{ p.language }}</div>
             <div class="rank-stars">★ {{ p.stars_display }}</div>
@@ -677,7 +872,9 @@ body {
 {% set top1 = detail.project %}
 <div class="screen clip" data-start="{{ detail.start }}" data-duration="{{ detail.duration }}" id="{{ detail.screen_id }}">
   <div class="scanline"></div>
+  {% if palette.show_glow_orbs == "1" %}
   <div class="glow-orb glow-cyan" style="top:-200px;right:-100px;width:300px;height:300px;opacity:0.5;"></div>
+  {% endif %}
   <div style="position:absolute;top:0;right:0;width:200px;height:200px;background:radial-gradient(circle at top right, rgba(var(--accent-cyan-rgb), 0.08), transparent 70%);pointer-events:none;"></div>
 
   <div class="detail-screen">
@@ -688,7 +885,7 @@ body {
             <span style="color:var(--accent-cyan)">★</span>
             第 {{ "%02d" | format(top1.rank) }} 名
           </div>
-          <div class="hero-meta-chip">{{ top1.tagline }}</div>
+          <div class="hero-meta-chip">{{ top1.tagline or "开源热点" }}</div>
         </div>
         <div class="detail-repo-name">{{ top1.name }}</div>
         <div class="detail-hook">⭐ {{ top1.hook }}</div>
@@ -700,14 +897,14 @@ body {
           {% endif %}
         </div>
         <p class="hero-desc">
-          {{ top1.description }}
+          {{ top1.description or "项目描述较少，建议打开仓库确认具体用途。" }}
         </p>
       </section>
 
       <div class="purpose-box">
         <div class="purpose-label">事实卡 / 具体用途</div>
-        <div class="purpose-text">{{ top1.core_action }}</div>
-        <div class="purpose-outcome">{{ top1.viewer_benefit }}</div>
+        <div class="purpose-text">{{ top1.core_action or "用途待补充，建议查看仓库 README。" }}</div>
+        <div class="purpose-outcome">{{ top1.viewer_benefit or "实际效果待验证。" }}</div>
       </div>
 
       <div class="metrics-grid">
@@ -738,6 +935,8 @@ body {
         <div class="tag-row">
           {% for tag in top1.tech_tags %}
           <div class="tech-tag {% if 'TypeScript' in tag %}ts{% elif 'Python' in tag %}py{% elif 'Rust' in tag %}rs{% elif 'Go' in tag %}go{% elif 'AI' in tag or '智能' in tag or '大模型' in tag %}ai{% else %}default{% endif %}">{{ tag }}</div>
+          {% else %}
+          <div class="tech-tag default">暂无标签</div>
           {% endfor %}
         </div>
       </div>
@@ -747,13 +946,15 @@ body {
         <div class="tag-row">
           {% for tag in top1.audience_tags %}
           <div class="audience-tag">{{ tag }}</div>
+          {% else %}
+          <div class="audience-tag">#开源爱好者</div>
           {% endfor %}
         </div>
       </div>
 
       <div class="reason-box">
         <div class="reason-label">真实证据</div>
-        <div class="reason-text">{{ top1.proof_point }} · 视觉来源：{{ top1.visual_asset_label }}</div>
+        <div class="reason-text">{{ top1.proof_point or "公开信息不足" }}{% if top1.visual_asset_label %} · 视觉来源：{{ top1.visual_asset_label }}{% endif %}</div>
       </div>
 
       <div>
@@ -767,12 +968,12 @@ body {
 
       <div class="reason-box">
         <div class="reason-label">上榜理由</div>
-        <div class="reason-text">{{ top1.reason }}</div>
+        <div class="reason-text">{{ top1.reason or "近期热度上升，值得持续关注。" }}</div>
       </div>
 
       <div class="reason-box">
         <div class="reason-label">谨慎点</div>
-        <div class="reason-text">{{ top1.risk_note }}</div>
+        <div class="reason-text">{{ top1.risk_note or "只按仓库公开信息判断，具体效果建议实测后再展开。" }}</div>
       </div>
     </div>
   </div>
@@ -782,9 +983,18 @@ body {
 <!-- ======== SCREEN 4: HOOK ======== -->
 <div class="screen clip" data-start="{{ hook_screen.start }}" data-duration="{{ hook_screen.duration }}" id="screen-hook">
   <div class="scanline"></div>
+  {% if palette.show_glow_orbs == "1" %}
   <div class="glow-orb glow-cyan" style="top:5%;left:-10%;width:300px;height:300px;opacity:0.6;"></div>
   <div class="glow-orb glow-purple" style="top:10%;right:-5%;width:250px;height:250px;opacity:0.5;"></div>
+  {% endif %}
+  {% if palette.show_grid == "1" %}
   <div style="position:absolute;top:-60px;left:-40px;right:-40px;height:400px;opacity:0.08;background-image:linear-gradient(rgba(var(--accent-cyan-rgb), 1) 1px,transparent 1px),linear-gradient(90deg,rgba(var(--accent-cyan-rgb), 1) 1px,transparent 1px);background-size:28px 28px;mask-image:linear-gradient(to bottom, black 20%, transparent 100%);pointer-events:none;"></div>
+  {% endif %}
+  {% if style_key == "chinese_editorial" %}
+  <div class="cloud-deco">
+    <svg viewBox="0 0 1080 1920"><path d="M80,400 Q200,340 360,380 Q480,300 640,360 Q780,280 920,340" fill="none" stroke="#c9a84c" stroke-width="1.5" opacity="0.3"/></svg>
+  </div>
+  {% endif %}
 
   <div class="hook-screen">
     <div class="hook-header">
@@ -799,18 +1009,26 @@ body {
         <div class="hook-rank-chip {% if p.rank <= 3 %}r{{ p.rank }}{% endif %}">{{ "%02d" | format(p.rank) }}</div>
         <div class="hook-card-content">
           <div class="hook-card-name">{{ p.name }}</div>
-          <div class="hook-card-stat">{{ p.owner }} · {{ p.language }} · {{ p.tagline }}</div>
+          <div class="hook-card-stat">{{ p.owner or "未知" }} · {{ p.language or "多语言" }} · {{ p.tagline or "开源热点" }}</div>
         </div>
         <div class="hook-star">★ {{ p.stars_display }}</div>
       </div>
       {% endfor %}
     </div>
 
+    {% if style_key == "chinese_editorial" %}
+    <div class="chinese-divider">
+      <div class="line"></div>
+      <div class="dot"></div>
+      <div class="line"></div>
+    </div>
+    {% else %}
     <div class="hook-divider">
       <div class="hook-divider-line"></div>
       <div class="hook-divider-dot"></div>
       <div class="hook-divider-line"></div>
     </div>
+    {% endif %}
 
     <div class="hook-cta-area">
       <p class="hook-question">
