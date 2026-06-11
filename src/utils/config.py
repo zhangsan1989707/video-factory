@@ -1,6 +1,7 @@
 """配置管理"""
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,8 +11,8 @@ load_dotenv()
 # 项目根目录
 ROOT_DIR = Path(__file__).parent.parent.parent
 
-# 输出目录
-OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "./output"))
+# 输出目录（转为绝对路径）
+OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "./output")).resolve()
 
 # GitHub Token
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
@@ -19,6 +20,47 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 # OpenAI API Key
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
+
+# AI 模型配置
+AI_MODEL = os.getenv("AI_MODEL", "mimo-v2.5-pro")
+
+# 字体配置：跨平台字体查找
+_FONT_CANDIDATES = {
+    "darwin": [
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/PingFang.ttc",
+        "/Library/Fonts/Arial Unicode.ttf",
+    ],
+    "linux": [
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    ],
+    "win32": [
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/simsun.ttc",
+    ],
+}
+
+
+def find_cjk_font() -> str | None:
+    """跨平台查找 CJK 字体路径"""
+    candidates = _FONT_CANDIDATES.get(sys.platform, [])
+    for path in candidates:
+        if Path(path).exists():
+            return path
+    # 回退：尝试所有平台
+    for platform_candidates in _FONT_CANDIDATES.values():
+        for path in platform_candidates:
+            if Path(path).exists():
+                return path
+    return None
+
+
+CJK_FONT_PATH = find_cjk_font()
 
 # TTS 配置
 TTS_VOICE = "zh-CN-YunxiNeural"
