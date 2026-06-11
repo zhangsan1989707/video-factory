@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub 热榜竖屏设计 · 字节跳动风</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+
+:root {
+  --bd-blue: #3259e8;
+  --bd-blue-light: #5b7af0;
+  --bd-blue-dark: #1e3db8;
+  --bg-white: #ffffff;
+  --bg-gray: #f7f8fa;
+  --bg-card: #ffffff;
+  --text-primary: #1d2129;
+  --text-secondary: #4e5969;
+  --text-dim: #86909c;
+  --border-light: #e5e6eb;
+  --border-card: #f0f0f5;
+  --font-main: 'Noto Sans SC', -apple-system, sans-serif;
+}
+
+body {
+  background: #e8ecf1; color:var(--text-primary);
+  font-family:var(--font-main); overflow-x:hidden;
+}
+
+.gallery {
+  display:flex; flex-wrap:wrap; gap:40px;
+  justify-content:center; align-items:flex-start;
+  padding:60px 40px 80px; min-height:100vh;
+}
+
+.screen-wrapper {
+  display:flex; flex-direction:column; align-items:center; gap:18px;
+}
+
+.screen-label {
+  font-family:var(--font-main); font-size:12px;
+  font-weight:500; color:var(--bd-blue); letter-spacing:0.1em;
+  background:rgba(50,89,232,0.08); padding:4px 14px; border-radius:20px;
+}
+
+.phone-frame {
+  width:375px; height:812px; background:var(--bg-gray);
+  border-radius:44px; border:1px solid rgba(0,0,0,0.08);
+  overflow:hidden; position:relative;
+  box-shadow:0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04);
+}
+
+.phone-frame::before {
+  content:''; position:absolute; top:14px; left:50%;
+  transform:translateX(-50%); width:120px; height:34px;
+  background:#000; border-radius:20px; z-index:100; opacity:0.08;
+}
+
+.status-bar {
+  height:52px; display:flex; align-items:flex-end;
+  justify-content:space-between; padding:0 28px 8px;
+  font-size:11px; font-weight:500; color:var(--text-dim);
+  z-index:10; flex-shrink:0;
+}
+
+/* ========== SCREEN 1 ========== */
+.s1 { display:flex; flex-direction:column; height:calc(812px - 52px); overflow:hidden; }
+
+.s1-hero {
+  flex:1; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:0 36px; position:relative;
+}
+
+.gradient-spot {
+  position:absolute; width:200px; height:200px; border-radius:50%;
+  background:radial-gradient(circle, rgba(50,89,232,0.08), transparent 70%);
+  top:15%; pointer-events:none;
+}
+
+.s1-badge {
+  padding:5px 16px; background:linear-gradient(135deg, var(--bd-blue), var(--bd-blue-dark));
+  color:#fff; border-radius:20px; font-size:11px; font-weight:500;
+  margin-bottom:32px; letter-spacing:0.06em;
+}
+
+.s1-title {
+  font-size:40px; font-weight:900; color:var(--text-primary);
+  text-align:center; line-height:1.2; margin-bottom:8px;
+  letter-spacing:-0.02em;
+}
+
+.s1-title .accent {
+  color:var(--bd-blue);
+}
+
+.s1-sub {
+  font-size:14px; color:var(--text-secondary); text-align:center;
+  margin-bottom:40px; letter-spacing:0.04em;
+}
+
+.s1-stats {
+  display:flex; gap:36px; margin-bottom:44px;
+}
+
+.stat-item { text-align:center; }
+
+.stat-num {
+  font-size:30px; font-weight:900; color:var(--bd-blue);
+  display:block; line-height:1; letter-spacing:-0.02em;
+}
+
+.stat-label {
+  font-size:11px; color:var(--text-dim); margin-top:6px;
+}
+
+.s1-tags {
+  display:flex; gap:10px; flex-wrap:wrap; justify-content:center;
+}
+
+.s1-tag {
+  padding:7px 18px; background:var(--bg-white); border-radius:22px;
+  font-size:11px; color:var(--text-secondary);
+  box-shadow:0 1px 4px rgba(0,0,0,0.04);
+}
+
+.s1-footer {
+  padding:20px 36px; display:flex; justify-content:space-between;
+  align-items:center; background:var(--bg-white);
+}
+
+.s1-footer .edition {
+  font-size:11px; color:var(--text-dim);
+}
+
+.s1-footer .cta {
+  padding:10px 24px; background:var(--bd-blue); color:#fff;
+  border-radius:24px; font-size:13px; font-weight:500; border:none;
+  cursor:pointer; letter-spacing:0.04em;
+  box-shadow:0 2px 8px rgba(50,89,232,0.3);
+}
+
+/* ========== SCREEN 2 ========== */
+.s2 { display:flex; flex-direction:column; height:calc(812px - 52px); overflow-y:auto; padding:0 20px; }
+.s2::-webkit-scrollbar { width:0; }
+
+.s2-header {
+  padding:24px 0 16px; display:flex; align-items:center;
+  justify-content:space-between; flex-shrink:0;
+}
+
+.s2-title {
+  font-size:24px; font-weight:900; color:var(--text-primary);
+}
+
+.s2-live {
+  padding:4px 12px; background:var(--bd-blue); color:#fff;
+  border-radius:12px; font-size:10px; font-weight:600;
+  animation:live-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes live-dot {
+  0%,100% { opacity:1; }
+  50% { opacity:0.65; }
+}
+
+.s2-filters {
+  display:flex; gap:8px; padding:16px 0 8px; flex-shrink:0;
+}
+
+.filter-btn {
+  padding:7px 16px; border-radius:20px; font-size:12px; font-weight:500;
+  border:none; background:var(--bg-white); color:var(--text-secondary);
+  cursor:pointer; letter-spacing:0.03em;
+}
+
+.filter-btn.active {
+  background:var(--bd-blue); color:#fff;
+}
+
+.s2-list { flex:1; display:flex; flex-direction:column; gap:10px; padding-top:8px; padding-bottom:20px; }
+
+.rank-card {
+  display:flex; align-items:center; gap:14px;
+  padding:15px 16px; background:var(--bg-white); border-radius:16px;
+  box-shadow:0 1px 6px rgba(0,0,0,0.03);
+}
+
+.rank-num {
+  width:34px; height:34px; border-radius:12px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:14px; font-weight:700; background:var(--bg-gray);
+  color:var(--text-secondary); flex-shrink:0;
+}
+
+.rank-card:nth-child(1) .rank-num { background:linear-gradient(135deg, var(--bd-blue), var(--bd-blue-dark)); color:#fff; }
+.rank-card:nth-child(2) .rank-num { background:rgba(50,89,232,0.15); color:var(--bd-blue); }
+.rank-card:nth-child(3) .rank-num { background:rgba(50,89,232,0.1); color:var(--bd-blue); }
+
+.rank-info { flex:1; min-width:0; }
+.rank-name { font-size:14px; font-weight:600; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rank-desc { font-size:10px; color:var(--text-dim); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.rank-stars { text-align:right; flex-shrink:0; }
+.rank-stars .num { font-size:15px; font-weight:700; color:var(--bd-blue); display:block; }
+.rank-stars .label { font-size:9px; color:var(--text-dim); }
+
+.s2-footer {
+  padding:16px 0 24px; text-align:center; font-size:11px;
+  color:var(--text-dim); flex-shrink:0;
+}
+
+/* ========== SCREEN 3 ========== */
+.s3 { display:flex; flex-direction:column; height:calc(812px - 52px); overflow-y:auto; padding:0 20px; }
+.s3::-webkit-scrollbar { width:0; }
+
+.s3-nav {
+  display:flex; align-items:center; gap:12px; padding:20px 0;
+  font-size:12px; color:var(--text-dim); flex-shrink:0;
+}
+
+.s3-nav .back { color:var(--bd-blue); cursor:pointer; font-weight:500; }
+.s3-badge {
+  padding:4px 12px; background:rgba(50,89,232,0.1); color:var(--bd-blue);
+  border-radius:20px; font-size:10px; font-weight:600; margin-left:auto;
+}
+
+.s3-hero { margin-bottom:20px; flex-shrink:0; }
+.s3-hero h2 {
+  font-size:26px; font-weight:900; color:var(--text-primary);
+  margin-bottom:4px; letter-spacing:-0.02em;
+}
+.s3-hero .license {
+  font-size:10px; color:var(--text-dim);
+}
+
+.s3-desc {
+  font-size:13px; color:var(--text-secondary); line-height:1.8;
+  padding:16px; background:var(--bg-white); border-radius:12px;
+  margin-bottom:18px; flex-shrink:0;
+}
+
+.s3-metrics {
+  display:grid; grid-template-columns:1fr 1fr; gap:10px;
+  margin-bottom:18px; flex-shrink:0;
+}
+
+.metric-card {
+  padding:16px; background:var(--bg-white); border-radius:12px; text-align:center;
+}
+
+.metric-card .val {
+  font-size:24px; font-weight:900; color:var(--bd-blue); display:block;
+}
+
+.metric-card .lbl { font-size:10px; color:var(--text-dim); margin-top:4px; }
+
+.s3-tech { margin-bottom:18px; flex-shrink:0; }
+.s3-tech h4 { font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:10px; }
+
+.tech-tags { display:flex; gap:8px; flex-wrap:wrap; }
+
+.tech-tag {
+  padding:6px 14px; border-radius:8px; font-size:11px;
+  background:var(--bg-white); color:var(--text-secondary);
+}
+
+.s3-chart {
+  background:var(--bg-white); border-radius:12px; padding:16px;
+  margin-bottom:18px; flex-shrink:0;
+}
+
+.s3-chart h4 { font-size:12px; font-weight:700; color:var(--text-primary); margin-bottom:14px; }
+
+.bars { display:flex; align-items:flex-end; gap:6px; height:70px; }
+.bar-col { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; }
+.bar-col .bar {
+  width:100%; border-radius:4px 4px 0 0;
+  background:rgba(50,89,232,0.2);
+}
+.bar-col .bar.high { background:var(--bd-blue); }
+.bar-col .day { font-size:8px; color:var(--text-dim); }
+
+.s3-reason {
+  padding:14px 16px; background:rgba(50,89,232,0.04);
+  border-radius:12px; border:1px solid rgba(50,89,232,0.1);
+  margin-bottom:20px; flex-shrink:0;
+}
+
+.s3-reason h4 { font-size:12px; font-weight:700; color:var(--bd-blue); margin-bottom:4px; }
+.s3-reason p { font-size:12px; color:var(--text-secondary); line-height:1.6; }
+
+/* ========== SCREEN 4 ========== */
+.s4 { display:flex; flex-direction:column; height:calc(812px - 52px); overflow:hidden; }
+
+.s4-hero {
+  flex:1; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:0 36px; text-align:center; position:relative;
+}
+
+.s4-title {
+  font-size:32px; font-weight:900; color:var(--text-primary);
+  margin-bottom:8px; letter-spacing:-0.02em;
+}
+
+.s4-sub {
+  font-size:13px; color:var(--text-dim); margin-bottom:40px;
+}
+
+.s4-top3 {
+  display:flex; flex-direction:column; gap:10px; width:100%; margin-bottom:40px;
+}
+
+.top3-card {
+  display:flex; align-items:center; gap:14px;
+  padding:14px 16px; background:var(--bg-white); border-radius:14px;
+}
+
+.top3-card .medal {
+  width:32px; height:32px; border-radius:10px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:13px; font-weight:700; flex-shrink:0; color:#fff;
+}
+
+.top3-card:nth-child(1) .medal { background:linear-gradient(135deg, var(--bd-blue), var(--bd-blue-dark)); }
+.top3-card:nth-child(2) .medal { background:rgba(50,89,232,0.5); }
+.top3-card:nth-child(3) .medal { background:rgba(50,89,232,0.3); }
+
+.top3-card .info { flex:1; text-align:left; }
+.top3-card .name { font-size:13px; font-weight:600; color:var(--text-primary); }
+.top3-card .tag { font-size:10px; color:var(--text-dim); }
+
+.s4-question {
+  font-size:18px; font-weight:700; color:var(--bd-blue);
+  margin-bottom:28px;
+}
+
+.s4-cta { display:flex; gap:14px; }
+
+.cta-btn {
+  padding:12px 28px; border-radius:24px; font-size:13px; font-weight:600;
+  border:none; cursor:pointer; letter-spacing:0.03em;
+}
+
+.cta-primary {
+  background:var(--bd-blue); color:#fff;
+  box-shadow:0 2px 10px rgba(50,89,232,0.35);
+}
+
+.cta-secondary {
+  background:var(--bg-white); color:var(--text-primary);
+}
+
+.s4-footer {
+  padding:24px 36px; text-align:center; font-size:11px;
+  color:var(--text-dim); background:var(--bg-white);
+}
+</style>
+</head>
+<body>
+
+<div class="gallery">
+
+<!-- SCREEN 1 -->
+<div class="screen-wrapper">
+  <div class="screen-label">01 · 开场</div>
+  <div class="phone-frame">
+    <div class="status-bar"><span>9:41</span><span>GitHub 热榜</span><span>●●●○</span></div>
+    <div class="s1">
+      <div class="s1-hero">
+        <div class="gradient-spot"></div>
+        <div class="s1-badge">每周精选</div>
+        <h1 class="s1-title">
+          GitHub<br><span class="accent">热榜速递</span>
+        </h1>
+        <p class="s1-sub">开源世界的每周风向标</p>
+        <div class="s1-stats">
+          <div class="stat-item"><span class="stat-num">287</span><span class="stat-label">精选项目</span></div>
+          <div class="stat-item"><span class="stat-num">12</span><span class="stat-label">编程语言</span></div>
+          <div class="stat-item"><span class="stat-num">1.2万</span><span class="stat-label">新增星标</span></div>
+        </div>
+        <div class="s1-tags">
+          <span class="s1-tag">智能体</span><span class="s1-tag">大模型</span>
+          <span class="s1-tag">开发工具</span><span class="s1-tag">基础设施</span>
+        </div>
+      </div>
+      <div class="s1-footer">
+        <span class="edition">2026年6月9日 · 第24期</span>
+        <button class="cta">查看榜单</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 2 -->
+<div class="screen-wrapper">
+  <div class="screen-label">02 · 榜单</div>
+  <div class="phone-frame">
+    <div class="status-bar"><span>9:41</span><span>热榜</span><span>●●●○</span></div>
+    <div class="s2">
+      <div class="s2-header">
+        <h2 class="s2-title">开源热榜</h2>
+        <span class="s2-live">实时</span>
+      </div>
+      <div class="s2-filters">
+        <span class="filter-btn active">全部</span>
+        <span class="filter-btn">AI</span>
+        <span class="filter-btn">工具</span>
+      </div>
+      <div class="s2-list">
+        <div class="rank-card">
+          <div class="rank-num">1</div>
+          <div class="rank-info">
+            <div class="rank-name">rauchg/openauth</div>
+            <div class="rank-desc">通用身份认证 · 零配置</div>
+          </div>
+          <div class="rank-stars"><span class="num">3.2千</span><span class="label">今日涨星</span></div>
+        </div>
+        <div class="rank-card">
+          <div class="rank-num">2</div>
+          <div class="rank-info">
+            <div class="rank-name">microsoft/gragent</div>
+            <div class="rank-desc">图智能体框架 · TypeScript</div>
+          </div>
+          <div class="rank-stars"><span class="num">2.8千</span><span class="label">今日涨星</span></div>
+        </div>
+        <div class="rank-card">
+          <div class="rank-num">3</div>
+          <div class="rank-info">
+            <div class="rank-name">vercel/ai-sdk</div>
+            <div class="rank-desc">AI 开发工具包 · TypeScript</div>
+          </div>
+          <div class="rank-stars"><span class="num">2.1千</span><span class="label">今日涨星</span></div>
+        </div>
+        <div class="rank-card">
+          <div class="rank-num">4</div>
+          <div class="rank-info">
+            <div class="rank-name">browser-use/browser-use</div>
+            <div class="rank-desc">AI 操控浏览器 · Python</div>
+          </div>
+          <div class="rank-stars"><span class="num">1.9千</span><span class="label">今日涨星</span></div>
+        </div>
+        <div class="rank-card">
+          <div class="rank-num">5</div>
+          <div class="rank-info">
+            <div class="rank-name">unionlabs/union</div>
+            <div class="rank-desc">跨链桥接协议 · Rust</div>
+          </div>
+          <div class="rank-stars"><span class="num">1.5千</span><span class="label">今日涨星</span></div>
+        </div>
+      </div>
+      <div class="s2-footer">共 287 个热门仓库 · TOP 10</div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 3 -->
+<div class="screen-wrapper">
+  <div class="screen-label">03 · 详情</div>
+  <div class="phone-frame">
+    <div class="status-bar"><span>9:41</span><span>详情</span><span>●●●○</span></div>
+    <div class="s3">
+      <div class="s3-nav">
+        <span class="back">← 返回</span>
+        <span class="s3-badge">本周冠军</span>
+      </div>
+      <div class="s3-hero">
+        <h2>rauchg / openauth</h2>
+        <span class="license">MIT 开源协议</span>
+      </div>
+      <div class="s3-desc">
+        专为现代应用打造的通用身份认证方案，支持数十种第三方登录、多因素认证与组织级权限管理。
+      </div>
+      <div class="s3-metrics">
+        <div class="metric-card"><span class="val">1.2万</span><span class="lbl">总星标数</span></div>
+        <div class="metric-card"><span class="val">3.2千</span><span class="lbl">今日新增</span></div>
+        <div class="metric-card"><span class="val">1.1千</span><span class="lbl">复刻数</span></div>
+        <div class="metric-card"><span class="val">47</span><span class="lbl">开放议题</span></div>
+      </div>
+      <div class="s3-tech">
+        <h4>技术栈</h4>
+        <div class="tech-tags">
+          <span class="tech-tag">TypeScript</span>
+          <span class="tech-tag">React</span>
+          <span class="tech-tag">Node.js</span>
+          <span class="tech-tag">OAuth 2.0</span>
+        </div>
+      </div>
+      <div class="s3-chart">
+        <h4>星标趋势 · 近七日</h4>
+        <div class="bars">
+          <div class="bar-col"><div class="bar" style="height:45%"></div><span class="day">周一</span></div>
+          <div class="bar-col"><div class="bar" style="height:55%"></div><span class="day">周二</span></div>
+          <div class="bar-col"><div class="bar" style="height:50%"></div><span class="day">周三</span></div>
+          <div class="bar-col"><div class="bar" style="height:70%"></div><span class="day">周四</span></div>
+          <div class="bar-col"><div class="bar high" style="height:85%"></div><span class="day">周五</span></div>
+          <div class="bar-col"><div class="bar high" style="height:100%"></div><span class="day">周六</span></div>
+          <div class="bar-col"><div class="bar high" style="height:92%"></div><span class="day">周日</span></div>
+        </div>
+      </div>
+      <div class="s3-reason">
+        <h4>上榜理由</h4>
+        <p>Vercel 前 CTO 出品，发布首周即获 1.2 万星标。开发者苦 Auth0 收费久矣，开源替代呼声高涨。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 4 -->
+<div class="screen-wrapper">
+  <div class="screen-label">04 · 结尾</div>
+  <div class="phone-frame">
+    <div class="status-bar"><span>9:41</span><span>周报</span><span>●●●○</span></div>
+    <div class="s4">
+      <div class="s4-hero">
+        <div class="gradient-spot" style="top:20%"></div>
+        <h2 class="s4-title">周报速递</h2>
+        <p class="s4-sub">第 24 期 · 前三甲回顾</p>
+        <div class="s4-top3">
+          <div class="top3-card">
+            <div class="medal">1</div>
+            <div class="info">
+              <div class="name">rauchg / openauth</div>
+              <div class="tag">身份认证新贵</div>
+            </div>
+          </div>
+          <div class="top3-card">
+            <div class="medal">2</div>
+            <div class="info">
+              <div class="name">microsoft / gragent</div>
+              <div class="tag">图智能体框架</div>
+            </div>
+          </div>
+          <div class="top3-card">
+            <div class="medal">3</div>
+            <div class="info">
+              <div class="name">vercel / ai-sdk</div>
+              <div class="tag">AI 应用内核</div>
+            </div>
+          </div>
+        </div>
+        <p class="s4-question">你最看好哪一个？</p>
+        <div class="s4-cta">
+          <button class="cta-btn cta-primary">👍 点赞支持</button>
+          <button class="cta-btn cta-secondary">关注更新</button>
+        </div>
+      </div>
+      <div class="s4-footer">下期预告：AI 编程工具全面对决 · 不见不散</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</body>
+</html>

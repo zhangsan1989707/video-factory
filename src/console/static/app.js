@@ -6,6 +6,7 @@ const state = {
   qualityReport: null,
   config: null,
   pollTimer: null,
+  templateStyles: [],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -61,6 +62,7 @@ function bindEvents() {
   $("regenerateCandidatesBtn").addEventListener("click", regenerateCandidates);
   $("regenerateScriptBtn").addEventListener("click", regenerateScript);
   $("regenerateVideoBtn").addEventListener("click", regenerateVideo);
+  $("cancelJobBtn").addEventListener("click", cancelCurrentJob);
   $("openSettingsBtn").addEventListener("click", openSettings);
   $("closeSettingsBtn").addEventListener("click", closeSettings);
   $("settingsOverlay").addEventListener("click", closeSettings);
@@ -83,6 +85,7 @@ async function loadConfig() {
   const rateLimit = config.github.last_rate_limit ? ` · ${config.github.last_rate_limit}` : "";
   $("githubStatus").textContent = (config.github.configured ? `已配置 ${config.github.token_preview}` : "未配置") + rateLimit;
   $("routingStatus").textContent = providerStatusLabel(config.providers.providers || []);
+  renderTemplateStyles(config.template_styles || []);
   applyTemplateParams(activeTemplateParams(config.templates || {}));
   renderSettings(config);
   renderScheduler(config.scheduler || {});
@@ -226,6 +229,8 @@ function clearCurrentJob() {
   $("currentStage").textContent = "等待创建任务";
   $("currentModelCall").textContent = "model: -";
   $("openJobFolderBtn").disabled = true;
+  $("cancelJobBtn").disabled = true;
+  $("cancelJobBtn").textContent = "取消任务";
   renderJobError("");
   renderDiagnostics({});
   renderCandidates();
@@ -458,6 +463,28 @@ async function regenerateVideo() {
   }
 }
 
+async function cancelCurrentJob() {
+  if (!state.currentJobId) {
+    alert("请先创建任务");
+    return;
+  }
+  if (!confirmRegenerate("取消当前运行中的任务？系统会在下一个安全检查点停止。")) return;
+  setBusy(true);
+  try {
+    switchTab("progress");
+    appendLogLine("已请求取消当前任务...");
+    const result = await post(`/api/jobs/${state.currentJobId}/cancel`);
+    renderJob(result.job);
+    await refreshCurrentJob();
+    startPollingCurrentJob();
+  } catch (error) {
+    alert(error.message);
+    await refreshCurrentJob();
+  } finally {
+    setBusy(false);
+  }
+}
+
 function confirmRegenerate(message) {
   return typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm(message);
 }
@@ -589,7 +616,7 @@ function renderDiagnostics(detail) {
 
 function currentTemplateParams() {
   return {
-    visual_style: $("visualStyle").value,
+    style: $("visualStyle").value,
     render_engine: $("renderEngine").value,
     subtitle_mode: $("subtitleMode").value,
     narration_tone: $("tone").value,
@@ -610,11 +637,27 @@ function applyTemplateParams(params) {
 }
 
 function syncRenderEngineForStyle() {
-  $("renderEngine").value = $("visualStyle").value === "tech_hotspot" ? "hyperframes" : "pil";
+  const style = state.templateStyles.find((item) => item.style === $("visualStyle").value);
+  if (style && style.render_engine) $("renderEngine").value = style.render_engine;
 }
 
 function syncStyleForRenderEngine() {
-  if ($("renderEngine").value === "hyperframes") $("visualStyle").value = "tech_hotspot";
+  if ($("renderEngine").value !== "hyperframes") return;
+  const current = state.templateStyles.find((item) => item.style === $("visualStyle").value);
+  if (!current || current.render_engine !== "hyperframes") {
+    const fallback = state.templateStyles.find((item) => item.render_engine === "hyperframes");
+    if (fallback) $("visualStyle").value = fallback.style;
+  }
+}
+
+function renderTemplateStyles(styles) {
+  state.templateStyles = Array.isArray(styles) ? styles : [];
+  if (!state.templateStyles.length) return;
+  const selected = $("visualStyle").value;
+  $("visualStyle").innerHTML = state.templateStyles
+    .map((item) => `<option value="${escapeAttr(item.style)}">${escapeHtml(item.label || item.style)}</option>`)
+    .join("");
+  if (state.templateStyles.some((item) => item.style === selected)) $("visualStyle").value = selected;
 }
 
 function activeTemplateParams(templates) {
@@ -632,7 +675,7 @@ function templatePayload(current) {
     [active]: {
       ...(templates[active] || {}),
       project_count: Number($("projectCount").value),
-      style: params.visual_style,
+      style: params.style,
       render_engine: params.render_engine,
       subtitle_mode: params.subtitle_mode,
       bgm: params.bgm,
@@ -663,7 +706,8 @@ function updateRegenerateActions(job) {
   const candidatesButton = $("regenerateCandidatesBtn");
   const scriptButton = $("regenerateScriptBtn");
   const videoButton = $("regenerateVideoBtn");
-  if (!candidatesButton || !scriptButton || !videoButton) return;
+  const cancelButton = $("cancelJobBtn");
+  if (!candidatesButton || !scriptButton || !videoButton || !cancelButton) return;
   const stage = job.stage || "draft_pending";
   const status = job.status || "";
   const hasJob = Boolean(job.id);
@@ -673,6 +717,8 @@ function updateRegenerateActions(job) {
   candidatesButton.disabled = !hasJob || isRunning;
   scriptButton.disabled = !hasJob || isRunning || !hasSelection;
   videoButton.disabled = !hasJob || isRunning || !hasScript;
+  cancelButton.disabled = !hasJob || !isRunning || Boolean(job.cancel_requested);
+  cancelButton.textContent = job.cancel_requested ? "取消中" : "取消任务";
 }
 
 function nextActionForJob(job) {
@@ -839,7 +885,7 @@ function qualityNotes(report) {
 function qualityBlocksRender(report) {
   if (!report) return false;
   if (report.manual_override || report.passed === true) return false;
-  return !["pass", "skipped"].includes(report.status || "");
+  return !["pass", "skipped", "unverified"].includes(report.status || "");
 }
 
 function confirmQualityOverride(report) {
@@ -859,6 +905,7 @@ function qualityStatusLabel(status) {
     pass: "质检通过",
     caution: "需要注意",
     skipped: "质检跳过",
+    unverified: "质检未验证",
     failed: "质检失败",
     invalid_json: "质检响应异常",
   };
@@ -1254,5 +1301,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, nextActionForJob, qualityBlocksRender, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

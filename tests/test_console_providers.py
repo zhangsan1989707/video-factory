@@ -145,7 +145,7 @@ class ConsoleProvidersTest(unittest.TestCase):
                     "active_template": "github_hotlist_vertical_v1",
                     "github_hotlist_vertical_v1": {
                         "project_count": "5",
-                        "style": "minimal_white",
+                        "style": "apple_minimal",
                         "subtitle_mode": "standard",
                         "bgm": "custom",
                         "bgm_path": "/tmp/bgm.mp3",
@@ -157,7 +157,7 @@ class ConsoleProvidersTest(unittest.TestCase):
 
             template = templates["github_hotlist_vertical_v1"]
             self.assertEqual(template["project_count"], 5)
-            self.assertEqual(template["style"], "minimal_white")
+            self.assertEqual(template["style"], "apple_minimal")
             self.assertEqual(template["subtitle_mode"], "standard")
             self.assertEqual(template["bgm"], "custom")
             self.assertEqual(template["bgm_path"], "/tmp/bgm.mp3")
@@ -181,13 +181,15 @@ class ConsoleProvidersTest(unittest.TestCase):
             })
 
             with patch("src.console.store.CONFIG_DIR", config_dir), patch("src.console.store.JOBS_DIR", jobs_dir):
-                templates = config_snapshot()["templates"]
+                snapshot = config_snapshot()
+                templates = snapshot["templates"]
 
             active = templates["active_template"]
             self.assertEqual(active, DEFAULT_TEMPLATES["active_template"])
             self.assertEqual(templates[active]["project_count"], 5)
             self.assertEqual(templates[active]["style"], DEFAULT_TEMPLATES[active]["style"])
             self.assertEqual(templates[active]["orientation"], "vertical")
+            self.assertIn("apple_minimal", {item["style"] for item in snapshot["template_styles"]})
 
     def test_config_snapshot_does_not_treat_template_metadata_as_template_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

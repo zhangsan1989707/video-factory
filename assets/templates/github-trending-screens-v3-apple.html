@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub 热榜视频竖屏设计 · Apple 极简风</title>
+<style>
+/* ============================
+   RESET + BASE — Apple
+   ============================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-page: #f5f5f7;
+  --bg-card: rgba(255,255,255,0.72);
+  --bg-card-solid: #ffffff;
+  --bg-surface: #f0f0f2;
+  --accent: #007AFF;
+  --accent-soft: #3395ff;
+  --accent-green: #34c759;
+  --accent-orange: #ff9500;
+  --accent-purple: #af52de;
+  --accent-pink: #ff2d55;
+  --text-primary: #1d1d1f;
+  --text-secondary: #86868b;
+  --text-tertiary: #aeaeb2;
+  --border-subtle: rgba(0,0,0,0.06);
+  --border-soft: rgba(0,0,0,0.1);
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --font-mono: 'SF Mono', 'Menlo', 'Consolas', monospace;
+}
+
+body {
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================
+   GALLERY LAYOUT
+   ============================ */
+.gallery {
+  display: flex; flex-wrap: wrap; gap: 40px;
+  justify-content: center; align-items: flex-start;
+  padding: 60px 40px 80px; min-height: 100vh;
+}
+
+.screen-wrapper {
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+}
+
+.screen-label {
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.25em; color: var(--text-tertiary); text-transform: uppercase;
+}
+
+/* Phone Frame — Apple */
+.phone-frame {
+  width: 375px; height: 812px;
+  background: #ffffff;
+  border-radius: 44px; border: 1px solid rgba(0,0,0,0.08);
+  overflow: hidden; position: relative;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04),
+              0 8px 40px rgba(0,0,0,0.06),
+              0 20px 80px rgba(0,0,0,0.04);
+}
+
+.phone-frame::before {
+  content: ''; position: absolute; top: 14px; left: 50%;
+  transform: translateX(-50%); width: 120px; height: 34px;
+  background: #000; border-radius: 20px; z-index: 100;
+}
+
+.status-bar {
+  height: 52px; display: flex; align-items: flex-end;
+  justify-content: space-between; padding: 0 28px 8px;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-tertiary); position: relative; z-index: 10;
+  flex-shrink: 0;
+}
+.status-time { color: var(--text-primary); font-weight: 600; }
+
+.screen-content {
+  height: calc(100% - 52px - 34px); overflow: hidden; position: relative; padding: 0;
+}
+
+/* ============================
+   SCREEN 1: INTRO — Apple
+   ============================ */
+.intro-screen {
+  height: 100%;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f5f7 40%, #ffffff 100%);
+  display: flex; flex-direction: column; position: relative; overflow: hidden;
+}
+
+.apple-bg-deco {
+  position: absolute; inset: 0; pointer-events: none;
+}
+
+.apple-orbit {
+  position: absolute; border-radius: 50%; border: 1px solid rgba(0,122,255,0.08);
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+}
+.apple-orbit:nth-child(1) {
+  width: 240px; height: 240px; border-color: rgba(0,122,255,0.06);
+  animation: appleSpin 30s linear infinite;
+}
+.apple-orbit:nth-child(2) {
+  width: 340px; height: 340px; border-color: rgba(0,122,255,0.04);
+  animation: appleSpin 40s linear infinite reverse;
+}
+
+@keyframes appleSpin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+.intro-hero {
+  padding: 28px 24px 0; position: relative; z-index: 10;
+  text-align: center; flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 0; padding-top: 70px;
+}
+
+.intro-chiclet {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(0,122,255,0.06); border: 0.5px solid rgba(0,122,255,0.15);
+  border-radius: 20px; padding: 5px 14px;
+  font-size: 10px; font-weight: 500; color: var(--accent);
+  letter-spacing: 0.04em; margin-bottom: 28px;
+}
+
+.intro-dot {
+  width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+  animation: appleBlink 2s ease-in-out infinite;
+}
+
+@keyframes appleBlink { 0%,100%{opacity:1;} 50%{opacity:0.25;} }
+
+.intro-eyebrow {
+  font-size: 11px; letter-spacing: 0.15em; color: var(--text-tertiary);
+  margin-bottom: 8px; font-weight: 500; text-transform: uppercase;
+}
+
+.intro-title {
+  font-family: var(--font-display); font-size: 32px; font-weight: 700;
+  line-height: 1.1; color: var(--text-primary); margin-bottom: 10px;
+  letter-spacing: -0.02em;
+}
+.intro-title .accent { color: var(--accent); }
+
+.intro-sub {
+  font-size: 14px; color: var(--text-secondary); line-height: 1.6;
+  margin-bottom: 32px; font-weight: 400;
+}
+
+.stats-row {
+  display: flex; gap: 10px; justify-content: center;
+  margin-bottom: 28px; width: 100%;
+}
+
+.stat-chip {
+  flex: 1;
+  background: var(--bg-card); backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: 16px; padding: 14px 8px; text-align: center;
+}
+
+.stat-num {
+  font-family: var(--font-display); font-size: 22px; font-weight: 700;
+  color: var(--text-primary); display: block; line-height: 1; margin-bottom: 6px;
+  letter-spacing: -0.02em;
+}
+
+.stat-lbl {
+  font-size: 10px; color: var(--text-tertiary); letter-spacing: 0.04em; font-weight: 500;
+}
+
+.lang-tags {
+  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 32px;
+}
+
+.lang-tag {
+  display: flex; align-items: center; gap: 5px;
+  background: var(--bg-card); backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 0.5px solid var(--border-subtle); border-radius: 10px;
+  padding: 5px 12px; font-size: 11px; color: var(--text-secondary); font-weight: 500;
+}
+
+.lang-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+.intro-date {
+  font-size: 11px; color: var(--text-tertiary);
+}
+
+.intro-bottom {
+  padding: 0 24px 24px; position: relative; z-index: 10;
+}
+
+.intro-cta {
+  width: 100%; background: var(--bg-card); backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 0.5px solid rgba(0,122,255,0.12); border-radius: 18px; padding: 16px;
+  display: flex; align-items: center; gap: 12px; text-align: left;
+}
+
+.cta-icon {
+  width: 40px; height: 40px; background: rgba(0,122,255,0.06);
+  border: 0.5px solid rgba(0,122,255,0.12); border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-size: 18px;
+}
+
+.cta-text-title { font-size: 13px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.cta-text-sub { font-size: 11px; color: var(--text-tertiary); }
+
+/* ============================
+   SCREEN 2: LIST — Apple
+   ============================ */
+.list-screen {
+  height: 100%; background: #ffffff;
+  display: flex; flex-direction: column; position: relative; overflow: hidden;
+}
+
+.list-header {
+  padding: 18px 20px 14px; border-bottom: 0.5px solid var(--border-subtle);
+  position: relative; z-index: 10; flex-shrink: 0;
+}
+
+.list-header-top {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
+}
+
+.list-header-title {
+  font-family: var(--font-display); font-size: 17px; font-weight: 700;
+  color: var(--text-primary); letter-spacing: -0.01em;
+}
+
+.header-badge {
+  background: rgba(52,199,89,0.08); border: 0.5px solid rgba(52,199,89,0.2);
+  color: var(--accent-green); font-size: 9px; font-weight: 600;
+  padding: 3px 10px; border-radius: 8px; letter-spacing: 0.04em;
+}
+
+.list-meta {
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.list-date-chip { font-size: 11px; color: var(--text-tertiary); }
+
+.filter-pills { display: flex; gap: 6px; }
+
+.filter-pill {
+  font-size: 10px; padding: 3px 10px;
+  border-radius: 8px; border: 0.5px solid; font-weight: 500; cursor: pointer;
+}
+.filter-pill.active {
+  background: rgba(0,122,255,0.06); border-color: rgba(0,122,255,0.2); color: var(--accent);
+}
+.filter-pill.inactive {
+  background: transparent; border-color: var(--border-subtle); color: var(--text-tertiary);
+}
+
+/* Rank items — Apple */
+.rank-list {
+  flex: 1; overflow: hidden; padding: 10px 16px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+
+.rank-item {
+  background: var(--bg-card-solid); border: 0.5px solid var(--border-subtle);
+  border-radius: 16px; padding: 14px 16px;
+  display: flex; align-items: flex-start; gap: 14px;
+  position: relative; overflow: hidden;
+}
+
+.rank-item.top-1 {
+  border-color: rgba(0,122,255,0.12);
+  background: linear-gradient(135deg, rgba(0,122,255,0.02) 0%, #ffffff 60%);
+}
+.rank-item.top-2 {
+  border-color: rgba(175,82,222,0.1);
+  background: linear-gradient(135deg, rgba(175,82,222,0.015) 0%, #ffffff 60%);
+}
+.rank-item.top-3 {
+  border-color: rgba(255,149,0,0.1);
+  background: linear-gradient(135deg, rgba(255,149,0,0.015) 0%, #ffffff 60%);
+}
+
+.rank-num {
+  font-family: var(--font-display); font-size: 20px; font-weight: 700;
+  min-width: 30px; line-height: 1; margin-top: 2px; letter-spacing: -0.02em;
+}
+.rank-item.top-1 .rank-num { color: var(--accent); }
+.rank-item.top-2 .rank-num { color: var(--accent-purple); }
+.rank-item.top-3 .rank-num { color: var(--accent-orange); }
+.rank-item:not(.top-1):not(.top-2):not(.top-3) .rank-num { color: var(--text-tertiary); font-size: 16px; font-weight: 500; }
+
+.rank-content { flex: 1; min-width: 0; }
+
+.rank-repo {
+  font-size: 13px; font-weight: 600; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-bottom: 2px; font-family: var(--font-mono);
+}
+
+.rank-owner {
+  font-size: 10px; color: var(--text-tertiary); margin-bottom: 5px;
+}
+
+.rank-desc {
+  font-size: 11px; color: var(--text-secondary); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
+  overflow: hidden; margin-bottom: 6px;
+}
+
+.rank-footer { display: flex; align-items: center; gap: 10px; }
+
+.rank-lang {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10px; color: var(--text-tertiary); font-weight: 500;
+}
+.rank-lang-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+.rank-stars {
+  display: flex; align-items: center; gap: 3px;
+  font-size: 10px; color: var(--text-secondary); font-weight: 500;
+}
+
+.rank-new {
+  font-size: 10px; color: var(--accent-green); margin-left: auto; font-weight: 500;
+}
+
+.rank-item.top-1::before {
+  content: ''; position: absolute; left: 0; top: 12px; bottom: 12px;
+  width: 3px; background: var(--accent); border-radius: 2px;
+}
+
+.list-bottom {
+  padding: 10px 16px; border-top: 0.5px solid var(--border-subtle);
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+
+.list-total { font-size: 10px; color: var(--text-tertiary); }
+.list-nav { display: flex; gap: 6px; }
+
+.list-nav-btn {
+  width: 28px; height: 28px; border: 0.5px solid var(--border-subtle);
+  border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--text-tertiary); background: #ffffff;
+}
+
+/* ============================
+   SCREEN 3: DETAIL — Apple
+   ============================ */
+.detail-screen {
+  height: 100%; background: #ffffff;
+  display: flex; flex-direction: column; overflow: hidden; position: relative;
+}
+
+.detail-header {
+  padding: 16px 20px 14px; border-bottom: 0.5px solid var(--border-subtle);
+  flex-shrink: 0; position: relative; z-index: 10;
+}
+
+.detail-back {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--accent); margin-bottom: 14px; font-weight: 500;
+}
+
+.detail-rank-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(0,122,255,0.06); border: 0.5px solid rgba(0,122,255,0.15);
+  border-radius: 8px; padding: 4px 10px;
+  font-size: 10px; color: var(--accent); font-weight: 500; margin-bottom: 10px;
+}
+
+.detail-repo-name {
+  font-family: var(--font-mono); font-size: 18px; font-weight: 700;
+  color: var(--text-primary); line-height: 1.2; margin-bottom: 4px;
+  letter-spacing: -0.01em; word-break: break-all;
+}
+
+.detail-owner-row {
+  display: flex; align-items: center; gap: 8px;
+}
+
+.owner-avatar {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-soft));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; color: white; font-weight: 500; flex-shrink: 0;
+}
+
+.detail-owner {
+  font-size: 11px; color: var(--text-tertiary); font-weight: 500;
+}
+
+.detail-body {
+  flex: 1; overflow: hidden; padding: 14px 20px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+.detail-desc {
+  font-size: 12px; color: var(--text-secondary); line-height: 1.65;
+  background: var(--bg-surface); border: 0.5px solid var(--border-subtle);
+  border-radius: 14px; padding: 14px 16px; border-left: 3px solid var(--accent);
+}
+
+.metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.metric-card {
+  background: var(--bg-surface); border: 0.5px solid var(--border-subtle);
+  border-radius: 14px; padding: 14px; text-align: center;
+}
+.metric-card.hot {
+  border-color: rgba(0,122,255,0.12);
+  background: linear-gradient(135deg, rgba(0,122,255,0.03), var(--bg-surface));
+}
+
+.metric-icon { font-size: 14px; margin-bottom: 6px; display: block; }
+
+.metric-val {
+  font-family: var(--font-display); font-size: 20px; font-weight: 700;
+  color: var(--text-primary); display: block; line-height: 1; margin-bottom: 4px;
+}
+.metric-card.hot .metric-val { color: var(--accent); }
+
+.metric-lbl {
+  font-size: 10px; color: var(--text-tertiary); font-weight: 500; letter-spacing: 0.03em;
+}
+
+.section-label {
+  font-size: 10px; color: var(--text-tertiary);
+  letter-spacing: 0.06em; margin-bottom: 8px; font-weight: 600; text-transform: uppercase;
+}
+
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.tech-tag {
+  font-size: 10px; padding: 5px 12px; border-radius: 8px;
+  border: 0.5px solid; font-weight: 500;
+}
+.tech-tag.ts { color: var(--accent); border-color: rgba(0,122,255,0.15); background: rgba(0,122,255,0.04); }
+.tech-tag.py { color: #ff9500; border-color: rgba(255,149,0,0.15); background: rgba(255,149,0,0.04); }
+.tech-tag.rs { color: #ff6b35; border-color: rgba(255,107,53,0.15); background: rgba(255,107,53,0.04); }
+.tech-tag.go { color: #34c759; border-color: rgba(52,199,89,0.15); background: rgba(52,199,89,0.04); }
+.tech-tag.ai { color: #af52de; border-color: rgba(175,82,222,0.15); background: rgba(175,82,222,0.04); }
+
+.activity-chart {
+  display: flex; align-items: flex-end; gap: 3px; height: 40px;
+}
+
+.bar {
+  flex: 1; border-radius: 3px 3px 0 0;
+  background: rgba(0,122,255,0.15); transition: background 0.2s;
+}
+.bar.peak { background: var(--accent); }
+.bar.high { background: rgba(0,122,255,0.55); }
+.bar.mid { background: rgba(0,122,255,0.3); }
+.bar.low { background: rgba(0,122,255,0.1); }
+
+/* ============================
+   SCREEN 4: HOOK — Apple
+   ============================ */
+.hook-screen {
+  height: 100%; background: #ffffff;
+  display: flex; flex-direction: column; position: relative; overflow: hidden;
+}
+
+.hook-bg-deco {
+  position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+}
+
+.apple-soft-glow {
+  position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.06;
+}
+.apple-soft-glow:nth-child(1) {
+  width: 240px; height: 240px; background: var(--accent); top: -40px; right: -40px;
+}
+.apple-soft-glow:nth-child(2) {
+  width: 200px; height: 200px; background: var(--accent-orange); bottom: 60px; left: -60px;
+}
+
+.hook-header {
+  padding: 22px 22px 18px; position: relative; z-index: 10; flex-shrink: 0;
+}
+
+.hook-ep-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10px; color: var(--accent); font-weight: 500;
+  border: 0.5px solid rgba(0,122,255,0.15); border-radius: 8px;
+  padding: 4px 12px; margin-bottom: 20px; letter-spacing: 0.04em;
+}
+
+.hook-title {
+  font-family: var(--font-display); font-size: 24px; font-weight: 700;
+  color: var(--text-primary); line-height: 1.15; margin-bottom: 6px;
+  letter-spacing: -0.02em;
+}
+.hook-title .accent { color: var(--accent); }
+
+.hook-subtitle {
+  font-size: 12px; color: var(--text-secondary); line-height: 1.5;
+}
+
+.hook-body {
+  flex: 1; overflow: hidden; padding: 6px 22px;
+  display: flex; flex-direction: column; gap: 10px;
+  position: relative; z-index: 10;
+}
+
+.hook-highlight-card {
+  background: var(--bg-surface); border: 0.5px solid var(--border-subtle);
+  border-radius: 16px; padding: 14px; display: flex; align-items: center; gap: 12px;
+}
+.hook-highlight-card.featured {
+  border-color: rgba(0,122,255,0.12);
+  background: linear-gradient(135deg, rgba(0,122,255,0.03), var(--bg-surface));
+}
+
+.hook-rank-chip {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-size: 13px; font-weight: 700; flex-shrink: 0;
+}
+.hook-rank-chip.r1 { background: rgba(0,122,255,0.08); color: var(--accent); border: 0.5px solid rgba(0,122,255,0.15); }
+.hook-rank-chip.r2 { background: rgba(175,82,222,0.06); color: var(--accent-purple); border: 0.5px solid rgba(175,82,222,0.12); }
+.hook-rank-chip.r3 { background: rgba(255,149,0,0.06); color: var(--accent-orange); border: 0.5px solid rgba(255,149,0,0.12); }
+
+.hook-card-content { flex: 1; min-width: 0; }
+
+.hook-card-name {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--text-primary); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; margin-bottom: 2px;
+}
+
+.hook-card-stat {
+  font-size: 10px; color: var(--text-tertiary);
+}
+
+.hook-star {
+  font-size: 11px; color: var(--accent-orange); font-weight: 600; white-space: nowrap;
+}
+
+.hook-divider {
+  display: flex; align-items: center; gap: 10px; padding: 0 22px;
+  position: relative; z-index: 10; flex-shrink: 0;
+}
+.hook-divider-line { flex: 1; height: 0.5px; background: var(--border-subtle); }
+.hook-divider-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: 0.3; }
+
+.hook-cta-area {
+  padding: 10px 22px 24px; position: relative; z-index: 10; flex-shrink: 0;
+}
+
+.hook-question {
+  font-size: 13px; color: var(--text-secondary); text-align: center;
+  margin-bottom: 16px; line-height: 1.6; font-weight: 500;
+}
+.hook-question .accent { color: var(--accent); font-weight: 600; }
+
+.hook-action-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+
+.hook-btn {
+  border-radius: 14px; padding: 12px 10px;
+  font-size: 12px; font-weight: 600;
+  text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.hook-btn.primary {
+  background: var(--accent); border: none; color: #ffffff;
+}
+.hook-btn.secondary {
+  background: var(--bg-surface); border: 0.5px solid var(--border-subtle); color: var(--text-primary);
+}
+
+.hook-btn-icon { font-size: 16px; }
+
+.hook-follow-text {
+  text-align: center; font-size: 10px; color: var(--text-tertiary);
+}
+.hook-follow-text .accent { color: var(--accent); font-weight: 500; }
+
+/* ============================
+   ANIMATIONS — Apple (subtle)
+   ============================ */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.anim-1 { animation: fadeUp 0.5s ease both; animation-delay: 0.05s; }
+.anim-2 { animation: fadeUp 0.5s ease both; animation-delay: 0.15s; }
+.anim-3 { animation: fadeUp 0.5s ease both; animation-delay: 0.25s; }
+.anim-4 { animation: fadeUp 0.5s ease both; animation-delay: 0.35s; }
+.anim-5 { animation: fadeUp 0.5s ease both; animation-delay: 0.45s; }
+
+.rank-item { animation: slideIn 0.4s ease both; }
+.rank-item:nth-child(1) { animation-delay: 0.04s; }
+.rank-item:nth-child(2) { animation-delay: 0.1s; }
+.rank-item:nth-child(3) { animation-delay: 0.16s; }
+.rank-item:nth-child(4) { animation-delay: 0.22s; }
+.rank-item:nth-child(5) { animation-delay: 0.28s; }
+
+.page-title {
+  text-align: center; padding: 40px 20px 10px;
+  font-family: var(--font-display); font-size: 11px;
+  letter-spacing: 0.3em; color: var(--text-tertiary); text-transform: uppercase;
+}
+</style>
+</head>
+<body>
+
+<p class="page-title">GitHub 热榜 · Apple 极简风</p>
+
+<div class="gallery">
+
+  <!-- SCREEN 1: 片头介绍 -->
+  <div class="screen-wrapper">
+    <div class="screen-label">01 · 片头介绍</div>
+    <div class="phone-frame">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div style="display:flex;gap:5px;">
+          <svg width="14" height="11" viewBox="0 0 14 11" fill="none"><rect x="0" y="3" width="3" height="8" rx="1" fill="currentColor" opacity="0.3"/><rect x="4" y="2" width="3" height="9" rx="1" fill="currentColor" opacity="0.5"/><rect x="8" y="0" width="3" height="11" rx="1" fill="currentColor" opacity="0.7"/><rect x="12" y="1" width="2" height="9" rx="1" fill="currentColor"/></svg>
+          <svg width="24" height="11" viewBox="0 0 24 11" fill="none"><rect x="0.5" y="0.5" width="20" height="10" rx="3.5" stroke="currentColor" opacity="0.3"/><rect x="2" y="2" width="15" height="7" rx="2" fill="currentColor"/><path d="M22 4v4c1-.5 1.5-1.2 1.5-2S23 4.5 22 4z" fill="currentColor" opacity="0.4"/></svg>
+        </div>
+      </div>
+      <div class="screen-content">
+        <div class="intro-screen">
+          <div class="apple-bg-deco">
+            <div class="apple-orbit"></div>
+            <div class="apple-orbit"></div>
+          </div>
+
+          <div class="intro-hero">
+            <div class="intro-chiclet anim-1">
+              <div class="intro-dot"></div>
+              GitHub 热榜速递
+            </div>
+
+            <div class="intro-eyebrow anim-2">每周精选 · 开源风向标</div>
+
+            <h1 class="intro-title anim-2">
+              <span class="accent">TOP 10</span><br>热榜速报
+            </h1>
+
+            <p class="intro-sub anim-3">
+              精选本周 GitHub 热度飙升的开源项目<br>一分钟掌握技术圈最新动态
+            </p>
+
+            <div class="stats-row anim-3">
+              <div class="stat-chip">
+                <span class="stat-num">10</span>
+                <span class="stat-lbl">精选项目</span>
+              </div>
+              <div class="stat-chip">
+                <span class="stat-num">4</span>
+                <span class="stat-lbl">编程语言</span>
+              </div>
+              <div class="stat-chip">
+                <span class="stat-num">48K+</span>
+                <span class="stat-lbl">新增星标</span>
+              </div>
+            </div>
+
+            <div class="lang-tags anim-4">
+              <div class="lang-tag">
+                <div class="lang-dot" style="background:#007AFF"></div>
+                TypeScript
+              </div>
+              <div class="lang-tag">
+                <div class="lang-dot" style="background:#ff9500"></div>
+                Python
+              </div>
+              <div class="lang-tag">
+                <div class="lang-dot" style="background:#ff6b35"></div>
+                Rust
+              </div>
+              <div class="lang-tag">
+                <div class="lang-dot" style="background:#34c759"></div>
+                Go
+              </div>
+            </div>
+
+            <div class="intro-date anim-4">2026 年 6 月 9 日 · 第 24 期</div>
+          </div>
+
+          <div class="intro-bottom anim-5">
+            <div class="intro-cta">
+              <div class="cta-icon">⚡</div>
+              <div>
+                <div class="cta-text-title">本期重磅：AI 工具链大爆发</div>
+                <div class="cta-text-sub">智能体 · 大模型 · 开发工具 · 基础设施</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2: 热榜列表 -->
+  <div class="screen-wrapper">
+    <div class="screen-label">02 · 热榜列表</div>
+    <div class="phone-frame">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div style="display:flex;gap:5px;">
+          <svg width="14" height="11" viewBox="0 0 14 11" fill="none"><rect x="0" y="3" width="3" height="8" rx="1" fill="currentColor" opacity="0.3"/><rect x="4" y="2" width="3" height="9" rx="1" fill="currentColor" opacity="0.5"/><rect x="8" y="0" width="3" height="11" rx="1" fill="currentColor" opacity="0.7"/><rect x="12" y="1" width="2" height="9" rx="1" fill="currentColor"/></svg>
+          <svg width="24" height="11" viewBox="0 0 24 11" fill="none"><rect x="0.5" y="0.5" width="20" height="10" rx="3.5" stroke="currentColor" opacity="0.3"/><rect x="2" y="2" width="15" height="7" rx="2" fill="currentColor"/><path d="M22 4v4c1-.5 1.5-1.2 1.5-2S23 4.5 22 4z" fill="currentColor" opacity="0.4"/></svg>
+        </div>
+      </div>
+      <div class="screen-content">
+        <div class="list-screen">
+          <div class="list-header">
+            <div class="list-header-top">
+              <div class="list-header-title">GitHub 开源热榜</div>
+              <div class="header-badge">● 实时</div>
+            </div>
+            <div class="list-meta">
+              <span class="list-date-chip">2026.06.09 · 本周</span>
+              <div class="filter-pills">
+                <div class="filter-pill active">全部</div>
+                <div class="filter-pill inactive">AI</div>
+                <div class="filter-pill inactive">工具</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rank-list">
+            <div class="rank-item top-1">
+              <div class="rank-num">01</div>
+              <div class="rank-content">
+                <div class="rank-repo">claude-code-action</div>
+                <div class="rank-owner">anthropics · 完全工具调用</div>
+                <div class="rank-desc">AI 自动化编程助手，全面接入 GitHub Actions 工作流</div>
+                <div class="rank-footer">
+                  <div class="rank-lang"><div class="rank-lang-dot" style="background:#007AFF"></div>TypeScript</div>
+                  <div class="rank-stars">★ 1.2 万</div>
+                  <div class="rank-new">+2.1k 今日</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rank-item top-2">
+              <div class="rank-num">02</div>
+              <div class="rank-content">
+                <div class="rank-repo">hyperframe</div>
+                <div class="rank-owner">frameai · 动效即代码</div>
+                <div class="rank-desc">设计师友好型动效框架，design-to-code 新标杆</div>
+                <div class="rank-footer">
+                  <div class="rank-lang"><div class="rank-lang-dot" style="background:#ff6b35"></div>Rust</div>
+                  <div class="rank-stars">★ 9.8k</div>
+                  <div class="rank-new">+1.8k 今日</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rank-item top-3">
+              <div class="rank-num">03</div>
+              <div class="rank-content">
+                <div class="rank-repo">openai-agents-sdk</div>
+                <div class="rank-owner">openai · 官方多智能体框架</div>
+                <div class="rank-desc">OpenAI 官方多智能体协同开发工具包</div>
+                <div class="rank-footer">
+                  <div class="rank-lang"><div class="rank-lang-dot" style="background:#ff9500"></div>Python</div>
+                  <div class="rank-stars">★ 8.2k</div>
+                  <div class="rank-new">+1.3k 今日</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rank-item">
+              <div class="rank-num">04</div>
+              <div class="rank-content">
+                <div class="rank-repo">zed-editor</div>
+                <div class="rank-owner">zed-industries · 高性能编辑器</div>
+                <div class="rank-desc">新一代高性能协作代码编辑器，极速启动体验</div>
+                <div class="rank-footer">
+                  <div class="rank-lang"><div class="rank-lang-dot" style="background:#ff6b35"></div>Rust</div>
+                  <div class="rank-stars">★ 7.6k</div>
+                  <div class="rank-new">+980 今日</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rank-item">
+              <div class="rank-num">05</div>
+              <div class="rank-content">
+                <div class="rank-repo">dify-plugins</div>
+                <div class="rank-owner">langgenius · 插件生态</div>
+                <div class="rank-desc">Dify AI 平台官方插件市场，一站式扩展 AI 能力</div>
+                <div class="rank-footer">
+                  <div class="rank-lang"><div class="rank-lang-dot" style="background:#ff9500"></div>Python</div>
+                  <div class="rank-stars">★ 6.1k</div>
+                  <div class="rank-new">+760 今日</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="list-bottom">
+            <span class="list-total">共 287 个热门仓库 · TOP 10</span>
+            <div class="list-nav">
+              <div class="list-nav-btn">‹</div>
+              <div class="list-nav-btn">›</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 3: 项目详情 -->
+  <div class="screen-wrapper">
+    <div class="screen-label">03 · 项目详情</div>
+    <div class="phone-frame">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div style="display:flex;gap:5px;">
+          <svg width="14" height="11" viewBox="0 0 14 11" fill="none"><rect x="0" y="3" width="3" height="8" rx="1" fill="currentColor" opacity="0.3"/><rect x="4" y="2" width="3" height="9" rx="1" fill="currentColor" opacity="0.5"/><rect x="8" y="0" width="3" height="11" rx="1" fill="currentColor" opacity="0.7"/><rect x="12" y="1" width="2" height="9" rx="1" fill="currentColor"/></svg>
+          <svg width="24" height="11" viewBox="0 0 24 11" fill="none"><rect x="0.5" y="0.5" width="20" height="10" rx="3.5" stroke="currentColor" opacity="0.3"/><rect x="2" y="2" width="15" height="7" rx="2" fill="currentColor"/><path d="M22 4v4c1-.5 1.5-1.2 1.5-2S23 4.5 22 4z" fill="currentColor" opacity="0.4"/></svg>
+        </div>
+      </div>
+      <div class="screen-content">
+        <div class="detail-screen">
+          <div class="detail-header">
+            <div class="detail-back">← 返回热榜</div>
+            <div class="detail-rank-badge">★ 本周冠军</div>
+            <div class="detail-repo-name">claude-code-action</div>
+            <div class="detail-owner-row">
+              <div class="owner-avatar">A</div>
+              <span class="detail-owner">anthropics · MIT 开源协议</span>
+            </div>
+          </div>
+
+          <div class="detail-body">
+            <div class="detail-desc">
+              功能完备的 AI 编程助手，可与 GitHub Actions 深度集成，支持自动化代码审查、代码生成以及基于自然语言的智能任务执行。接入 Claude 4 最新能力，带来全新的智能编程体验。
+            </div>
+
+            <div class="metrics-grid">
+              <div class="metric-card hot">
+                <span class="metric-icon">⭐</span>
+                <span class="metric-val">12.4k</span>
+                <span class="metric-lbl">总星标数</span>
+              </div>
+              <div class="metric-card hot">
+                <span class="metric-icon">↑</span>
+                <span class="metric-val">+2.1k</span>
+                <span class="metric-lbl">今日新增</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-icon" style="font-size:12px">⑂</span>
+                <span class="metric-val">843</span>
+                <span class="metric-lbl">复刻数</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-icon">◎</span>
+                <span class="metric-val">217</span>
+                <span class="metric-lbl">议题数</span>
+              </div>
+            </div>
+
+            <div>
+              <div class="section-label">技术栈</div>
+              <div class="tag-row">
+                <div class="tech-tag ts">TypeScript</div>
+                <div class="tech-tag ai">大模型智能体</div>
+                <div class="tech-tag go">GitHub 接口</div>
+                <div class="tech-tag py">自动化工作流</div>
+              </div>
+            </div>
+
+            <div>
+              <div class="section-label">星标趋势 · 近 7 天</div>
+              <div class="activity-chart">
+                <div class="bar low" style="height:30%"></div>
+                <div class="bar mid" style="height:45%"></div>
+                <div class="bar mid" style="height:40%"></div>
+                <div class="bar high" style="height:65%"></div>
+                <div class="bar high" style="height:70%"></div>
+                <div class="bar peak" style="height:100%"></div>
+                <div class="bar high" style="height:80%"></div>
+                <div class="bar peak" style="height:95%"></div>
+                <div class="bar high" style="height:75%"></div>
+                <div class="bar high" style="height:85%"></div>
+                <div class="bar mid" style="height:60%"></div>
+                <div class="bar peak" style="height:100%"></div>
+                <div class="bar high" style="height:90%"></div>
+                <div class="bar peak" style="height:100%"></div>
+              </div>
+            </div>
+
+            <div style="background:var(--bg-surface);border:0.5px solid var(--border-subtle);border-radius:14px;padding:12px 14px;display:flex;align-items:center;gap:10px;">
+              <div style="font-size:10px;color:var(--accent-green);font-weight:600;letter-spacing:0.04em;flex-shrink:0;">上榜理由</div>
+              <div style="font-size:11px;color:var(--text-secondary);line-height:1.5;">支持 Claude 4 全工具调用，智能体能力大幅升级，社区热度持续爆发</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 4: 结尾钩子 -->
+  <div class="screen-wrapper">
+    <div class="screen-label">04 · 结尾钩子</div>
+    <div class="phone-frame">
+      <div class="status-bar">
+        <span class="status-time">9:41</span>
+        <div style="display:flex;gap:5px;">
+          <svg width="14" height="11" viewBox="0 0 14 11" fill="none"><rect x="0" y="3" width="3" height="8" rx="1" fill="currentColor" opacity="0.3"/><rect x="4" y="2" width="3" height="9" rx="1" fill="currentColor" opacity="0.5"/><rect x="8" y="0" width="3" height="11" rx="1" fill="currentColor" opacity="0.7"/><rect x="12" y="1" width="2" height="9" rx="1" fill="currentColor"/></svg>
+          <svg width="24" height="11" viewBox="0 0 24 11" fill="none"><rect x="0.5" y="0.5" width="20" height="10" rx="3.5" stroke="currentColor" opacity="0.3"/><rect x="2" y="2" width="15" height="7" rx="2" fill="currentColor"/><path d="M22 4v4c1-.5 1.5-1.2 1.5-2S23 4.5 22 4z" fill="currentColor" opacity="0.4"/></svg>
+        </div>
+      </div>
+      <div class="screen-content">
+        <div class="hook-screen">
+          <div class="hook-bg-deco">
+            <div class="apple-soft-glow"></div>
+            <div class="apple-soft-glow"></div>
+          </div>
+
+          <div class="hook-header">
+            <div class="hook-ep-badge">⚡ 周报速递 · 第 24 期</div>
+            <h2 class="hook-title">本周<span class="accent">前三甲</span><br>你最看好谁？</h2>
+            <p class="hook-subtitle">投出你的一票，下期重点解析你感兴趣的项目</p>
+          </div>
+
+          <div class="hook-body">
+            <div class="hook-highlight-card featured">
+              <div class="hook-rank-chip r1">01</div>
+              <div class="hook-card-content">
+                <div class="hook-card-name">claude-code-action</div>
+                <div class="hook-card-stat">anthropics · TypeScript · AI 编程</div>
+              </div>
+              <div class="hook-star">★ 1.2 万</div>
+            </div>
+
+            <div class="hook-highlight-card">
+              <div class="hook-rank-chip r2">02</div>
+              <div class="hook-card-content">
+                <div class="hook-card-name">hyperframe</div>
+                <div class="hook-card-stat">frameai · Rust · 动效框架</div>
+              </div>
+              <div class="hook-star">★ 9.8k</div>
+            </div>
+
+            <div class="hook-highlight-card">
+              <div class="hook-rank-chip r3">03</div>
+              <div class="hook-card-content">
+                <div class="hook-card-name">openai-agents-sdk</div>
+                <div class="hook-card-stat">openai · Python · 多智能体</div>
+              </div>
+              <div class="hook-star">★ 8.2k</div>
+            </div>
+          </div>
+
+          <div class="hook-divider">
+            <div class="hook-divider-line"></div>
+            <div class="hook-divider-dot"></div>
+            <div class="hook-divider-line"></div>
+          </div>
+
+          <div class="hook-cta-area">
+            <p class="hook-question">
+              觉得这期有价值？<span class="accent">点赞关注</span>不错过<br>每周 GitHub 热榜速报
+            </p>
+
+            <div class="hook-action-row">
+              <div class="hook-btn primary">
+                <span class="hook-btn-icon">▲</span>
+                点赞支持
+              </div>
+              <div class="hook-btn secondary">
+                <span class="hook-btn-icon">+</span>
+                关注博主
+              </div>
+            </div>
+
+            <div class="hook-follow-text">
+              下期预告：<span class="accent">AI 基础设施专题</span> · 敬请期待
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from src.console.background import active_job, is_active, start_async_job
+from src.console.background import active_job, is_active, request_cancel, start_async_job
 from src.console.model_router import test_provider
 from src.console.preflight import preflight_snapshot
 from src.console.scheduler import run_due_scheduled_draft, start_scheduler_loop
@@ -207,6 +207,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     if action == "regenerate-video":
                         self._json(start_regenerate_render_job(job_id))
                         return
+                    if action == "cancel":
+                        self._json(cancel_active_job(job_id))
+                        return
                     if action == "open-folder":
                         self._json(open_job_folder(job_id))
                         return
@@ -371,6 +374,17 @@ def record_render_background_failure(job_id: str, exc: Exception) -> None:
     message = f"后台渲染任务失败: {exc}"
     append_log(job_id, message)
     update_job(job_id, status="failed", failed_stage=failed_stage, error=str(exc))
+
+
+def cancel_active_job(job_id: str) -> dict:
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    if not request_cancel(job_id):
+        raise ValueError("当前没有正在运行的任务")
+    append_log(job_id, "已请求取消当前任务；会在下一个安全检查点停止。")
+    job = update_job(job_id, cancel_requested=True, error="已请求取消当前任务；会在下一个安全检查点停止。")
+    return {"cancel_requested": True, "active": is_active(job_id), "job": job}
 
 
 def reconcile_running_jobs(jobs: list[dict]) -> list[dict]:

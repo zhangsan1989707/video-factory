@@ -239,7 +239,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
                     "time": "10:30",
                     "time_window": "monthly",
                     "project_count": 10,
-                    "template_params": {"style": "black_gold"},
+                    "template_params": {"style": "sspai_editorial"},
                     "last_run_date": "",
                 })
                 return {"job": {"id": job_id}, "candidates": []}
@@ -260,7 +260,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
             self.assertEqual(saved["time"], "10:30")
             self.assertEqual(saved["time_window"], "monthly")
             self.assertEqual(saved["project_count"], 10)
-            self.assertEqual(saved["template_params"], {"style": "black_gold"})
+            self.assertEqual(saved["template_params"], {"style": "sspai_editorial"})
 
     def test_scheduler_config_normalizes_bad_project_count(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -460,7 +460,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
                 "active_template": "github_hotlist_vertical_v1",
                 "github_hotlist_vertical_v1": {
                     "project_count": 10,
-                    "style": "black_gold",
+                    "style": "sspai_editorial",
                     "subtitle_mode": "standard",
                     "bgm": "custom",
                     "bgm_path": "/tmp/bgm.mp3",
@@ -483,7 +483,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
 
             self.assertTrue(result["started"])
             self.assertEqual(result["job"]["template"], "github_hotlist_vertical_v1")
-            self.assertEqual(result["job"]["template_params"]["style"], "black_gold")
+            self.assertEqual(result["job"]["template_params"]["style"], "sspai_editorial")
             self.assertEqual(result["job"]["template_params"]["bgm"], "none")
             self.assertEqual(result["job"]["template_params"]["bgm_path"], "/tmp/bgm.mp3")
 
@@ -513,7 +513,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
             ):
                 result = run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
 
-            self.assertEqual(result["job"]["template_params"]["style"], "black_gold")
+            self.assertEqual(result["job"]["template_params"]["style"], "chinese_editorial")
             self.assertNotIn("visual_style", result["job"]["template_params"])
 
     def test_scheduler_normalizes_legacy_template_params(self) -> None:

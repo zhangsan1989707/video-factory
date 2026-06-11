@@ -11,6 +11,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
+from src.console.background import active_job
 from src.console.server import ConsoleHandler, _short_message
 from src.console.store import create_job, read_json, update_job, write_json
 
@@ -89,8 +90,8 @@ class ConsoleServerSmokeTest(unittest.TestCase):
 
         self.assertEqual(script["job"]["status"], "awaiting_render")
         self.assertEqual(draft["job"]["stage"], "awaiting_project_confirmation")
-        self.assertEqual(script["quality_report"]["status"], "skipped")
-        self.assertEqual(detail["quality_report"]["status"], "skipped")
+        self.assertEqual(script["quality_report"]["status"], "unverified")
+        self.assertEqual(detail["quality_report"]["status"], "unverified")
         self.assertEqual(prepared["job"]["status"], "awaiting_validation")
         self.assertEqual(validated["job"]["status"], "ready_to_render")
         self.assertTrue(render["started"])
@@ -342,6 +343,36 @@ class ConsoleServerSmokeTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertTrue(job_dir_exists)
 
+    def test_cancel_job_endpoint_marks_active_job_cancel_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+            ):
+                job = create_job("GH-HOTLIST-20990101-CANCEL", {})
+                update_job(job["id"], status="running", stage="composing_video")
+
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                try:
+                    with active_job(job["id"]):
+                        result = _post(base_url, f"/api/jobs/{job['id']}/cancel", {})
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+                saved = read_json(jobs_dir / job["id"] / "task.json", {})
+                logs = (jobs_dir / job["id"] / "logs.txt").read_text(encoding="utf-8")
+
+        self.assertTrue(result["cancel_requested"])
+        self.assertTrue(saved["cancel_requested"])
+        self.assertIn("已请求取消当前任务", logs)
+
     def test_create_job_endpoint_allows_new_job_while_another_job_is_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp) / "jobs"
@@ -479,7 +510,7 @@ class ConsoleServerSmokeTest(unittest.TestCase):
                             "active_template": "github_hotlist_vertical_v1",
                             "github_hotlist_vertical_v1": {
                                 "project_count": 5,
-                                "style": "black_gold",
+                                "style": "sspai_editorial",
                                 "subtitle_mode": "standard",
                                 "bgm": "none",
                                 "narration_tone": "short_video_hook",
@@ -501,7 +532,7 @@ class ConsoleServerSmokeTest(unittest.TestCase):
         self.assertEqual(github["token"], "ghp_batch")
         self.assertEqual(providers[0]["api_key"], "sk-openai")
         self.assertIs(scheduler["enabled"], False)
-        self.assertEqual(templates["github_hotlist_vertical_v1"]["style"], "black_gold")
+        self.assertEqual(templates["github_hotlist_vertical_v1"]["style"], "sspai_editorial")
 
     def test_post_value_errors_return_bad_request(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

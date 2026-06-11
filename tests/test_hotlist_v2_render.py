@@ -1,11 +1,83 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
-from src.hotlist_v2.render import _build_script_from_timeline, _data_from_projects, _timeline_context
+from src.hotlist_v2.render import _build_script_from_timeline, _data_from_projects, _timeline_context, render_hotlist_v2_previews_from_projects
+from src.hotlist_v2.template import DEFAULT_STYLE, list_template_styles, normalize_style, render_composition, supported_styles
 
 
 class HotlistV2RenderTest(unittest.TestCase):
+    def test_template_registry_exposes_first_batch_styles(self) -> None:
+        styles = {item["style"] for item in list_template_styles()}
+
+        self.assertEqual(normalize_style("missing"), DEFAULT_STYLE)
+        self.assertEqual(normalize_style("black_gold"), "chinese_editorial")
+        self.assertEqual(styles, {
+            "tech_hotspot",
+            "apple_minimal",
+            "claude_warm",
+            "sspai_editorial",
+            "bytedance_product",
+            "chinese_editorial",
+        })
+        self.assertEqual(styles, supported_styles())
+
+    def test_each_registered_style_renders_hyperframes_composition(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "适合做成中文短视频切入点。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+        render_data = {**data, **_timeline_context(data)}
+
+        with TemporaryDirectory() as tmp:
+            for style in sorted(supported_styles()):
+                output = Path(tmp) / f"{style}.html"
+                render_composition(render_data, output, style=style)
+                html = output.read_text(encoding="utf-8")
+
+                self.assertIn('data-composition-id="main"', html)
+                self.assertIn(f'data-style="{style}"', html)
+                self.assertIn('id="screen-intro"', html)
+                self.assertIn('id="screen-list"', html)
+                self.assertIn('id="screen-detail-01"', html)
+                self.assertIn('id="screen-hook"', html)
+                self.assertIn('window.__timelines["main"]', html)
+
+    def test_preview_rendering_uses_each_registered_style(self) -> None:
+        projects = [
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "适合做成中文短视频切入点。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ]
+        calls = []
+
+        def fake_capture(html_path: Path, targets: list[tuple[str, Path]]) -> list[Path]:
+            calls.append((html_path, targets))
+            return [target_path for _screen_id, target_path in targets]
+
+        with TemporaryDirectory() as tmp, patch("src.hotlist_v2.render._capture_html_screens", side_effect=fake_capture):
+            for style in sorted(supported_styles()):
+                output_dir = Path(tmp) / style / "preview_frames"
+                previews = render_hotlist_v2_previews_from_projects(projects, output_dir, style=style)
+                html = calls[-1][0].read_text(encoding="utf-8")
+                screen_ids = [screen_id for screen_id, _target in calls[-1][1]]
+
+                self.assertEqual(len(previews), 4)
+                self.assertIn(f'data-style="{style}"', html)
+                self.assertEqual(screen_ids, ["screen-intro", "screen-list", "screen-detail-01", "screen-hook"])
+
     def test_ten_projects_expand_to_full_hyperframes_timeline(self) -> None:
         projects = [
             {

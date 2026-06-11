@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, nextActionForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, nextActionForJob, qualityBlocksRender, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -10,6 +10,8 @@ async function run() {
   testPlanStagesExposeSeparateActions();
   testDraftJobsExposeSeparateCreateAndCollectActions();
   testRegenerateButtonsFollowStage();
+  testUnverifiedQualityDoesNotHardBlockRender();
+  testRenderTemplateStylesPopulatesStyleSelect();
   testTemplatePayloadUsesActiveTemplate();
   testRenderArtifactsShowsPreviewAndOfficialVideo();
   testRenderArtifactSummaryShowsPublishMetadata();
@@ -200,6 +202,7 @@ async function testCreateDraftDoesNotCollectCandidates() {
     regenerateCandidatesBtn: { disabled: true },
     regenerateScriptBtn: { disabled: true },
     regenerateVideoBtn: { disabled: true },
+    cancelJobBtn: { disabled: true, textContent: "" },
     candidateRows: { innerHTML: "", querySelectorAll() { return []; } },
     scriptEditor: { className: "", textContent: "", innerHTML: "" },
     qualityReport: { hidden: false, innerHTML: "", className: "" },
@@ -252,6 +255,7 @@ function testRegenerateButtonsFollowStage() {
     regenerateCandidatesBtn: { disabled: true },
     regenerateScriptBtn: { disabled: true },
     regenerateVideoBtn: { disabled: true },
+    cancelJobBtn: { disabled: true, textContent: "" },
   };
   global.document = {
     getElementById(id) {
@@ -263,28 +267,42 @@ function testRegenerateButtonsFollowStage() {
   assert.equal(nodes.regenerateCandidatesBtn.disabled, false);
   assert.equal(nodes.regenerateScriptBtn.disabled, true);
   assert.equal(nodes.regenerateVideoBtn.disabled, true);
+  assert.equal(nodes.cancelJobBtn.disabled, true);
 
   updateRegenerateActions({ id: "job-1", status: "awaiting_input", stage: "awaiting_script_confirmation" });
   assert.equal(nodes.regenerateCandidatesBtn.disabled, false);
   assert.equal(nodes.regenerateScriptBtn.disabled, false);
   assert.equal(nodes.regenerateVideoBtn.disabled, true);
+  assert.equal(nodes.cancelJobBtn.disabled, true);
 
   updateRegenerateActions({ id: "job-1", status: "completed", stage: "completed" });
   assert.equal(nodes.regenerateCandidatesBtn.disabled, false);
   assert.equal(nodes.regenerateScriptBtn.disabled, false);
   assert.equal(nodes.regenerateVideoBtn.disabled, false);
+  assert.equal(nodes.cancelJobBtn.disabled, true);
 
   updateRegenerateActions({ id: "job-1", status: "running", stage: "composing_video" });
   assert.equal(nodes.regenerateCandidatesBtn.disabled, true);
   assert.equal(nodes.regenerateScriptBtn.disabled, true);
   assert.equal(nodes.regenerateVideoBtn.disabled, true);
+  assert.equal(nodes.cancelJobBtn.disabled, false);
+  assert.equal(nodes.cancelJobBtn.textContent, "取消任务");
+
+  updateRegenerateActions({ id: "job-1", status: "running", stage: "composing_video", cancel_requested: true });
+  assert.equal(nodes.cancelJobBtn.disabled, true);
+  assert.equal(nodes.cancelJobBtn.textContent, "取消中");
+}
+
+function testUnverifiedQualityDoesNotHardBlockRender() {
+  assert.equal(qualityBlocksRender({ status: "unverified", passed: false }), false);
+  assert.equal(qualityBlocksRender({ status: "invalid_json", passed: false }), true);
 }
 
 function testTemplatePayloadUsesActiveTemplate() {
   const values = {
     projectCount: { value: "5" },
-    visualStyle: { value: "black_gold" },
-    renderEngine: { value: "pil" },
+    visualStyle: { value: "sspai_editorial" },
+    renderEngine: { value: "hyperframes" },
     subtitleMode: { value: "standard" },
     tone: { value: "short_video_hook" },
     bgmMode: { value: "none" },
@@ -298,15 +316,15 @@ function testTemplatePayloadUsesActiveTemplate() {
   const current = {
     templates: {
       active_template: "github_hotlist_vertical_v1",
-      github_hotlist_vertical_v1: { style: "tech_dark", orientation: "vertical" },
+      github_hotlist_vertical_v1: { style: "apple_minimal", orientation: "vertical" },
     },
   };
 
   const payload = templatePayload(current);
 
   assert.deepEqual(activeTemplateParams(payload), {
-    style: "black_gold",
-    render_engine: "pil",
+    style: "sspai_editorial",
+    render_engine: "hyperframes",
     orientation: "vertical",
     project_count: 5,
     subtitle_mode: "standard",
@@ -314,6 +332,24 @@ function testTemplatePayloadUsesActiveTemplate() {
     bgm_path: "",
     narration_tone: "short_video_hook",
   });
+}
+
+function testRenderTemplateStylesPopulatesStyleSelect() {
+  const visualStyle = { value: "tech_hotspot", innerHTML: "" };
+  global.document = {
+    getElementById(id) {
+      return { visualStyle }[id];
+    },
+  };
+
+  renderTemplateStyles([
+    { style: "tech_hotspot", label: "科技热点风", render_engine: "hyperframes" },
+    { style: "apple_minimal", label: "Apple 极简风", render_engine: "hyperframes" },
+  ]);
+
+  assert.match(visualStyle.innerHTML, /tech_hotspot/);
+  assert.match(visualStyle.innerHTML, /apple_minimal/);
+  assert.equal(visualStyle.value, "tech_hotspot");
 }
 
 function testRenderArtifactsShowsPreviewAndOfficialVideo() {

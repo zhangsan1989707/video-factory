@@ -10,7 +10,12 @@ from typing import Any
 
 
 _ACTIVE_JOBS: dict[str, int] = {}
+_CANCEL_REQUESTS: set[str] = set()
 _LOCK = threading.Lock()
+
+
+class JobCancelled(Exception):
+    """Raised when a console job receives a user cancellation request."""
 
 
 @contextmanager
@@ -31,6 +36,7 @@ def start_async_job(
     with _LOCK:
         if job_id in _ACTIVE_JOBS:
             return False
+        _CANCEL_REQUESTS.discard(job_id)
         _ACTIVE_JOBS[job_id] = 1
 
     def run() -> None:
@@ -53,6 +59,24 @@ def is_active(job_id: str) -> bool:
         return job_id in _ACTIVE_JOBS
 
 
+def request_cancel(job_id: str) -> bool:
+    with _LOCK:
+        if job_id not in _ACTIVE_JOBS:
+            return False
+        _CANCEL_REQUESTS.add(job_id)
+        return True
+
+
+def cancel_requested(job_id: str) -> bool:
+    with _LOCK:
+        return job_id in _CANCEL_REQUESTS
+
+
+def raise_if_cancelled(job_id: str) -> None:
+    if cancel_requested(job_id):
+        raise JobCancelled("任务已取消")
+
+
 def _release_active_job(job_id: str) -> None:
     with _LOCK:
         count = _ACTIVE_JOBS.get(job_id, 0) - 1
@@ -60,3 +84,4 @@ def _release_active_job(job_id: str) -> None:
             _ACTIVE_JOBS[job_id] = count
         else:
             _ACTIVE_JOBS.pop(job_id, None)
+            _CANCEL_REQUESTS.discard(job_id)

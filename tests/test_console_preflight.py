@@ -21,6 +21,10 @@ class ConsolePreflightTest(unittest.TestCase):
         self.assertIn("checks", report)
         check_ids = {item["id"] for item in report["checks"]}
         self.assertIn("ffmpeg", check_ids)
+        self.assertIn("ffprobe", check_ids)
+        self.assertIn("node", check_ids)
+        self.assertIn("npx", check_ids)
+        self.assertIn("node.hyperframes", check_ids)
         self.assertIn("playwright.browsers", check_ids)
         self.assertIn("python.edge_tts", check_ids)
         self.assertIn("config.model_provider", check_ids)

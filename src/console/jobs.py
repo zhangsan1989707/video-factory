@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from src.console.background import JobCancelled, raise_if_cancelled
 from src.console.github_hotlist import collect_candidates_with_meta
 from src.console.model_router import chat_json_detail, route_snapshot
 from src.console.store import (
@@ -33,6 +34,7 @@ from src.pipeline import run_pipeline
 from src.composer.bgm import post_process_video
 from src.composer.vertical import render_vertical_previews
 from src.hotlist_v2.render import render_hotlist_v2_from_projects, render_hotlist_v2_previews_from_projects
+from src.hotlist_v2.template import normalize_style, render_engine_for_style
 from src.planner.script_v2 import generate_script_from_shot_plan
 
 
@@ -325,8 +327,9 @@ def prepare_plan(job_id: str) -> dict[str, Any]:
         write_json(job_dir / "shot_plan.json", shot_plan.to_dict())
         write_json(job_dir / "script.json", script.to_dict())
         write_json(job_dir / "info.json", {"projects": selected})
-        if _render_engine(job) == "hyperframes" and _visual_style(job) == "tech_hotspot":
-            previews = render_hotlist_v2_previews_from_projects(selected, job_dir / "preview_frames", style="tech_hotspot")
+        visual_style = _visual_style(job)
+        if _render_engine(job) == "hyperframes":
+            previews = render_hotlist_v2_previews_from_projects(selected, job_dir / "preview_frames", style=visual_style)
         else:
             previews = render_vertical_previews(script, shot_plan, manifest, job_dir / "preview_frames")
         cover = _write_cover_frame(job_id, previews)
@@ -409,34 +412,41 @@ async def render_video(job_id: str) -> dict[str, Any]:
 
     job_dir = JOBS_DIR / job_id
     try:
+        raise_if_cancelled(job_id)
         if not (job_dir / "shot_plan.json").exists():
             prepare_plan(job_id)
         job = read_job(job_id)
         _ensure_quality_gate(job_id)
+        raise_if_cancelled(job_id)
         if (job.get("plan_validation") or {}).get("status") != "passed":
             await validate_plan(job_id)
             job = read_job(job_id)
+        raise_if_cancelled(job_id)
 
         append_log(job_id, "开始生成最终视频。这个阶段会生成语音并合成 mp4。")
-        update_job(job_id, status="running", stage="capturing_assets", failed_stage="", error="")
+        update_job(job_id, status="running", stage="capturing_assets", failed_stage="", error="", cancel_requested=False)
 
         def on_pipeline_stage(stage: str, message: str) -> None:
+            raise_if_cancelled(job_id)
             update_job(job_id, status="running", stage=stage)
             append_log(job_id, message)
 
         selected = read_json(job_dir / "selected_projects.json", {}).get("items") or []
         output_path = job_dir / "final.mp4"
-        if _render_engine(job) == "hyperframes" and _visual_style(job) == "tech_hotspot":
+        visual_style = _visual_style(job)
+        if _render_engine(job) == "hyperframes":
+            raise_if_cancelled(job_id)
             update_job(job_id, status="running", stage="generating_tts")
-            append_log(job_id, "默认使用 HyperFrames 科技热点风模板。")
+            append_log(job_id, f"使用 HyperFrames 模板渲染：{visual_style}。")
             update_job(job_id, status="running", stage="composing_video")
             narration_segments = read_json(job_dir / "narration.json", {}).get("segments") or []
             await render_hotlist_v2_from_projects(
                 selected,
                 output_path=output_path,
-                style="tech_hotspot",
+                style=visual_style,
                 narration_segments=narration_segments,
             )
+            raise_if_cancelled(job_id)
             update_job(job_id, status="running", stage="post_processing")
             append_log(job_id, "开始执行视频后处理。")
             post_process_video(output_path, no_bgm=_no_bgm(job), bgm_path=_bgm_path(job))
@@ -451,14 +461,21 @@ async def render_video(job_id: str) -> dict[str, Any]:
                 bgm_path=_bgm_path(job),
                 stage_callback=on_pipeline_stage,
             )
+        raise_if_cancelled(job_id)
         update_job(job_id, status="running", stage="post_processing")
         append_log(job_id, f"视频合成完成: {output_path}")
         return finalize_numbered_output(job_id, str(job.get("title") or "GitHub热榜视频"))
+    except JobCancelled as exc:
+        failed_stage = str(read_job(job_id).get("stage") or "composing_video")
+        append_log(job_id, str(exc))
+        _clear_current_video_output(job_id)
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
+        raise
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
         append_log(job_id, f"视频生成失败: {exc}")
         _clear_video_outputs(job_id)
-        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc))
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
         raise
 
 
@@ -710,7 +727,7 @@ def _bgm_path(job: dict[str, Any]) -> str | None:
 
 def _visual_style(job: dict[str, Any]) -> str:
     params = job.get("template_params") or {}
-    return str(params.get("style") or params.get("visual_style") or "tech_hotspot")
+    return normalize_style(str(params.get("style") or params.get("visual_style") or "tech_hotspot"))
 
 
 def _render_engine(job: dict[str, Any]) -> str:
@@ -718,7 +735,7 @@ def _render_engine(job: dict[str, Any]) -> str:
     engine = str(params.get("render_engine") or "").strip()
     if engine in {"hyperframes", "pil"}:
         return engine
-    return "hyperframes" if _visual_style(job) == "tech_hotspot" else "pil"
+    return render_engine_for_style(_visual_style(job))
 
 
 def _merge_candidate_analysis(candidate: dict[str, Any], patch: dict[str, Any]) -> None:
@@ -1143,12 +1160,12 @@ def _write_readiness_report(
         _readiness_check("publish_pack", bool(publish_pack.get("title") and publish_pack.get("description")), "已生成发布辅助包", "缺少发布辅助包"),
     ]
     if quality:
-        fact_passed = _quality_allows_render(quality)
+        fact_passed = _quality_verified(quality)
         checks.append(_readiness_check(
             "fact_check",
             fact_passed,
             f"质检状态: {quality.get('status')}",
-            f"质检需要复核: {quality.get('status')}",
+            f"质检未验证或需要复核: {quality.get('status')}",
         ))
     score = int(sum(item["score"] for item in checks) / max(1, len(checks)))
     status = "ready" if score >= 85 and all(item["passed"] for item in checks) else "review"
@@ -1181,9 +1198,17 @@ def _quality_allows_render(report: dict[str, Any]) -> bool:
         return True
     if report.get("manual_override"):
         return True
-    if report.get("passed") is True:
+    if report.get("status") == "pass" and report.get("passed") is True:
         return True
-    return report.get("status") in {"pass", "skipped"}
+    return report.get("status") in {"unverified", "skipped"}
+
+
+def _quality_verified(report: dict[str, Any]) -> bool:
+    if not report:
+        return False
+    if report.get("manual_override"):
+        return True
+    return report.get("status") == "pass" and report.get("passed") is True
 
 
 def _ensure_quality_gate(job_id: str) -> None:
@@ -1419,8 +1444,8 @@ def _quality_check_script(
     if not _route_available(route):
         reason = _route_skip_reason(route)
         write_json(report_path, {
-            "status": "skipped",
-            "passed": True,
+            "status": "unverified",
+            "passed": False,
             "summary": reason,
             "risk_flags": [],
             "factual_notes": [],
@@ -1430,8 +1455,9 @@ def _quality_check_script(
             "model": route.get("model") or "",
             "error": "",
             "error_details": [],
+            "verified": False,
         })
-        append_log(job_id, f"脚本质检跳过：{reason}。")
+        append_log(job_id, f"脚本质检未验证：{reason}。")
         return
 
     prompt = {
@@ -1512,6 +1538,7 @@ def _sanitize_quality_report(
     return {
         "status": status,
         "passed": status == "pass",
+        "verified": status == "pass",
         "summary": summary,
         "risk_flags": _short_list(data.get("risk_flags"), 8, 160),
         "factual_notes": _short_list(data.get("factual_notes"), 8, 180),
@@ -1528,6 +1555,7 @@ def _quality_report_error(status: str, route: dict[str, Any], error: str, error_
     return {
         "status": status,
         "passed": False,
+        "verified": False,
         "summary": "脚本质检未完成，请人工检查事实和夸大表达。",
         "risk_flags": [],
         "factual_notes": [],

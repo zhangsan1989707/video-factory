@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from src.console.store import config_snapshot
+from src.utils.config import ROOT_DIR
 
 
 def preflight_snapshot() -> dict[str, Any]:
@@ -17,6 +18,10 @@ def preflight_snapshot() -> dict[str, Any]:
         _module_check("python.moviepy", "moviepy"),
         _module_check("python.PIL", "PIL"),
         _command_check("ffmpeg", "ffmpeg"),
+        _command_check("ffprobe", "ffprobe"),
+        _command_check("node", "node"),
+        _command_check("npx", "npx"),
+        _node_package_check("node.hyperframes", "hyperframes"),
         _playwright_browser_check(),
         *_config_checks(),
     ]
@@ -59,6 +64,18 @@ def _command_check(check_id: str, command: str) -> dict[str, Any]:
         "status": "ok" if path else "missing",
         "severity": "blocking",
         "message": path or f"PATH 中找不到 {command}",
+    }
+
+
+def _node_package_check(check_id: str, package_name: str) -> dict[str, Any]:
+    package_path = ROOT_DIR / "node_modules" / package_name / "package.json"
+    found = package_path.exists() and package_path.is_file()
+    return {
+        "id": check_id,
+        "label": f"Node package: {package_name}",
+        "status": "ok" if found else "missing",
+        "severity": "blocking",
+        "message": "已安装" if found else f"缺少 Node 依赖 {package_name}，请运行 npm install",
     }
 
 

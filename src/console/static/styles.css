@@ -119,6 +119,12 @@ button.tiny {
   font-size: 12px;
 }
 
+button.danger {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+  color: var(--error);
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.45;

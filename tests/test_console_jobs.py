@@ -15,7 +15,7 @@ from src.console import jobs as console_jobs
 from src.console.jobs import create_hotlist_job, finalize_numbered_output, generate_candidates, job_detail, prepare_plan, regenerate_candidates, regenerate_script, render_video, reset_video_for_regeneration, save_script, save_selection, validate_plan
 from src.console.server import open_job_folder, start_render_job
 from src.console.store import create_job, next_job_id, read_json, update_job, write_json
-from src.console.background import is_active, start_async_job
+from src.console.background import JobCancelled, cancel_requested, is_active, raise_if_cancelled, request_cancel, start_async_job
 
 
 def _fake_hyperframes_previews(projects: list[dict], output_dir: Path, **kwargs) -> list[Path]:
@@ -79,6 +79,33 @@ class ConsoleJobsTest(unittest.TestCase):
 
         self.assertFalse(is_active(job_id))
         self.assertEqual(failures, [(job_id, f"worker failed for {job_id}")])
+
+    def test_background_runner_tracks_cancel_request_until_job_finishes(self) -> None:
+        async def cancellable_worker(job_id: str) -> None:
+            started.append(job_id)
+            while not cancel_requested(job_id):
+                await asyncio.sleep(0.01)
+            raise_if_cancelled(job_id)
+
+        started = []
+        failures = []
+        job_id = "GH-HOTLIST-20990101-BG-CANCEL"
+
+        self.assertTrue(start_async_job(job_id, cancellable_worker, on_error=lambda failed_id, exc: failures.append((failed_id, type(exc)))))
+        deadline = time.time() + 1
+        while not started and time.time() < deadline:
+            time.sleep(0.01)
+
+        self.assertTrue(request_cancel(job_id))
+        self.assertTrue(cancel_requested(job_id))
+
+        deadline = time.time() + 1
+        while is_active(job_id) and time.time() < deadline:
+            time.sleep(0.01)
+
+        self.assertFalse(is_active(job_id))
+        self.assertFalse(cancel_requested(job_id))
+        self.assertEqual(failures, [(job_id, JobCancelled)])
 
     def test_create_hotlist_job_retries_when_next_directory_is_taken(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -335,7 +362,9 @@ class ConsoleJobsTest(unittest.TestCase):
 
                 result = prepare_plan(job["id"])
                 self.assertEqual(result["job"]["status"], "awaiting_validation")
-                self.assertEqual(result["readiness_report"]["status"], "ready")
+                self.assertEqual(result["readiness_report"]["status"], "review")
+                fact_check = next(item for item in result["readiness_report"]["checks"] if item["id"] == "fact_check")
+                self.assertFalse(fact_check["passed"])
                 self.assertEqual(result["cover_frame"]["status"], "ready")
 
                 shot_plan = read_json(jobs_dir / job["id"] / "shot_plan.json", {})
@@ -372,8 +401,8 @@ class ConsoleJobsTest(unittest.TestCase):
                 cover_meta = read_json(jobs_dir / job["id"] / "cover_frame.json", {})
                 self.assertEqual(cover_meta["source"], str(previews[0]))
                 readiness = read_json(jobs_dir / job["id"] / "readiness_report.json", {})
-                self.assertEqual(readiness["score"], 100)
-                self.assertEqual(job_detail(job["id"])["readiness_report"]["status"], "ready")
+                self.assertEqual(readiness["score"], 83)
+                self.assertEqual(job_detail(job["id"])["readiness_report"]["status"], "review")
                 self.assertEqual(job_detail(job["id"])["cover_frame"]["status"], "ready")
 
     def test_hotlist_manifest_prefers_homepage_then_readme_image_then_repo(self) -> None:
@@ -655,7 +684,33 @@ class ConsoleJobsTest(unittest.TestCase):
 
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(calls[0]["style"], "tech_hotspot")
-                self.assertEqual(result["readiness_report"]["status"], "ready")
+                self.assertEqual(result["readiness_report"]["status"], "review")
+
+    def test_prepare_plan_uses_selected_hyperframes_style_for_previews(self) -> None:
+        calls = []
+
+        def previews(projects, output_dir, **kwargs):
+            calls.append({"projects": projects, "output_dir": output_dir, **kwargs})
+            return _fake_hyperframes_previews(projects, output_dir, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.render_hotlist_v2_previews_from_projects", side_effect=previews),
+            ):
+                job = create_job("GH-HOTLIST-20990101-HF-STYLE-PREVIEWS", {
+                    "project_count": 2,
+                    "template_params": {"style": "sspai_editorial"},
+                })
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0]["style"], "sspai_editorial")
 
     def test_prepare_plan_records_failure_stage_immediately(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -886,6 +941,41 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(render_calls[0]["style"], "tech_hotspot")
                 self.assertEqual([segment["id"] for segment in render_calls[0]["narration_segments"]], ["intro", "project-1", "project-2", "outro"])
                 self.assertEqual(result["job"]["plan_validation"]["status"], "passed")
+
+    def test_render_video_uses_selected_hyperframes_style(self) -> None:
+        async def pipeline(**kwargs):
+            calls.append(kwargs)
+            return Path(kwargs["from_plan"])
+
+        async def hyperframes(projects, output_path=None, **kwargs):
+            render_calls.append({"projects": projects, "output_path": output_path, **kwargs})
+            Path(output_path).write_bytes(b"video")
+            return Path(output_path)
+
+        calls = []
+        render_calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.run_pipeline", side_effect=pipeline),
+                patch("src.console.jobs.render_hotlist_v2_from_projects", side_effect=hyperframes),
+                patch("src.console.jobs.post_process_video", return_value=None),
+            ):
+                job = create_job("GH-HOTLIST-20990101-HF-STYLE-RENDER", {
+                    "project_count": 2,
+                    "template_params": {"style": "apple_minimal", "bgm": "none"},
+                })
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+
+                asyncio.run(render_video(job["id"]))
+
+                self.assertEqual(len(render_calls), 1)
+                self.assertEqual(render_calls[0]["style"], "apple_minimal")
 
     def test_render_video_passes_custom_bgm_path(self) -> None:
         async def pipeline(**kwargs):
@@ -1783,7 +1873,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertTrue(report["manual_override"])
                 self.assertTrue(report["passed"])
 
-    def test_save_script_skips_quality_report_when_fact_check_is_unconfigured(self) -> None:
+    def test_save_script_marks_quality_report_unverified_when_fact_check_is_unconfigured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
             with (
@@ -1797,7 +1887,9 @@ class ConsoleJobsTest(unittest.TestCase):
 
                 self.assertEqual(result["job"]["status"], "awaiting_render")
                 report = read_json(jobs_dir / job["id"] / "quality_report.json", {})
-                self.assertEqual(report["status"], "skipped")
+                self.assertEqual(report["status"], "unverified")
+                self.assertFalse(report["passed"])
+                self.assertFalse(report["verified"])
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"], [])
 
@@ -1914,7 +2006,7 @@ class ConsoleJobsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
             params = {
-                "style": "black_gold",
+                "style": "sspai_editorial",
                 "subtitle_mode": "standard",
                 "narration_tone": "calm_analysis",
                 "bgm": "none",
@@ -1924,8 +2016,8 @@ class ConsoleJobsTest(unittest.TestCase):
             with patch("src.console.store.JOBS_DIR", jobs_dir):
                 job = create_job("GH-HOTLIST-20990101-004", {"template_params": params})
 
-            self.assertEqual(job["template_params"]["style"], "black_gold")
-            self.assertEqual(job["template_params"]["render_engine"], "pil")
+            self.assertEqual(job["template_params"]["style"], "sspai_editorial")
+            self.assertEqual(job["template_params"]["render_engine"], "hyperframes")
             self.assertEqual(job["template_params"]["orientation"], "vertical")
             saved = read_json(jobs_dir / job["id"] / "task.json", {})
             self.assertEqual(saved["template_params"], job["template_params"])
@@ -1942,8 +2034,8 @@ class ConsoleJobsTest(unittest.TestCase):
                     },
                 })
 
-            self.assertEqual(job["template_params"]["style"], "black_gold")
-            self.assertEqual(job["template_params"]["render_engine"], "pil")
+            self.assertEqual(job["template_params"]["style"], "chinese_editorial")
+            self.assertEqual(job["template_params"]["render_engine"], "hyperframes")
             self.assertNotIn("visual_style", job["template_params"])
 
     def test_create_job_normalizes_time_window_and_template_params(self) -> None:

@@ -11,6 +11,7 @@ from typing import Any
 from src.console.background import active_job
 from src.console.jobs import create_hotlist_job, generate_candidates
 from src.console.store import CONFIG_DIR, DEFAULT_SCHEDULER, DEFAULT_TEMPLATES, bool_value, config_snapshot, normalize_project_count, normalize_time_window, read_json, update_scheduler_last_run
+from src.hotlist_v2.template import normalize_style
 
 
 _STARTED = False
@@ -98,6 +99,14 @@ def _normalized_schedule(schedule: dict[str, Any]) -> dict[str, Any]:
     data["time_window"] = normalize_time_window(data.get("time_window"), DEFAULT_SCHEDULER["time_window"])
     if not isinstance(data.get("template_params"), dict):
         data["template_params"] = {}
+    else:
+        params = dict(data["template_params"])
+        if "style" not in params and params.get("visual_style"):
+            params["style"] = params.get("visual_style")
+        params.pop("visual_style", None)
+        if params.get("style"):
+            params["style"] = normalize_style(str(params.get("style") or ""))
+        data["template_params"] = params
     return data
 
 
@@ -118,5 +127,8 @@ def _scheduled_template_params(schedule: dict[str, Any]) -> dict[str, Any]:
     params = dict(base)
     params.update(schedule.get("template_params") or {})
     if params.get("visual_style"):
-        params["style"] = params.get("visual_style")
+        params["style"] = params.get("style") or params.get("visual_style")
+    params.pop("visual_style", None)
+    if params.get("style"):
+        params["style"] = normalize_style(str(params.get("style") or ""))
     return params

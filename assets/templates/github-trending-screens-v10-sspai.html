@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub 热榜竖屏设计 · 少数派风</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700;900&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+
+:root {
+  --ssp-red: #d71a1b;
+  --ssp-red-dark: #b31516;
+  --bg-white: #ffffff;
+  --bg-warm: #faf9f7;
+  --bg-gray: #f5f4f2;
+  --text-primary: #1a1a1a;
+  --text-secondary: #555555;
+  --text-dim: #999999;
+  --border-light: #e8e6e1;
+  --border-red: rgba(215,26,27,0.15);
+  --font-serif: 'Noto Serif SC', 'STSong', serif;
+  --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+}
+
+body {
+  background:#e8e5df; color:var(--text-primary);
+  font-family:var(--font-sans); overflow-x:hidden;
+}
+
+.gallery {
+  display:flex; flex-wrap:wrap; gap:40px;
+  justify-content:center; align-items:flex-start;
+  padding:60px 40px 80px; min-height:100vh;
+}
+
+.screen-wrapper {
+  display:flex; flex-direction:column; align-items:center; gap:18px;
+}
+
+.screen-label {
+  font-family:var(--font-serif); font-size:13px; font-weight:500;
+  color:var(--ssp-red); letter-spacing:0.12em;
+}
+
+.phone-frame {
+  width:375px; height:812px; background:var(--bg-white);
+  border-radius:44px; border:1px solid rgba(0,0,0,0.08);
+  overflow:hidden; position:relative;
+  box-shadow:0 2px 20px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.phone-frame::before {
+  content:''; position:absolute; top:14px; left:50%;
+  transform:translateX(-50%); width:120px; height:34px;
+  background:#000; border-radius:20px; z-index:100; opacity:0.06;
+}
+
+.status-bar {
+  height:52px; display:flex; align-items:flex-end;
+  justify-content:space-between; padding:0 28px 8px;
+  font-family:var(--font-serif); font-size:11px;
+  color:var(--text-dim); z-index:10; flex-shrink:0;
+}
+
+/* ========== SCREEN 1 ========== */
+.s1 { display:flex; flex-direction:column; height:calc(812px - 52px); overflow:hidden; }
+
+.s1-hero {
+  flex:1; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:0 40px; position:relative;
+}
+
+.s1-logo-mark {
+  width:48px; height:48px; background:var(--ssp-red);
+  display:flex; align-items:center; justify-content:center;
+  margin-bottom:36px;
+  font-family:var(--font-serif); font-size:24px; font-weight:900;
+  color:#fff;
+}
+
+.s1-title {
+  font-family:var(--font-serif); font-size:36px; font-weight:900;
+  color:var(--text-primary); text-align:center; line-height:1.35;
+  margin-bottom:12px; letter-spacing:0.03em;
+}
+
+.s1-title .accent {
+  color:var(--ssp-red);
+}
+
+.s1-sub {
+  font-family:var(--font-serif); font-size:14px; color:var(--text-secondary);
+  text-align:center; margin-bottom:40px; letter-spacing:0.06em;
+}
+
+.s1-line {
+  width:40px; height:2px; background:var(--ssp-red); margin-bottom:40px;
+}
+
+.s1-stats {
+  display:flex; gap:36px; margin-bottom:44px;
+}
+
+.stat-item { text-align:center; }
+
+.stat-num {
+  font-family:var(--font-serif); font-size:28px; font-weight:700;
+  color:var(--ssp-red); display:block;
+}
+
+.stat-label {
+  font-family:var(--font-serif); font-size:11px; color:var(--text-dim);
+  margin-top:4px;
+}
+
+.s1-tags { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+
+.s1-tag {
+  padding:6px 16px; background:var(--bg-gray);
+  font-family:var(--font-serif); font-size:11px;
+  color:var(--text-secondary); letter-spacing:0.04em;
+}
+
+.s1-footer {
+  padding:20px 40px; border-top:1px solid var(--border-light);
+  display:flex; justify-content:space-between; align-items:center;
+}
+
+.s1-footer .edition {
+  font-family:var(--font-serif); font-size:11px; color:var(--text-dim);
+}
+
+.s1-footer .cta {
+  padding:8px 20px; background:var(--ssp-red); color:#fff;
+  font-family:var(--font-serif); font-size:12px; border:none;
+  cursor:pointer; letter-spacing:0.04em;
+}
+
+/* ========== SCREEN 2 ========== */
+.s2 { display:flex; flex-direction:column; height:calc(812px - 52px); overflow-y:auto; padding:0 24px; }
+.s2::-webkit-scrollbar { width:0; }
+
+.s2-header {
+  padding:24px 0 16px; display:flex; align-items:center;
+  justify-content:space-between; border-bottom:1px solid var(--border-light);
+  flex-shrink:0;
+}
+
+.s2-title {
+  font-family:var(--font-serif); font-size:22px; font-weight:700;
+  color:var(--text-primary); letter-spacing:0.04em;
+}
+
+.s2-title .dot {
+  color:var(--ssp-red); font-size:18px; vertical-align:middle;
+}
+
+.s2-live {
+  padding:3px 10px; border:1px solid var(--ssp-red); color:var(--ssp-red);
+  font-family:var(--font-serif); font-size:10px; letter-spacing:0.06em;
+  animation:live-breath 2s ease-in-out infinite;
+}
+
+@keyframes live-breath {
+  0%,100% { opacity:1; }
+  50% { opacity:0.55; }
+}
+
+.s2-filters {
+  display:flex; gap:10px; padding:18px 0; flex-shrink:0;
+}
+
+.filter-btn {
+  padding:6px 16px; font-family:var(--font-serif); font-size:11px;
+  border:1px solid var(--border-light); background:transparent;
+  color:var(--text-secondary); cursor:pointer; letter-spacing:0.04em;
+}
+
+.filter-btn.active {
+  background:var(--ssp-red); color:#fff; border-color:var(--ssp-red);
+}
+
+.s2-list { flex:1; display:flex; flex-direction:column; gap:10px; padding-bottom:20px; }
+
+.rank-card {
+  display:flex; align-items:center; gap:16px;
+  padding:15px 16px; background:var(--bg-white);
+  border:1px solid var(--border-light);
+}
+
+.rank-card:nth-child(1) { border-left:3px solid var(--ssp-red); }
+.rank-card:nth-child(2) { border-left:3px solid #d4a843; }
+.rank-card:nth-child(3) { border-left:3px solid #6a8dba; }
+
+.rank-num {
+  width:28px; text-align:center; flex-shrink:0;
+  font-family:var(--font-serif); font-size:16px; font-weight:700;
+  color:var(--text-dim);
+}
+
+.rank-card:nth-child(1) .rank-num { color:var(--ssp-red); }
+.rank-card:nth-child(2) .rank-num { color:#d4a843; }
+.rank-card:nth-child(3) .rank-num { color:#6a8dba; }
+
+.rank-info { flex:1; min-width:0; }
+.rank-name { font-size:14px; font-weight:500; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:var(--font-sans); }
+.rank-desc { font-family:var(--font-serif); font-size:10px; color:var(--text-dim); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.rank-stars { text-align:right; flex-shrink:0; }
+.rank-stars .num { font-family:var(--font-serif); font-size:14px; font-weight:600; color:var(--ssp-red); display:block; }
+.rank-stars .label { font-size:9px; color:var(--text-dim); }
+
+.s2-footer {
+  padding:14px 0 24px; text-align:center; font-family:var(--font-serif);
+  font-size:11px; color:var(--text-dim); flex-shrink:0;
+  border-top:1px solid var(--border-light); margin-top:8px;
+}
+
+/* ========== SCREEN 3 ========== */
+.s3 { display:flex; flex-direction:column; height:calc(812px - 52px); overflow-y:auto; padding:0 24px; }
+.s3::-webkit-scrollbar { width:0; }
+
+.s3-nav {
+  display:flex; align-items:center; gap:12px; padding:20px 0;
+  font-family:var(--font-serif); font-size:11px; color:var(--text-dim); flex-shrink:0;
+}
+
+.s3-nav .back { color:var(--ssp-red); cursor:pointer; }
+.s3-badge {
+  padding:3px 10px; background:var(--ssp-red); color:#fff;
+  font-family:var(--font-serif); font-size:10px; letter-spacing:0.04em;
+  margin-left:auto;
+}
+
+.s3-hero { margin-bottom:20px; flex-shrink:0; }
+.s3-hero h2 {
+  font-family:var(--font-serif); font-size:26px; font-weight:700;
+  color:var(--text-primary); margin-bottom:4px;
+}
+.s3-hero .license {
+  font-family:var(--font-serif); font-size:10px; color:var(--text-dim);
+}
+
+.s3-desc {
+  font-family:var(--font-serif); font-size:13px; color:var(--text-secondary);
+  line-height:1.9; padding:18px; background:var(--bg-warm); margin-bottom:20px;
+  flex-shrink:0; letter-spacing:0.03em;
+}
+
+.s3-metrics {
+  display:grid; grid-template-columns:1fr 1fr; gap:10px;
+  margin-bottom:20px; flex-shrink:0;
+}
+
+.metric-card {
+  padding:18px 16px; background:var(--bg-white);
+  border:1px solid var(--border-light); text-align:center;
+}
+
+.metric-card .val {
+  font-family:var(--font-serif); font-size:24px; font-weight:700;
+  color:var(--ssp-red); display:block;
+}
+.metric-card .lbl {
+  font-family:var(--font-serif); font-size:10px; color:var(--text-dim); margin-top:4px;
+}
+
+.s3-tech { margin-bottom:20px; flex-shrink:0; }
+.s3-tech h4 { font-family:var(--font-serif); font-size:13px; font-weight:600; color:var(--text-primary); margin-bottom:10px; }
+
+.tech-tags { display:flex; gap:8px; flex-wrap:wrap; }
+
+.tech-tag {
+  padding:5px 14px; font-family:var(--font-serif); font-size:10px;
+  background:var(--bg-gray); color:var(--text-secondary);
+}
+
+.s3-chart {
+  background:var(--bg-white); border:1px solid var(--border-light);
+  padding:16px; margin-bottom:20px; flex-shrink:0;
+}
+
+.s3-chart h4 { font-family:var(--font-serif); font-size:12px; font-weight:600; color:var(--text-primary); margin-bottom:14px; }
+
+.bars { display:flex; align-items:flex-end; gap:6px; height:70px; }
+.bar-col { flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; }
+.bar-col .bar {
+  width:100%; border-radius:2px 2px 0 0;
+  background:rgba(215,26,27,0.2);
+}
+.bar-col .bar.high { background:var(--ssp-red); }
+.bar-col .day { font-family:var(--font-serif); font-size:8px; color:var(--text-dim); }
+
+.s3-reason {
+  padding:14px 16px; background:rgba(215,26,27,0.03);
+  border:1px solid var(--border-red); margin-bottom:20px; flex-shrink:0;
+}
+
+.s3-reason h4 { font-family:var(--font-serif); font-size:12px; color:var(--ssp-red); margin-bottom:4px; letter-spacing:0.04em; }
+.s3-reason p { font-family:var(--font-serif); font-size:12px; color:var(--text-secondary); line-height:1.7; }
+
+/* ========== SCREEN 4 ========== */
+.s4 { display:flex; flex-direction:column; height:calc(812px - 52px); overflow:hidden; }
+
+.s4-hero {
+  flex:1; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:0 40px; text-align:center;
+}
+
+.s4-end-mark {
+  width:40px; height:40px; border:2px solid var(--ssp-red);
+  display:flex; align-items:center; justify-content:center;
+  margin-bottom:28px;
+}
+
+.s4-end-mark span {
+  font-family:var(--font-serif); font-size:16px; font-weight:900;
+  color:var(--ssp-red);
+}
+
+.s4-title {
+  font-family:var(--font-serif); font-size:30px; font-weight:900;
+  color:var(--text-primary); margin-bottom:8px; letter-spacing:0.03em;
+}
+
+.s4-sub {
+  font-family:var(--font-serif); font-size:13px; color:var(--text-dim);
+  margin-bottom:40px; letter-spacing:0.06em;
+}
+
+.s4-top3 {
+  display:flex; flex-direction:column; gap:10px; width:100%; margin-bottom:40px;
+}
+
+.top3-card {
+  display:flex; align-items:center; gap:14px;
+  padding:14px 16px; background:var(--bg-white);
+  border:1px solid var(--border-light);
+}
+
+.top3-card .medal {
+  width:30px; text-align:center; flex-shrink:0;
+  font-family:var(--font-serif); font-size:16px; font-weight:700;
+}
+
+.top3-card:nth-child(1) .medal { color:var(--ssp-red); }
+.top3-card:nth-child(2) .medal { color:#d4a843; }
+.top3-card:nth-child(3) .medal { color:#6a8dba; }
+
+.top3-card .info { flex:1; text-align:left; }
+.top3-card .name { font-size:13px; font-weight:500; color:var(--text-primary); }
+.top3-card .tag { font-family:var(--font-serif); font-size:10px; color:var(--text-dim); }
+
+.s4-question {
+  font-family:var(--font-serif); font-size:17px; font-weight:700;
+  color:var(--ssp-red); margin-bottom:28px; letter-spacing:0.04em;
+}
+
+.s4-cta { display:flex; gap:16px; }
+
+.cta-btn {
+  padding:10px 28px; font-family:var(--font-serif); font-size:13px;
+  letter-spacing:0.04em; cursor:pointer; border:none;
+}
+
+.cta-primary {
+  background:var(--ssp-red); color:#fff;
+}
+
+.cta-secondary {
+  background:transparent; color:var(--text-primary);
+  border:1px solid var(--border-light);
+}
+
+.s4-footer {
+  padding:24px 40px; border-top:1px solid var(--border-light);
+  text-align:center; font-family:var(--font-serif); font-size:11px;
+  color:var(--text-dim);
+}
+</style>
+</head>
+<body>
+
+<div class="gallery">
+
+<!-- SCREEN 1 -->
+<div class="screen-wrapper">
+  <div class="screen-label">片头 · 介绍</div>
+  <div class="phone-frame">
+    <div class="status-bar"><span>9:41</span><span>少数派</span><span>●●●○</span></div>
+    <div class="s1">
+      <div class="s1-hero">
+        <div class="s1-logo-mark">热</div>
+        <h1 class="s1-title">
+          GitHub<br><span class="accent">开源热榜</span>
+        </h1>
+        <p class="s1-sub">每周精选 · 开源风向标</p>
+        <div class="s1-line"></div>
+        <div class="s1-stats">
+          <div class="stat-item"><span class="stat-num">287</span><span class="stat-label">精选项目</span></div>
+          <div class="stat-item"><span class="stat-num">12</span><span class="stat-label">编程语言</span></div>
+          <div class="stat-item"><span class="stat-num">1.2 万</span><span class="stat-label">新增星标</span></div>
+        </div>
+        <div class="s1-tags">
+          <span class="s1-tag">智能体</span><span class="s1-tag">大模型</span>
+          <span class="s1-tag">开发工具</span><span class="s1-tag">基础设施</span>
+        </div>
+      </div>
+      <div class="s1-footer">
+        <span class="edition">2026 年 6 月 9 日 · 第 24 期</span>
+        <button class="cta">阅读全文</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 2 -->
+<div class="screen-wrapper">
+  <div class="screen-label">榜单 · 列表</div>
+  <div class="phone-frame">
+    <div class="status-bar"><span>9:41</span><span>热榜</span><span>●●●○</span></div>
+    <div class="s2">
+      <div class="s2-header">
+        <h2 class="s2-title">开源热榜<span class="dot">·</span>Top 10</h2>
+        <span class="s2-live">实时</span>
+      </div>
+      <div class="s2-filters">
+        <span class="filter-btn active">全部</span>
+        <span class="filter-btn">AI</span>
+        <span class="filter-btn">工具</span>
+      </div>
+      <div class="s2-list">
+        <div class="rank-card">
+          <div class="rank-num">01</div>
+          <div class="rank-info">
+            <div class="rank-name">rauchg/openauth</div>
+            <div class="rank-desc">通用身份认证方案 · 零配置即用</div>
+          </div>
+          <div class="rank-stars"><span class="num">3.2 千</span><span class="label">今日涨星</span></div>
+        </div>
+        <div class="rank-card">
+          <div class="rank-num">02</div>
+          <div class="rank-info">
+            <div class="rank-name">microsoft/gragent</div>
+            <div class="rank-desc">图驱动的智能体框架</div>
+          </div>
+          <div class="rank-stars"><span class="num">2.8 千</span><span class="label">今日涨星</span></div>
+        </div>
+        <div class="rank-card">
+          <div class="rank-num">03</div>
+          <div class="rank-info">
+            <div class="rank-name">vercel/ai-sdk</div>
+            <div class="rank-desc">AI 应用开发工具包</div>
+          </div>
+          <div class="rank-stars"><span class="num">2.1 千</span><span class="label">今日涨星</span></div>
+        </div>
+        <div class="rank-card">
+          <div class="rank-num">04</div>
+          <div class="rank-info">
+            <div class="rank-name">browser-use/browser-use</div>
+            <div class="rank-desc">让 AI 替你操控浏览器</div>
+          </div>
+          <div class="rank-stars"><span class="num">1.9 千</span><span class="label">今日涨星</span></div>
+        </div>
+        <div class="rank-card">
+          <div class="rank-num">05</div>
+          <div class="rank-info">
+            <div class="rank-name">unionlabs/union</div>
+            <div class="rank-desc">跨链信任最小化桥接</div>
+          </div>
+          <div class="rank-stars"><span class="num">1.5 千</span><span class="label">今日涨星</span></div>
+        </div>
+      </div>
+      <div class="s2-footer">共 287 个热门仓库 · 仅列前十</div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 3 -->
+<div class="screen-wrapper">
+  <div class="screen-label">深度 · 解读</div>
+  <div class="phone-frame">
+    <div class="status-bar"><span>9:41</span><span>解读</span><span>●●●○</span></div>
+    <div class="s3">
+      <div class="s3-nav">
+        <span class="back">← 返回</span>
+        <span class="s3-badge">本周冠军</span>
+      </div>
+      <div class="s3-hero">
+        <h2>rauchg / openauth</h2>
+        <span class="license">MIT 开源协议</span>
+      </div>
+      <div class="s3-desc">
+        专为现代应用打造的通用身份认证方案。支持数十种第三方登录、多因素认证与组织级权限管理——部署极其简便，开箱即用。
+      </div>
+      <div class="s3-metrics">
+        <div class="metric-card"><span class="val">1.2 万</span><span class="lbl">总星标数</span></div>
+        <div class="metric-card"><span class="val">3.2 千</span><span class="lbl">今日新增</span></div>
+        <div class="metric-card"><span class="val">1.1 千</span><span class="lbl">复刻数</span></div>
+        <div class="metric-card"><span class="val">47</span><span class="lbl">开放议题</span></div>
+      </div>
+      <div class="s3-tech">
+        <h4>技术栈</h4>
+        <div class="tech-tags">
+          <span class="tech-tag">TypeScript</span>
+          <span class="tech-tag">React</span>
+          <span class="tech-tag">Node.js</span>
+          <span class="tech-tag">OAuth 2.0</span>
+        </div>
+      </div>
+      <div class="s3-chart">
+        <h4>星标趋势 · 近 7 日</h4>
+        <div class="bars">
+          <div class="bar-col"><div class="bar" style="height:45%"></div><span class="day">一</span></div>
+          <div class="bar-col"><div class="bar" style="height:55%"></div><span class="day">二</span></div>
+          <div class="bar-col"><div class="bar" style="height:50%"></div><span class="day">三</span></div>
+          <div class="bar-col"><div class="bar" style="height:70%"></div><span class="day">四</span></div>
+          <div class="bar-col"><div class="bar high" style="height:85%"></div><span class="day">五</span></div>
+          <div class="bar-col"><div class="bar high" style="height:100%"></div><span class="day">六</span></div>
+          <div class="bar-col"><div class="bar high" style="height:92%"></div><span class="day">日</span></div>
+        </div>
+      </div>
+      <div class="s3-reason">
+        <h4>上榜理由</h4>
+        <p>Vercel 前 CTO 出品，发布首周即获 1.2 万星标。开发者苦 Auth0 的高昂收费久矣，这个开源替代来得正是时候。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 4 -->
+<div class="screen-wrapper">
+  <div class="screen-label">结尾 · 钩子</div>
+  <div class="phone-frame">
+    <div class="status-bar"><span>9:41</span><span>周报</span><span>●●●○</span></div>
+    <div class="s4">
+      <div class="s4-hero">
+        <div class="s4-end-mark"><span>末</span></div>
+        <h2 class="s4-title">周报速递</h2>
+        <p class="s4-sub">第 24 期 · 前三甲回顾</p>
+        <div class="s4-top3">
+          <div class="top3-card">
+            <div class="medal">01</div>
+            <div class="info">
+              <div class="name">rauchg / openauth</div>
+              <div class="tag">身份认证新贵</div>
+            </div>
+          </div>
+          <div class="top3-card">
+            <div class="medal">02</div>
+            <div class="info">
+              <div class="name">microsoft / gragent</div>
+              <div class="tag">图智能体框架</div>
+            </div>
+          </div>
+          <div class="top3-card">
+            <div class="medal">03</div>
+            <div class="info">
+              <div class="name">vercel / ai-sdk</div>
+              <div class="tag">AI 应用内核</div>
+            </div>
+          </div>
+        </div>
+        <p class="s4-question">你最看好哪一个？</p>
+        <div class="s4-cta">
+          <button class="cta-btn cta-primary">表达观点</button>
+          <button class="cta-btn cta-secondary">订阅周报</button>
+        </div>
+      </div>
+      <div class="s4-footer">下期预告：AI 编程工具的全面对决 · 不见不散</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</body>
+</html>
