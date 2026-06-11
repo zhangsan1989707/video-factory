@@ -65,10 +65,10 @@ async def generate_candidates(job_id: str) -> dict[str, Any]:
 async def regenerate_candidates(job_id: str) -> dict[str, Any]:
     job = _require_regenerable_job(job_id)
     append_log(job_id, "已请求重新生成候选项目；将清除已选项目、口播、计划文件和视频产物。")
-    return await _generate_candidates_snapshot(job_id, job)
+    return await _generate_candidates_snapshot(job_id, job, force_refresh=True)
 
 
-async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_refresh: bool = False) -> dict[str, Any]:
     _clear_candidate_artifacts(job_id)
     update_job(job_id, status="running", stage="collecting_candidates", failed_stage="", error="")
     append_log(job_id, f"开始拉取 {job.get('time_window', 'weekly')} 候选项目。")
@@ -77,6 +77,7 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any]) -> dic
             time_window=str(job.get("time_window") or "weekly"),
             token=read_github_token(),
             limit=30,
+            force_refresh=force_refresh,
         )
         candidates = result["items"]
         update_github_rate_limit(str(result.get("rate_limit") or "未检测"))
