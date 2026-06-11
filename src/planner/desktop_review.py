@@ -5,24 +5,19 @@ from src.models import DesktopReviewPlan, DesktopReviewShot, ProjectInfo, Script
 
 def _localized_value_line(project: ProjectInfo) -> str:
     description = project.description or ""
-    lower = description.lower()
 
-    # 优先根据关键词判断项目类型
-    if "practice english" in lower or "english" in lower:
-        return "这是一个练英语的工具，通过打字来记忆单词。"
-    if "ai" in lower or "agent" in lower or "llm" in lower:
-        return "这是一个 AI 相关的项目，先看看它能做什么。"
-    if "data" in lower or "api" in lower:
-        return "这是一个数据或接口工具，先看它解决什么问题。"
-
-    # 如果有中文描述，提取有意义的部分
-    if any("一" <= char <= "鿿" for char in description):
+    # 如果有中文描述，直接使用
+    if any("\u4e00" <= char <= "\u9fff" for char in description):
         for part in description.replace("；", ";").split(";"):
-            if any("一" <= char <= "鿿" for char in part):
+            if any("\u4e00" <= char <= "\u9fff" for char in part):
                 cleaned = part.strip()
                 if len(cleaned) > 5:
                     return cleaned[:42]
         return description[:42]
+
+    # 英文描述，生成通用介绍
+    if description:
+        return f"先看看这个项目是干什么的。"
 
     return "先看看这个项目是干什么的。"
 

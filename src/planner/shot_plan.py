@@ -52,57 +52,22 @@ def _short_points(points: list[str], stars: int) -> list[str]:
         point = point.replace("GitHub Stars", "Star").replace("GitHub", "")
         if "star" in point.lower() or "受欢迎" in point:
             cleaned.append(_star_label(stars))
-        elif "记忆曲线" in point or "智能" in point:
-            cleaned.append("记忆曲线复习")
-        elif "模式" in point or "跟读" in point or "听写" in point:
-            cleaned.append("多种练习模式")
-        elif "中文" in point:
-            cleaned.append("中文用户友好")
-        elif "在线" in point or "访问" in point:
-            cleaned.append("在线可访问")
         else:
             cleaned.append(_short_text(point.strip(" ，。"), 12))
     return cleaned[:3]
 
 
 def _short_value(text: str) -> str:
-    lower = text.lower()
-    if "英语" in text or "english" in lower:
-        if "打字" in text or "typing" in lower:
-            return "打字练英语，自动安排复习"
-        return "更高效地练英语"
-    if "ai" in lower or "agent" in lower:
-        return "把 AI 工作流做成可复用能力"
-    if "数据" in text or "data" in lower:
-        return "把数据获取流程封装好"
     return _short_text(text, 24)
 
 
 def _project_use(project: ProjectInfo, brief: CreativeBrief | None = None) -> str:
-    text = f"{project.name} {project.description} {' '.join(project.topics)}".lower()
-    if "typewords" in text or "english" in text or "英语" in project.description:
-        return "用打字练英语，顺手把复习节奏安排好"
-    if "mcp" in text and "github" in text:
-        return "把 GitHub 接进 MCP，让 Agent 能直接处理仓库信息"
-    if "stock" in text or "a股" in project.description or "finance" in text:
-        return "把 A 股数据接口封装好，少踩数据源的坑"
-    if "ai" in text or "agent" in text or "llm" in text:
-        return "把 AI 工作流封成工具，减少重复配置"
     if brief and brief.one_line_value:
         return _short_value(brief.one_line_value)
-    return "把一个具体问题做成可直接使用的开源工具"
+    return _short_text(project.description or "开源工具", 24)
 
 
 def _project_benefit(project: ProjectInfo, brief: CreativeBrief | None = None) -> str:
-    text = f"{project.name} {project.description} {' '.join(project.topics)}".lower()
-    if "typewords" in text or "english" in text:
-        return "适合想稳定练英语的人，也适合研究轻量工具站"
-    if "mcp" in text and "github" in text:
-        return "适合做开发助手、代码审查和仓库自动化"
-    if "stock" in text or "a股" in project.description or "finance" in text:
-        return "适合做行情分析、量化研究和数据看板"
-    if "ai" in text or "agent" in text or "llm" in text:
-        return "适合想把 AI 能力接进真实工作流的人"
     if brief:
         return f"适合{_short_audience(brief.target_audience)}先收藏试用"
     return "适合有同类需求的人先收藏试用"
