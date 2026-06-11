@@ -815,6 +815,7 @@ def compose_vertical_video(
 
     video_clip = VideoClip(make_frame, duration=total_duration)
     final_audio = None
+    silent = None
     if audio_clips:
         final_audio = concatenate_audioclips(audio_clips)
         video_clip = video_clip.with_audio(final_audio)
@@ -836,6 +837,8 @@ def compose_vertical_video(
     video_clip.close()
     if final_audio is not None:
         final_audio.close()
+    if silent is not None:
+        silent.close()
     for clip in audio_clips:
         clip.close()
     console.print(f"  ✓ 竖屏视频已保存到: {output_path}")

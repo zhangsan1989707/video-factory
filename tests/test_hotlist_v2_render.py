@@ -271,5 +271,36 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertIn("更具体地说", second["outcome"])
 
 
+    def test_capture_html_screens_closes_browser_on_error(self) -> None:
+        """Browser must be closed even when screenshot fails."""
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import MagicMock, patch
+
+        from src.hotlist_v2.render import _capture_html_screens
+
+        fake_browser = MagicMock()
+        fake_page = MagicMock()
+        fake_browser.new_page.return_value = fake_page
+        # Simulate wait_for_selector raising an error
+        fake_page.wait_for_selector.side_effect = RuntimeError("screen not found")
+
+        fake_pw = MagicMock()
+        fake_pw.chromium.launch.return_value = fake_browser
+        fake_pw.__enter__ = MagicMock(return_value=fake_pw)
+        fake_pw.__exit__ = MagicMock(return_value=False)
+
+        with TemporaryDirectory() as tmp, patch("playwright.sync_api.sync_playwright", return_value=fake_pw):
+            html_path = Path(tmp) / "test.html"
+            html_path.write_text("<html></html>")
+            try:
+                _capture_html_screens(html_path, [("screen-missing", Path(tmp) / "out.png")])
+            except RuntimeError:
+                pass
+
+        # Browser must be closed regardless of the error
+        fake_browser.close.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

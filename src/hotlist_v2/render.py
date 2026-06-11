@@ -798,27 +798,29 @@ def _capture_html_screens(html_path: Path, targets: list[tuple[str, Path]]) -> l
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1080, "height": 1920}, device_scale_factor=1)
-        page.goto(html_path.resolve().as_uri(), wait_until="domcontentloaded")
-        outputs = []
-        for screen_id, output_path in targets:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            page.wait_for_selector(f"#{screen_id}", state="attached", timeout=5000)
-            page.evaluate(
-                """(screenId) => {
-                    document.querySelectorAll('.screen').forEach((el) => {
-                        el.style.visibility = 'hidden';
-                        el.style.opacity = '0';
-                    });
-                    const target = document.getElementById(screenId);
-                    target.style.visibility = 'visible';
-                    target.style.opacity = '1';
-                }""",
-                screen_id,
-            )
-            page.screenshot(path=str(output_path), clip={"x": 0, "y": 0, "width": 1080, "height": 1920})
-            outputs.append(output_path)
-        browser.close()
+        try:
+            page = browser.new_page(viewport={"width": 1080, "height": 1920}, device_scale_factor=1)
+            page.goto(html_path.resolve().as_uri(), wait_until="domcontentloaded")
+            outputs = []
+            for screen_id, output_path in targets:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                page.wait_for_selector(f"#{screen_id}", state="attached", timeout=5000)
+                page.evaluate(
+                    """(screenId) => {
+                        document.querySelectorAll('.screen').forEach((el) => {
+                            el.style.visibility = 'hidden';
+                            el.style.opacity = '0';
+                        });
+                        const target = document.getElementById(screenId);
+                        target.style.visibility = 'visible';
+                        target.style.opacity = '1';
+                    }""",
+                    screen_id,
+                )
+                page.screenshot(path=str(output_path), clip={"x": 0, "y": 0, "width": 1080, "height": 1920})
+                outputs.append(output_path)
+        finally:
+            browser.close()
     return outputs
 
 
