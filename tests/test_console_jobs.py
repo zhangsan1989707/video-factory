@@ -890,7 +890,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertFalse((job_dir / "shot_plan.json").exists())
                 self.assertFalse((job_dir / "cover_frame.png").exists())
                 self.assertFalse((job_dir / "final.mp4").exists())
-                self.assertFalse((job_dir / f"{job['id']}-旧正式版.mp4").exists())
+                self.assertTrue((job_dir / f"{job['id']}-旧正式版.mp4").exists())
                 saved = read_json(job_dir / "task.json", {})
                 self.assertEqual(saved["plan_validation"]["status"], "not_run")
                 self.assertEqual(saved["official_video"], "")
@@ -2134,9 +2134,40 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertIn("tts service unavailable", detail["log_tail"])
                 self.assertIn("generating_tts", [item["stage"] for item in detail["stage_history"]])
                 self.assertFalse((job_dir / "final.mp4").exists())
-                self.assertFalse((job_dir / "GH-HOTLIST-20990101-007-旧正式版.mp4").exists())
+                self.assertTrue((job_dir / "GH-HOTLIST-20990101-007-旧正式版.mp4").exists())
                 self.assertTrue((job_dir / "shot_plan.json").exists())
                 self.assertEqual(detail["job"]["official_video"], "")
+                self.assertIn("历史正式视频版本仍保留", detail["log_tail"])
+
+    def test_reselecting_projects_preserves_historical_official_video(self) -> None:
+        async def dry_run_pipeline(**kwargs):
+            return Path(kwargs["from_plan"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.run_pipeline", side_effect=dry_run_pipeline),
+            ):
+                job = create_job("GH-HOTLIST-20990101-STALE-SELECTION-VIDEO", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+                asyncio.run(validate_plan(job["id"]))
+
+                job_dir = jobs_dir / job["id"]
+                official = job_dir / f"{job['id']}-旧正式版.mp4"
+                official.write_bytes(b"official")
+                update_job(job["id"], official_video=str(official))
+                update_job(job["id"], status="awaiting_input", stage="awaiting_project_confirmation")
+
+                save_selection(job["id"], {"items": list(reversed(_sample_projects()))})
+
+                self.assertTrue(official.exists())
+                saved = read_json(job_dir / "task.json", {})
+                self.assertEqual(saved["official_video"], "")
 
 def _sample_projects() -> list[dict[str, object]]:
     return [

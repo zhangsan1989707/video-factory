@@ -31,7 +31,7 @@
 
 ### P0-1 保护历史正式视频版本
 
-状态：`todo`
+状态：`done`
 
 问题：
 
@@ -42,6 +42,15 @@
 - 失败时只清理当前失败产物 `final.mp4`、临时文件或未完成输出。
 - 保留已定稿的 `{job_id}-*.mp4`。
 - 日志中明确区分“当前渲染失败”和“历史版本仍保留”。
+
+验收证据：
+
+- `2026-06-11`：`.venv/bin/python tests/test_console_jobs.py`
+- 回归覆盖：
+  - `test_reset_video_for_regeneration_keeps_script_and_clears_video_outputs`
+  - `test_resaving_script_clears_stale_plan_artifacts`
+  - `test_reselecting_projects_preserves_historical_official_video`
+  - `test_render_video_records_failed_pipeline_stage_and_log_tail`
 
 验收标准：
 
@@ -348,4 +357,5 @@ git diff --check
 
 | 日期 | 更新 | 证据 |
 | --- | --- | --- |
+| 2026-06-11 | 完成 P0-1：重新生成、重选项目、重存脚本与渲染失败时保留历史正式视频版本，仅清理当前 `final.mp4` 与工作产物 | `.venv/bin/python tests/test_console_jobs.py` |
 | 2026-06-11 | 创建全功能流程持续改进计划 | 基于控制台、CLI、任务编排、热榜抓取、渲染、预检与测试覆盖审计 |

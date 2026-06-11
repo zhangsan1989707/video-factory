@@ -282,9 +282,6 @@ def _clear_plan_artifacts(job_id: str) -> None:
         path = job_dir / name
         if path.exists() and path.is_file():
             path.unlink()
-    for path in job_dir.glob(f"{job_id}-*.mp4"):
-        if path.exists() and path.is_file():
-            path.unlink()
     preview_dir = job_dir / "preview_frames"
     if preview_dir.exists() and preview_dir.is_dir():
         shutil.rmtree(preview_dir)
@@ -470,12 +467,16 @@ async def render_video(job_id: str) -> dict[str, Any]:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
         append_log(job_id, str(exc))
         _clear_current_video_output(job_id)
+        if _video_versions(job_id):
+            append_log(job_id, "已保留历史正式视频版本；仅清理本次未完成输出。")
         update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
         raise
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
         append_log(job_id, f"视频生成失败: {exc}")
         _clear_video_outputs(job_id)
+        if _video_versions(job_id):
+            append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
         update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
         raise
 
@@ -522,11 +523,7 @@ def _video_versions(job_id: str) -> list[dict[str, Any]]:
 
 
 def _clear_video_outputs(job_id: str) -> None:
-    job_dir = JOBS_DIR / job_id
     _clear_current_video_output(job_id)
-    for path in job_dir.glob(f"{job_id}-*.mp4"):
-        if path.exists() and path.is_file():
-            path.unlink()
     update_job(job_id, official_video="")
 
 
