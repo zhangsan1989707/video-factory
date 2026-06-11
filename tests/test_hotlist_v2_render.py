@@ -5,8 +5,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from jinja2 import Environment, FileSystemLoader
+
 from src.hotlist_v2.render import _build_script_from_timeline, _data_from_projects, _timeline_context, render_hotlist_v2_previews_from_projects
-from src.hotlist_v2.template import DEFAULT_STYLE, list_template_styles, normalize_style, render_composition, supported_styles
+from src.hotlist_v2.template import DEFAULT_STYLE, STYLE_PROFILES, TEMPLATE_DIR, list_template_styles, normalize_style, render_composition, supported_styles
 
 
 class HotlistV2RenderTest(unittest.TestCase):
@@ -77,6 +79,25 @@ class HotlistV2RenderTest(unittest.TestCase):
                 self.assertEqual(len(previews), 4)
                 self.assertIn(f'data-style="{style}"', html)
                 self.assertEqual(screen_ids, ["screen-intro", "screen-list", "screen-detail-01", "screen-hook"])
+
+    def test_template_falls_back_to_default_style_profile_when_missing(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "适合做成中文短视频切入点。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+        render_data = {**data, **_timeline_context(data), "style_key": DEFAULT_STYLE}
+        env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)), autoescape=False)
+        template = env.get_template("hotlist-v2.html")
+
+        html = template.render(**render_data, default_style_profile=STYLE_PROFILES[DEFAULT_STYLE])
+
+        self.assertIn(f"--canvas-bg: {STYLE_PROFILES[DEFAULT_STYLE]['canvas_bg']};", html)
+        self.assertIn(f'data-style="{DEFAULT_STYLE}"', html)
 
     def test_ten_projects_expand_to_full_hyperframes_timeline(self) -> None:
         projects = [

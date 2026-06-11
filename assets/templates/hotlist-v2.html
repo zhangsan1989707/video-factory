@@ -11,28 +11,29 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --canvas-bg: {{ style_profile.canvas_bg }};
-  --bg-deep: {{ style_profile.bg_deep }};
-  --bg-card: {{ style_profile.bg_card }};
-  --bg-panel: {{ style_profile.bg_panel }};
-  --accent-cyan: {{ style_profile.accent_cyan }};
-  --accent-cyan-rgb: {{ style_profile.accent_cyan_rgb }};
-  --accent-blue: {{ style_profile.accent_blue }};
-  --accent-blue-rgb: {{ style_profile.accent_blue_rgb }};
-  --accent-purple: {{ style_profile.accent_purple }};
-  --accent-purple-rgb: {{ style_profile.accent_purple_rgb }};
-  --accent-green: {{ style_profile.accent_green }};
-  --accent-green-rgb: {{ style_profile.accent_green_rgb }};
-  --accent-amber: {{ style_profile.accent_amber }};
-  --accent-amber-rgb: {{ style_profile.accent_amber_rgb }};
-  --text-primary: {{ style_profile.text_primary }};
-  --text-secondary: {{ style_profile.text_secondary }};
-  --text-dim: {{ style_profile.text_dim }};
+  {% set palette = style_profile | default(default_style_profile, true) %}
+  --canvas-bg: {{ palette.canvas_bg }};
+  --bg-deep: {{ palette.bg_deep }};
+  --bg-card: {{ palette.bg_card }};
+  --bg-panel: {{ palette.bg_panel }};
+  --accent-cyan: {{ palette.accent_cyan }};
+  --accent-cyan-rgb: {{ palette.accent_cyan_rgb }};
+  --accent-blue: {{ palette.accent_blue }};
+  --accent-blue-rgb: {{ palette.accent_blue_rgb }};
+  --accent-purple: {{ palette.accent_purple }};
+  --accent-purple-rgb: {{ palette.accent_purple_rgb }};
+  --accent-green: {{ palette.accent_green }};
+  --accent-green-rgb: {{ palette.accent_green_rgb }};
+  --accent-amber: {{ palette.accent_amber }};
+  --accent-amber-rgb: {{ palette.accent_amber_rgb }};
+  --text-primary: {{ palette.text_primary }};
+  --text-secondary: {{ palette.text_secondary }};
+  --text-dim: {{ palette.text_dim }};
   --border-cyan: rgba(var(--accent-cyan-rgb), 0.42);
   --border-blue: rgba(var(--accent-blue-rgb), 0.42);
-  --font-display: {{ style_profile.font_display }};
-  --font-body: {{ style_profile.font_body }};
-  --font-mono: {{ style_profile.font_mono }};
+  --font-display: {{ palette.font_display }};
+  --font-body: {{ palette.font_body }};
+  --font-mono: {{ palette.font_mono }};
 }
 
 body {

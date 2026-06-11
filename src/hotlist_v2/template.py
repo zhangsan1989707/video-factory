@@ -293,6 +293,7 @@ def render_composition(
         **merged,
         **data,
         "style_key": style_key,
+        "default_style_profile": STYLE_PROFILES[DEFAULT_STYLE],
         "style_profile": STYLE_PROFILES[style_key],
         "style_registry": TEMPLATE_REGISTRY[style_key],
     }
