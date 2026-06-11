@@ -185,6 +185,7 @@ def save_script(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not segments:
         raise ValueError("口播脚本不能为空")
     _validate_script_segments(selected, segments)
+    update_job(job_id, status="running", stage="awaiting_script_confirmation", error="")
     _clear_plan_artifacts(job_id)
     write_json(JOBS_DIR / job_id / "narration.json", {"segments": segments})
     append_log(job_id, "口播脚本已确认。")

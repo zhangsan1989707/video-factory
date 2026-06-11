@@ -219,6 +219,10 @@ function confirmDelete(message) {
   return typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm(message);
 }
 
+function isBackgroundStart(result) {
+  return Boolean(result && result.started);
+}
+
 function clearCurrentJob() {
   state.currentJobId = "";
   state.currentJob = null;
@@ -253,12 +257,10 @@ async function collectCandidatesForCurrentJob() {
     appendLogLine("正在重新拉取候选项目...");
     startPollingCurrentJob();
     const result = await post(`/api/jobs/${state.currentJobId}/candidates`);
-    state.candidates = result.candidates || [];
     renderJob(result.job);
-    renderCandidates();
     await refreshCurrentJob();
     await loadJobs();
-    switchTab("candidates");
+    if (!isBackgroundStart(result)) switchTab("candidates");
   } catch (error) {
     alert(error.message);
     await refreshCurrentJob();
@@ -279,15 +281,13 @@ async function regenerateCandidates() {
     appendLogLine("正在重新生成候选项目...");
     startPollingCurrentJob();
     const result = await post(`/api/jobs/${state.currentJobId}/regenerate-candidates`);
-    state.candidates = result.candidates || [];
     state.segments = [];
     state.qualityReport = null;
     renderJob(result.job);
-    renderCandidates();
     renderScript();
     await refreshCurrentJob();
     await loadJobs();
-    switchTab("candidates");
+    if (!isBackgroundStart(result)) switchTab("candidates");
   } catch (error) {
     alert(error.message);
     await refreshCurrentJob();
@@ -312,11 +312,9 @@ async function confirmSelection() {
     appendLogLine("正在生成口播脚本...");
     startPollingCurrentJob();
     const result = await post(`/api/jobs/${state.currentJobId}/selection`, { items: selected });
-    state.segments = result.segments || [];
     renderJob(result.job);
-    renderScript();
     await refreshCurrentJob();
-    switchTab("script");
+    if (!isBackgroundStart(result)) switchTab("script");
   } catch (error) {
     alert(error.message);
   } finally {
@@ -336,12 +334,10 @@ async function regenerateScript() {
     appendLogLine("正在重新生成口播脚本...");
     startPollingCurrentJob();
     const result = await post(`/api/jobs/${state.currentJobId}/regenerate-script`);
-    state.segments = result.segments || [];
     state.qualityReport = null;
     renderJob(result.job);
-    renderScript();
     await refreshCurrentJob();
-    switchTab("script");
+    if (!isBackgroundStart(result)) switchTab("script");
   } catch (error) {
     alert(error.message);
     await refreshCurrentJob();
@@ -360,18 +356,18 @@ async function saveScript() {
     label: node.querySelector("label").textContent,
     text: node.querySelector("textarea").value.trim(),
   }));
+  const ignoreQualityRisk = qualityBlocksRender(state.qualityReport) && confirmQualityOverride(state.qualityReport);
   setBusy(true);
   try {
-    let result = await post(`/api/jobs/${state.currentJobId}/script`, { segments });
-    if (qualityBlocksRender(result.quality_report) && confirmQualityOverride(result.quality_report)) {
-      result = await post(`/api/jobs/${state.currentJobId}/script`, { segments, ignore_quality_risk: true });
-    }
-    state.segments = result.segments || segments;
-    state.qualityReport = result.quality_report || null;
-    renderJob(result.job);
-    renderQualityReport();
-    await refreshCurrentJob();
     switchTab("progress");
+    appendLogLine("正在确认口播并执行质检...");
+    startPollingCurrentJob();
+    const result = await post(`/api/jobs/${state.currentJobId}/script`, {
+      segments,
+      ignore_quality_risk: ignoreQualityRisk,
+    });
+    renderJob(result.job);
+    await refreshCurrentJob();
   } catch (error) {
     alert(error.message);
   } finally {
@@ -387,9 +383,10 @@ async function preparePlan() {
   setBusy(true);
   try {
     switchTab("progress");
+    appendLogLine("正在生成计划文件...");
+    startPollingCurrentJob();
     const prepared = await post(`/api/jobs/${state.currentJobId}/prepare-plan`);
     renderJob(prepared.job);
-    renderArtifacts(prepared.artifacts || {});
     await refreshCurrentJob();
   } catch (error) {
     alert(error.message);
@@ -408,9 +405,9 @@ async function validatePlan() {
   try {
     switchTab("progress");
     appendLogLine("正在校验计划文件...");
+    startPollingCurrentJob();
     const validated = await post(`/api/jobs/${state.currentJobId}/validate-plan`);
     renderJob(validated.job);
-    renderArtifacts(validated.artifacts || {});
     await refreshCurrentJob();
   } catch (error) {
     alert(error.message);

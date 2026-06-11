@@ -65,7 +65,7 @@
 
 ### P0-2 统一耗时步骤为后台任务
 
-状态：`todo`
+状态：`done`
 
 问题：
 
@@ -76,6 +76,18 @@
 - 把候选生成、重新生成候选、确认项目并生成脚本、重新生成脚本、生成计划、校验计划都纳入后台任务机制。
 - API 立即返回 `started/active/job`，前端继续轮询任务状态。
 - 保留当前阶段重试能力。
+
+验收证据：
+
+- `2026-06-11`：`.venv/bin/python tests/test_console_jobs.py`
+- `2026-06-11`：`.venv/bin/python tests/test_console_server_smoke.py`
+- `2026-06-11`：`node tests/test_console_static_app.js`
+- 回归覆盖：
+  - `test_start_candidates_job_returns_background_status_without_candidates`
+  - `test_start_save_script_job_preserves_bad_request_validation`
+  - `test_start_prepare_plan_job_preserves_bad_request_validation`
+  - `test_http_workflow_reaches_render_start_and_artifacts`
+  - `test_list_jobs_does_not_fail_active_background_request`
 
 验收标准：
 
@@ -368,6 +380,7 @@ git diff --check
 
 | 日期 | 更新 | 证据 |
 | --- | --- | --- |
+| 2026-06-11 | 完成 P0-2：候选生成、项目确认、口播确认、计划生成与计划校验统一改为后台任务快速返回，前端改为轮询接管 | `.venv/bin/python tests/test_console_jobs.py` ; `.venv/bin/python tests/test_console_server_smoke.py` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P0-4：HyperFrames 渲染改为按真实步骤记录 `generating_tts -> composing_html -> rendering_hyperframes -> mixing_audio -> post_processing` | `.venv/bin/python tests/test_console_jobs.py` ; `.venv/bin/python tests/test_hotlist_v2_render.py` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P0-1：重新生成、重选项目、重存脚本与渲染失败时保留历史正式视频版本，仅清理当前 `final.mp4` 与工作产物 | `.venv/bin/python tests/test_console_jobs.py` |
 | 2026-06-11 | 创建全功能流程持续改进计划 | 基于控制台、CLI、任务编排、热榜抓取、渲染、预检与测试覆盖审计 |

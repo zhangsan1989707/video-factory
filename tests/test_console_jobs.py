@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 from src.console import jobs as console_jobs
 from src.console.jobs import create_hotlist_job, finalize_numbered_output, generate_candidates, job_detail, prepare_plan, regenerate_candidates, regenerate_script, render_video, reset_video_for_regeneration, save_script, save_selection, validate_plan
-from src.console.server import open_job_folder, start_render_job
+from src.console.server import open_job_folder, start_candidates_job, start_prepare_plan_job, start_render_job, start_save_script_job
 from src.console.store import create_job, next_job_id, read_json, update_job, write_json
 from src.console.background import JobCancelled, cancel_requested, is_active, raise_if_cancelled, request_cancel, start_async_job
 
@@ -177,6 +177,57 @@ class ConsoleJobsTest(unittest.TestCase):
         self.assertTrue(result["active"])
         self.assertEqual(result["job"]["id"], "GH-HOTLIST-20990101-SRV")
         self.assertNotIn("artifacts", result)
+
+    def test_start_candidates_job_returns_background_status_without_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+                patch("src.console.server.start_async_job", return_value=True),
+                patch("src.console.server.is_active", return_value=True),
+            ):
+                job = create_job("GH-HOTLIST-20990101-SRV-CANDIDATES", {})
+                result = start_candidates_job(job["id"])
+
+        self.assertTrue(result["started"])
+        self.assertTrue(result["active"])
+        self.assertEqual(result["job"]["id"], "GH-HOTLIST-20990101-SRV-CANDIDATES")
+        self.assertNotIn("candidates", result)
+
+    def test_start_save_script_job_preserves_bad_request_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+                patch("src.console.server.start_async_job") as start_job,
+            ):
+                job = create_job("GH-HOTLIST-20990101-SRV-SCRIPT", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+
+                with self.assertRaisesRegex(ValueError, "当前阶段不能确认口播"):
+                    start_save_script_job(job["id"], {"segments": [{"id": "intro", "label": "开场", "text": "test"}]})
+
+                start_job.assert_not_called()
+
+    def test_start_prepare_plan_job_preserves_bad_request_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+                patch("src.console.server.start_async_job") as start_job,
+            ):
+                job = create_job("GH-HOTLIST-20990101-SRV-PLAN", {"project_count": 2})
+
+                with self.assertRaisesRegex(ValueError, "当前阶段不能生成计划文件"):
+                    start_prepare_plan_job(job["id"])
+
+                start_job.assert_not_called()
 
     def test_start_render_job_reports_duplicate_active_job(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

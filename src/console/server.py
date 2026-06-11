@@ -1,8 +1,6 @@
 """Local HTTP server for the video factory console."""
 
 from __future__ import annotations
-
-import asyncio
 import json
 import mimetypes
 import re
@@ -12,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from src.console.background import active_job, is_active, request_cancel, start_async_job
+from src.console.background import is_active, request_cancel, start_async_job
 from src.console.model_router import test_provider
 from src.console.preflight import preflight_snapshot
 from src.console.scheduler import run_due_scheduled_draft, start_scheduler_loop
@@ -194,32 +192,25 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     job_id = parts[2]
                     action = parts[3]
                     if action == "candidates":
-                        with active_job(job_id):
-                            self._json(asyncio.run(generate_candidates(job_id)))
+                        self._json(start_candidates_job(job_id))
                         return
                     if action == "regenerate-candidates":
-                        with active_job(job_id):
-                            self._json(asyncio.run(regenerate_candidates(job_id)))
+                        self._json(start_regenerate_candidates_job(job_id))
                         return
                     if action == "selection":
-                        with active_job(job_id):
-                            self._json(save_selection(job_id, payload))
+                        self._json(start_selection_job(job_id, payload))
                         return
                     if action == "regenerate-script":
-                        with active_job(job_id):
-                            self._json(regenerate_script(job_id))
+                        self._json(start_regenerate_script_job(job_id))
                         return
                     if action == "script":
-                        with active_job(job_id):
-                            self._json(save_script(job_id, payload))
+                        self._json(start_save_script_job(job_id, payload))
                         return
                     if action == "prepare-plan":
-                        with active_job(job_id):
-                            self._json(prepare_plan(job_id))
+                        self._json(start_prepare_plan_job(job_id))
                         return
                     if action == "validate-plan":
-                        with active_job(job_id):
-                            self._json(asyncio.run(validate_plan(job_id)))
+                        self._json(start_validate_plan_job(job_id))
                         return
                     if action == "render-video":
                         self._json(start_render_job(job_id))
@@ -383,6 +374,91 @@ def start_render_job(job_id: str) -> dict:
     return {"started": started, "active": is_active(job_id), "job": job}
 
 
+def start_candidates_job(job_id: str) -> dict:
+    job = _ensure_job_exists(job_id)
+    if str(job.get("stage") or "") not in {"draft_pending", "collecting_candidates", "analyzing_candidates"}:
+        raise ValueError(f"当前阶段不能生成候选项目: {job.get('stage') or 'unknown'}")
+
+    async def worker(_job_id: str) -> None:
+        await generate_candidates(_job_id)
+
+    return _start_background_action(job_id, worker, "后台候选任务失败")
+
+
+def start_regenerate_candidates_job(job_id: str) -> dict:
+    job = _ensure_job_exists(job_id)
+    if str(job.get("status") or "") == "running":
+        raise ValueError("任务运行中，不能重新生成")
+
+    async def worker(_job_id: str) -> None:
+        await regenerate_candidates(_job_id)
+
+    return _start_background_action(job_id, worker, "后台候选重生成任务失败")
+
+
+def start_selection_job(job_id: str, payload: dict) -> dict:
+    job = _ensure_job_exists(job_id)
+    if str(job.get("stage") or "") not in {"awaiting_project_confirmation", "generating_script"}:
+        raise ValueError(f"当前阶段不能确认项目: {job.get('stage') or 'unknown'}")
+    items = payload.get("items") or []
+    if not items:
+        raise ValueError("至少需要选择 1 个项目")
+
+    async def worker(_job_id: str) -> None:
+        save_selection(_job_id, payload)
+
+    return _start_background_action(job_id, worker, "后台项目确认任务失败")
+
+
+def start_regenerate_script_job(job_id: str) -> dict:
+    job = _ensure_job_exists(job_id)
+    if str(job.get("status") or "") == "running":
+        raise ValueError("任务运行中，不能重新生成")
+
+    async def worker(_job_id: str) -> None:
+        regenerate_script(_job_id)
+
+    return _start_background_action(job_id, worker, "后台口播重生成任务失败")
+
+
+def start_save_script_job(job_id: str, payload: dict) -> dict:
+    job = _ensure_job_exists(job_id)
+    if str(job.get("stage") or "") not in {"awaiting_script_confirmation", "preparing_plan"}:
+        raise ValueError(f"当前阶段不能确认口播: {job.get('stage') or 'unknown'}")
+    segments = payload.get("segments") or []
+    if not segments:
+        raise ValueError("口播脚本不能为空")
+
+    async def worker(_job_id: str) -> None:
+        save_script(_job_id, payload)
+
+    return _start_background_action(job_id, worker, "后台口播确认任务失败")
+
+
+def start_prepare_plan_job(job_id: str) -> dict:
+    job = _ensure_job_exists(job_id)
+    if str(job.get("stage") or "") != "preparing_plan":
+        raise ValueError(f"当前阶段不能生成计划文件: {job.get('stage') or 'unknown'}")
+    if str(job.get("status") or "") not in {"awaiting_render", "awaiting_validation", "ready_to_render", "failed"}:
+        raise ValueError(f"当前状态不能生成计划文件: {job.get('status') or 'unknown'}")
+
+    async def worker(_job_id: str) -> None:
+        prepare_plan(_job_id)
+
+    return _start_background_action(job_id, worker, "后台计划生成任务失败")
+
+
+def start_validate_plan_job(job_id: str) -> dict:
+    job = _ensure_job_exists(job_id)
+    if str(job.get("stage") or "") != "preparing_plan":
+        raise ValueError(f"当前阶段不能校验计划文件: {job.get('stage') or 'unknown'}")
+
+    async def worker(_job_id: str) -> None:
+        await validate_plan(_job_id)
+
+    return _start_background_action(job_id, worker, "后台计划校验任务失败")
+
+
 def start_regenerate_render_job(job_id: str) -> dict:
     reset_video_for_regeneration(job_id)
     return start_render_job(job_id)
@@ -396,6 +472,34 @@ def record_render_background_failure(job_id: str, exc: Exception) -> None:
     message = f"后台渲染任务失败: {exc}"
     append_log(job_id, message)
     update_job(job_id, status="failed", failed_stage=failed_stage, error=str(exc))
+
+
+def _start_background_action(
+    job_id: str,
+    worker,
+    failure_prefix: str,
+) -> dict:
+    started = start_async_job(job_id, worker, on_error=lambda failed_id, exc: record_background_failure(failed_id, exc, failure_prefix))
+    if not started:
+        raise ValueError("已有后台任务正在运行")
+    return {"started": started, "active": is_active(job_id), "job": job_detail(job_id)["job"]}
+
+
+def record_background_failure(job_id: str, exc: Exception, prefix: str) -> None:
+    job = read_job(job_id)
+    if not job or str(job.get("status") or "") == "failed":
+        return
+    failed_stage = str(job.get("stage") or "unknown")
+    message = f"{prefix}: {exc}"
+    append_log(job_id, message)
+    update_job(job_id, status="failed", failed_stage=failed_stage, error=str(exc))
+
+
+def _ensure_job_exists(job_id: str) -> dict:
+    job = job_detail(job_id)["job"]
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    return job
 
 
 def cancel_active_job(job_id: str) -> dict:

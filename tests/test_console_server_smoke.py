@@ -48,6 +48,33 @@ class ConsoleServerSmokeTest(unittest.TestCase):
             job = update_job(job_id, status="awaiting_input", stage="awaiting_project_confirmation")
             return {"job": job, "candidates": _sample_projects()}
 
+        async def fake_render(job_id: str) -> dict:
+            job_dir = jobs_dir / job_id
+            (job_dir / "final.mp4").write_bytes(b"video")
+            job = update_job(job_id, status="completed", stage="completed")
+            return {"job": job}
+
+        def fake_previews(projects, output_dir, **kwargs):
+            output_dir.mkdir(parents=True, exist_ok=True)
+            previews = []
+            for index in range(1, len(projects) + 4):
+                path = output_dir / f"shot-{index:02d}.png"
+                path.write_bytes(b"preview")
+                previews.append(path)
+            return previews
+
+        async def fake_pipeline(**kwargs):
+            return Path(kwargs["from_plan"])
+
+        def immediate_start(job_id: str, worker, on_error=None) -> bool:
+            try:
+                import asyncio
+                asyncio.run(worker(job_id))
+            except Exception as exc:
+                if on_error:
+                    on_error(job_id, exc)
+            return True
+
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp) / "jobs"
             with (
@@ -62,8 +89,11 @@ class ConsoleServerSmokeTest(unittest.TestCase):
                     "enabled": "",
                     "configured": "",
                 }),
-                patch("src.console.server.start_async_job", return_value=True),
-                patch("src.console.server.is_active", return_value=True),
+                patch("src.console.jobs.render_hotlist_v2_previews_from_projects", side_effect=fake_previews),
+                patch("src.console.jobs.run_pipeline", side_effect=fake_pipeline),
+                patch("src.console.server.render_video", side_effect=fake_render),
+                patch("src.console.server.start_async_job", side_effect=immediate_start),
+                patch("src.console.server.is_active", return_value=False),
             ):
                 server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
                 thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -78,7 +108,8 @@ class ConsoleServerSmokeTest(unittest.TestCase):
                     job_id = created["job"]["id"]
                     draft = _post(base_url, f"/api/jobs/{job_id}/candidates", {})
                     selection = _post(base_url, f"/api/jobs/{job_id}/selection", {"items": _sample_projects()})
-                    script = _post(base_url, f"/api/jobs/{job_id}/script", {"segments": selection["segments"]})
+                    selection_detail = _get(base_url, f"/api/jobs/{job_id}")
+                    script = _post(base_url, f"/api/jobs/{job_id}/script", {"segments": selection_detail["segments"]})
                     prepared = _post(base_url, f"/api/jobs/{job_id}/prepare-plan", {})
                     validated = _post(base_url, f"/api/jobs/{job_id}/validate-plan", {})
                     render = _post(base_url, f"/api/jobs/{job_id}/render-video", {})
@@ -88,14 +119,18 @@ class ConsoleServerSmokeTest(unittest.TestCase):
                     server.server_close()
                     thread.join(timeout=1)
 
+        self.assertTrue(draft["started"])
+        self.assertTrue(selection["started"])
+        self.assertTrue(script["started"])
+        self.assertTrue(prepared["started"])
+        self.assertTrue(validated["started"])
         self.assertEqual(script["job"]["status"], "awaiting_render")
         self.assertEqual(draft["job"]["stage"], "awaiting_project_confirmation")
-        self.assertEqual(script["quality_report"]["status"], "unverified")
         self.assertEqual(detail["quality_report"]["status"], "unverified")
         self.assertEqual(prepared["job"]["status"], "awaiting_validation")
         self.assertEqual(validated["job"]["status"], "ready_to_render")
         self.assertTrue(render["started"])
-        self.assertTrue(render["active"])
+        self.assertFalse(render["active"])
         names = [item["name"] for item in detail["artifacts"]["files"]]
         self.assertIn("hook.json", names)
         self.assertIn("cover_frame.json", names)
@@ -238,7 +273,7 @@ class ConsoleServerSmokeTest(unittest.TestCase):
         self.assertEqual(saved["failed_stage"], "generating_tts")
         self.assertIn("后台任务已停止", logs)
 
-    def test_list_jobs_does_not_fail_active_sync_request(self) -> None:
+    def test_list_jobs_does_not_fail_active_background_request(self) -> None:
         entered = threading.Event()
         release = threading.Event()
 
