@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -298,7 +298,7 @@ def provider_connection_matches_saved(provider_id: str, provider_config: dict[st
 
 def next_job_id(prefix: str = "GH-HOTLIST") -> str:
     ensure_storage()
-    today = datetime.now().strftime("%Y%m%d")
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
     existing = sorted(JOBS_DIR.glob(f"{prefix}-{today}-*"))
     numbers = []
     for path in existing:
@@ -317,7 +317,7 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if job_dir.exists():
         raise ValueError(f"任务目录已存在: {job_id}")
     job_dir.mkdir(parents=True, exist_ok=True)
-    now = datetime.now().isoformat(timespec="seconds")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     template = _normalize_job_template(str(payload.get("template") or "github_hotlist_vertical_v1"), payload.get("template_params") or {})
     job = {
         "id": job_id,
@@ -371,7 +371,7 @@ def update_job(job_id: str, **changes: Any) -> dict[str, Any]:
     previous_stage = job.get("stage")
     previous_status = job.get("status")
     job.update(changes)
-    now = datetime.now().isoformat(timespec="seconds")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     job["updated_at"] = now
     if "stage" in changes or "status" in changes:
         if job.get("stage") != previous_stage or job.get("status") != previous_status:
@@ -397,12 +397,12 @@ def append_model_call(job_id: str, call: dict[str, Any]) -> dict[str, Any]:
         "model": str(route.get("model") or call.get("model") or ""),
         "status": str(call.get("status") or ""),
         "error": str(call.get("error") or ""),
-        "at": datetime.now().isoformat(timespec="seconds"),
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     calls = job.get("model_calls") or []
     calls.append(entry)
     job["model_calls"] = calls[-80:]
-    job["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    job["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     write_json(JOBS_DIR / job_id / "task.json", job)
     return job
 
@@ -442,7 +442,7 @@ def append_log(job_id: str, message: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     if log_path.is_symlink():
         raise ValueError(f"日志文件不是普通文件: {job_id}")
-    stamp = datetime.now().strftime("%H:%M:%S")
+    stamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(f"[{stamp}] {message}\n")
 

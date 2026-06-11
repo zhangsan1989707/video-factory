@@ -196,7 +196,7 @@ def _anthropic_text(provider: dict[str, Any], model: str, system: str, prompt: s
             "max_tokens": max_tokens,
             "temperature": temperature,
         },
-        timeout=60,
+        timeout=180,
     )
     response.raise_for_status()
     data = response.json()

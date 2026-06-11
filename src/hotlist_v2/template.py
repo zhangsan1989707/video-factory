@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent.parent / "assets" / "templates"
 DEFAULT_STYLE = "tech_hotspot"
@@ -439,7 +439,7 @@ def render_composition(
     """
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATE_DIR)),
-        autoescape=False,
+        autoescape=select_autoescape(["html"]),
     )
     style_key = normalize_style(style)
     template = env.get_template(STYLE_TEMPLATES[style_key])

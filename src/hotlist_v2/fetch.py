@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import math
-import random
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+
+CST = timezone(timedelta(hours=8))
 
 GITHUB_SEARCH_API = "https://api.github.com/search/repositories"
 
@@ -88,20 +88,23 @@ def _estimate_daily_growth(stars: int, created_at: str) -> str:
     except (ValueError, TypeError):
         age_days = 30
     daily_avg = stars / age_days
-    recent_daily = int(daily_avg * random.uniform(1.5, 3.0))
+    # Use deterministic multiplier based on project age
+    # Newer projects (< 30 days) grow faster relative to average
+    multiplier = 2.0 if age_days <= 30 else (1.8 if age_days <= 90 else 1.5)
+    recent_daily = int(daily_avg * multiplier)
     if recent_daily >= 1000:
         return f"估算日均 star 约 +{recent_daily / 1000:.1f}k"
     return f"估算日均 star 约 +{recent_daily}"
 
 
 def _simulate_star_history(stars: int) -> list[int]:
-    base = random.uniform(0.3, 0.6)
+    # Deterministic S-curve: base fraction depends on star count
+    base = 0.4 if stars < 1000 else (0.5 if stars < 5000 else 0.6)
     history = []
     for i in range(14):
         progress = (i + 1) / 14
         trend = base + (1 - base) * (progress ** 1.5)
-        noise = random.uniform(0.85, 1.15)
-        history.append(int(trend * noise * 100))
+        history.append(int(trend * 100))
     history[-1] = 100
     return history
 
@@ -239,7 +242,7 @@ async def fetch_trending(
     else:
         new_stars_display = f"{total_new_stars}+"
 
-    now = datetime.now(timezone(timedelta(hours=8)))
+    now = datetime.now(CST)
     issue_num = now.isocalendar()[1]
 
     return {

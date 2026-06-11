@@ -46,6 +46,8 @@ from src.console.store import (
 )
 
 
+MAX_REQUEST_BODY_BYTES = 256 * 1024  # 256 KB
+
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -80,7 +82,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
     def end_headers(self) -> None:
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
-        self.send_header("Content-Security-Policy", "default-src 'self'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' https://cdn.jsdelivr.net")
         super().end_headers()
 
     def do_HEAD(self) -> None:
@@ -263,6 +265,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             raise ValueError("Content-Length must be a non-negative integer")
         if length < 0:
             raise ValueError("Content-Length must be a non-negative integer")
+        if length > MAX_REQUEST_BODY_BYTES:
+            raise ValueError(f"请求体过大，最大允许 {MAX_REQUEST_BODY_BYTES // 1024} KB")
         if not length:
             return {}
         try:

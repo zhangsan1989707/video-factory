@@ -14,7 +14,9 @@ from typing import Callable
 
 from rich.console import Console
 
-from src.hotlist_v2.fetch import fetch_trending
+CST = timezone(timedelta(hours=8))
+
+from src.hotlist_v2.fetch import fetch_trending, LANG_COLORS
 from src.hotlist_v2.template import DEFAULT_STYLE, render_composition
 from src.tts.edge_tts import generate_all_audio, get_audio_duration
 from src.models import VideoScript, ScriptSegment
@@ -219,7 +221,7 @@ def _data_from_projects(projects: list[dict]) -> dict:
         })
     _dedupe_project_copy(normalized)
 
-    now = datetime.now(timezone(timedelta(hours=8)))
+    now = datetime.now(CST)
     languages = [{"name": name, "color": color} for name, color in list(languages_seen.items())[:6]]
     return {
         "date": f"{now.year} 年 {now.month} 月 {now.day} 日",
@@ -740,14 +742,7 @@ def _copy_similarity(left: str, right: str) -> float:
 
 
 def _language_color(language: str) -> str:
-    colors = {
-        "TypeScript": "#3b82f6",
-        "Python": "#f59e0b",
-        "Rust": "#f97316",
-        "Go": "#10b981",
-        "JavaScript": "#f7df1e",
-    }
-    return colors.get(language, "#8899bb")
+    return LANG_COLORS.get(language, "#8899bb")
 
 
 def _tech_tags(topics: list[str], language: str) -> list[str]:
@@ -1009,7 +1004,6 @@ def _render_hyperframes(html_path: Path, output_path: Path) -> None:
     project_dir.mkdir(parents=True, exist_ok=True)
 
     # Copy composition as index.html (HyperFrames entry point)
-    import shutil
     index_html = project_dir / "index.html"
     shutil.copy2(html_path, index_html)
 
@@ -1043,28 +1037,30 @@ def _mix_audio(
 
     video = VideoFileClip(str(video_path))
     audio_clips = []
-    for i, segment in enumerate(script.segments):
-        audio_path = audio_dir / f"segment-{i:03d}.mp3"
-        if audio_path.exists():
-            clip = AudioFileClip(str(audio_path)).with_start(float(segment.timestamp))
-            audio_clips.append(clip)
+    try:
+        for i, segment in enumerate(script.segments):
+            audio_path = audio_dir / f"segment-{i:03d}.mp3"
+            if audio_path.exists():
+                clip = AudioFileClip(str(audio_path)).with_start(float(segment.timestamp))
+                audio_clips.append(clip)
 
-    if audio_clips:
-        final_audio = CompositeAudioClip(audio_clips).with_duration(video.duration)
-        if final_audio.duration > video.duration:
-            final_audio = final_audio.subclipped(0, video.duration)
-        video = video.with_audio(final_audio)
+        if audio_clips:
+            final_audio = CompositeAudioClip(audio_clips).with_duration(video.duration)
+            if final_audio.duration > video.duration:
+                final_audio = final_audio.subclipped(0, video.duration)
+            video = video.with_audio(final_audio)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    video.write_videofile(
-        str(output_path),
-        fps=30,
-        codec="libx264",
-        audio_codec="aac",
-        bitrate="8000k",
-        preset="medium",
-        logger=None,
-    )
-    video.close()
-    for clip in audio_clips:
-        clip.close()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        video.write_videofile(
+            str(output_path),
+            fps=30,
+            codec="libx264",
+            audio_codec="aac",
+            bitrate="8000k",
+            preset="medium",
+            logger=None,
+        )
+    finally:
+        video.close()
+        for clip in audio_clips:
+            clip.close()
