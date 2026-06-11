@@ -51,6 +51,20 @@ from src.console.store import (
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+def _safe_path(base_dir: Path, user_path: str) -> Path | None:
+    """验证路径安全，防止目录遍历攻击"""
+    resolved = (base_dir / user_path).resolve()
+    try:
+        resolved.relative_to(base_dir.resolve())
+    except ValueError:
+        return None
+    if resolved.is_symlink():
+        return None
+    if not resolved.exists():
+        return None
+    return resolved
+
+
 def run_server(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
     ensure_storage()
     start_scheduler_loop()
@@ -64,6 +78,12 @@ def run_server(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = F
 
 class ConsoleHandler(BaseHTTPRequestHandler):
     server_version = "VideoFactoryConsole/0.1"
+
+    def end_headers(self) -> None:
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "default-src 'self'")
+        super().end_headers()
 
     def do_HEAD(self) -> None:
         parsed = urlparse(self.path)
@@ -298,11 +318,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         if "\\" in name or any(part.startswith(".") for part in Path(name).parts):
             return None
         job_dir = (JOBS_DIR / job_id).resolve()
-        candidate = job_dir / name
-        if candidate.is_symlink():
-            return None
-        path = candidate.resolve()
-        if job_dir not in path.parents or not path.is_file():
+        path = _safe_path(job_dir, name)
+        if path is None or not path.is_file():
             return None
         return path
 
@@ -323,14 +340,10 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         return None
 
     def _safe_static_file(self, name: str) -> Path | None:
-        raw_candidate = STATIC_DIR / unquote(name)
-        if raw_candidate.is_symlink():
+        decoded = unquote(name)
+        if "\\" in decoded:
             return None
-        candidate = raw_candidate.resolve()
-        static_root = STATIC_DIR.resolve()
-        if candidate == static_root or static_root not in candidate.parents:
-            return None
-        return candidate
+        return _safe_path(STATIC_DIR, decoded)
 
 
 def _short_message(message: str, limit: int = 160) -> str:
