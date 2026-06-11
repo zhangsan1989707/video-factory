@@ -298,7 +298,10 @@ def generate_mouse_animations(
         )
 
         # 保存带鼠标的帧
-        mouse_path = mouse_dir / f"mouse-{frame_info['path'].stem.split('-')[1]}.png"
+        stem = frame_info['path'].stem
+        parts = stem.split('-')
+        index_part = parts[-1] if len(parts) > 1 else stem
+        mouse_path = mouse_dir / f"mouse-{index_part}.png"
         result.save(mouse_path)
         mouse_frames.append(mouse_path)
 

@@ -59,56 +59,58 @@ async def record_browser(
         )
         page = await context.new_page()
 
-        # 先访问 GitHub 首页
-        console.print("  初始化浏览器...")
-        await safe_goto(page, "https://github.com")
+        try:
+            # 先访问 GitHub 首页
+            console.print("  初始化浏览器...")
+            await safe_goto(page, "https://github.com")
 
-        # 计算每个片段的实际时长
-        if total_audio_duration > 0:
-            scale_factor = total_audio_duration / script.total_duration
-        else:
-            scale_factor = 1.0
-
-        for seg_idx, segment in enumerate(script.segments):
-            console.print(f"  录制片段 {seg_idx + 1}: {segment.narration[:20]}...")
-
-            # 执行动作
-            if segment.action == "navigate":
-                url = segment.target
-                if not url.startswith("http"):
-                    url = f"https://github.com/{url}"
-                await safe_goto(page, url)
+            # 计算每个片段的实际时长
+            if total_audio_duration > 0:
+                scale_factor = total_audio_duration / script.total_duration
             else:
-                await execute_action(page, segment.action, segment.target)
-                await page.wait_for_timeout(500)
+                scale_factor = 1.0
 
-            # 获取元素位置
-            bounds = None
-            if segment.target and segment.action in ("highlight", "click", "zoom"):
-                bounds = await get_element_bounds(page, segment.target)
+            for seg_idx, segment in enumerate(script.segments):
+                console.print(f"  录制片段 {seg_idx + 1}: {segment.narration[:20]}...")
 
-            # 计算帧数
-            adjusted_duration = segment.duration * scale_factor
-            num_frames = max(1, int(adjusted_duration * fps))
+                # 执行动作
+                if segment.action == "navigate":
+                    url = segment.target
+                    if not url.startswith("http"):
+                        url = f"https://github.com/{url}"
+                    await safe_goto(page, url)
+                else:
+                    await execute_action(page, segment.action, segment.target)
+                    await page.wait_for_timeout(500)
 
-            # 截取帧
-            for i in range(num_frames):
-                screenshot = await page.screenshot(type="png")
-                frame_path = frames_dir / f"frame-{frame_index:04d}.png"
+                # 获取元素位置
+                bounds = None
+                if segment.target and segment.action in ("highlight", "click", "zoom"):
+                    bounds = await get_element_bounds(page, segment.target)
 
-                with open(frame_path, "wb") as f:
-                    f.write(screenshot)
+                # 计算帧数
+                adjusted_duration = segment.duration * scale_factor
+                num_frames = max(1, int(adjusted_duration * fps))
 
-                frames.append({
-                    "path": frame_path,
-                    "timestamp": segment.timestamp + (i / fps),
-                    "segment_index": seg_idx,
-                    "bounds": bounds,
-                })
+                # 截取帧
+                for i in range(num_frames):
+                    screenshot = await page.screenshot(type="png")
+                    frame_path = frames_dir / f"frame-{frame_index:04d}.png"
 
-                frame_index += 1
+                    with open(frame_path, "wb") as f:
+                        f.write(screenshot)
 
-        await browser.close()
+                    frames.append({
+                        "path": frame_path,
+                        "timestamp": segment.timestamp + (i / fps),
+                        "segment_index": seg_idx,
+                        "bounds": bounds,
+                    })
+
+                    frame_index += 1
+        finally:
+            await context.close()
+            await browser.close()
 
     console.print(f"  ✓ 截取 {frame_index} 帧")
     return frames

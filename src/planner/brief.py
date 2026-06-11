@@ -6,7 +6,7 @@ import re
 from openai import OpenAI
 
 from src.models import CreativeBrief, ProjectInfo
-from src.utils.config import OPENAI_API_KEY, OPENAI_BASE_URL
+from src.utils.config import AI_MODEL, OPENAI_API_KEY, OPENAI_BASE_URL
 
 
 HYPE_WORDS = ("神器", "宝藏", "绝了", "卧槽", "真的牛", "兄弟们")
@@ -140,7 +140,7 @@ README 摘要:
 
     try:
         response = client.chat.completions.create(
-            model="mimo-v2.5-pro",
+            model=AI_MODEL,
             messages=[
                 {"role": "system", "content": "你只输出 JSON，不写解释。"},
                 {"role": "user", "content": prompt},

@@ -5,7 +5,7 @@ from openai import OpenAI
 
 from src.models import ProjectInfo, VideoScript, ScriptSegment
 from src.script.prompts import SCRIPT_GENERATION_PROMPT
-from src.utils.config import OPENAI_API_KEY, OPENAI_BASE_URL
+from src.utils.config import AI_MODEL, OPENAI_API_KEY, OPENAI_BASE_URL
 
 
 def generate_script(
@@ -44,7 +44,7 @@ def generate_script(
     )
 
     response = client.chat.completions.create(
-        model="mimo-v2.5-pro",
+        model=AI_MODEL,
         messages=[
             {"role": "system", "content": "你是一个专业的视频脚本写手，只输出 JSON。"},
             {"role": "user", "content": prompt},

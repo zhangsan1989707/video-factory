@@ -400,8 +400,7 @@ async def run_pipeline(
     console.print(f"   ✓ 生成 {len(script.segments)} 个片段，总时长 {script.total_duration:.0f} 秒")
 
     # 保存脚本
-    with open(paths.script_json, "w", encoding="utf-8") as f:
-        json.dump(script.to_dict(), f, ensure_ascii=False, indent=2)
+    _write_json(paths.script_json, script.to_dict())
 
     # 5. 生成语音
     stage("generating_tts", "开始生成 TTS 语音。")
