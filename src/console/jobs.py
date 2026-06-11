@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from src.console.background import JobCancelled, raise_if_cancelled
-from src.console.github_hotlist import collect_candidates_with_meta
+from src.console.github_hotlist import ESTIMATED_GROWTH_NOTE, collect_candidates_with_meta
 from src.console.model_router import chat_json_detail, route_snapshot
 from src.console.store import (
     JOBS_DIR,
@@ -89,6 +89,7 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_
             append_log(job_id, f"GitHub 缓存记录额度: {result.get('rate_limit') or '未检测'}。")
         else:
             append_log(job_id, f"GitHub API 额度: {result.get('rate_limit') or '未检测'}。")
+        append_log(job_id, ESTIMATED_GROWTH_NOTE)
         update_job(job_id, status="running", stage="analyzing_candidates")
         candidates = _analyze_candidates(job_id, candidates)
         candidates = _rank_candidates(job_id, candidates)
@@ -801,6 +802,8 @@ def _narration_project_context(projects: list[dict[str, Any]]) -> list[dict[str,
             "safe_highlight": _viewer_highlight(project),
             "safe_audience": _viewer_audience(project),
             "risk": project.get("risk"),
+            "daily_growth": project.get("daily_growth"),
+            "growth_note": project.get("growth_note") or ESTIMATED_GROWTH_NOTE,
         })
     return items
 
@@ -1068,6 +1071,9 @@ def _write_publish_pack(
         "本期项目：",
         *[f"{index}. {name}" for index, name in enumerate(project_names, start=1)],
         "",
+        "数据说明：",
+        ESTIMATED_GROWTH_NOTE,
+        "",
         closing,
     ]
     pack = {
@@ -1076,6 +1082,7 @@ def _write_publish_pack(
         "hashtags": _hashtags(projects),
         "cover_text": _cover_text(title, projects),
         "source_projects": project_names,
+        "data_note": ESTIMATED_GROWTH_NOTE,
     }
     write_json(JOBS_DIR / job_id / "publish_pack.json", pack)
     append_log(job_id, "发布辅助包已生成。")
@@ -1100,12 +1107,12 @@ def _hashtags(projects: list[dict[str, Any]]) -> list[str]:
 def _cover_text(title: str, projects: list[dict[str, Any]]) -> dict[str, str]:
     top_project = _fastest_growth_project(projects)
     top = str((top_project or {}).get("name") or (top_project or {}).get("full_name") or "开源项目") if projects else "开源项目"
-    growth = str((top_project or {}).get("daily_growth") or "").replace("约 ", "")
+    growth = str((top_project or {}).get("daily_growth") or "")
     feature = (top_project or {}).get("feature_extract") or {}
     hook = str(feature.get("core_problem") or (top_project or {}).get("description_zh") or "").strip("。")
     subhead = f"本周黑马：{top}"
     if growth:
-        subhead += f" 日均涨星 {growth.replace('/天', '')}"
+        subhead += f" · {growth}"
     if hook:
         subhead += f" · {hook}"
     return {
@@ -1169,6 +1176,7 @@ def _write_readiness_report(
         _readiness_check("preview_frames", preview_count >= max(1, len(projects) + 3), f"已生成 {preview_count} 张预览帧", "预览帧数量不足"),
         _readiness_check("cover_frame", has_cover, "已生成封面帧", "缺少封面帧"),
         _readiness_check("publish_pack", bool(publish_pack.get("title") and publish_pack.get("description")), "已生成发布辅助包", "缺少发布辅助包"),
+        _readiness_check("data_semantics", bool(publish_pack.get("data_note")), publish_pack.get("data_note") or ESTIMATED_GROWTH_NOTE, "缺少热度口径说明"),
     ]
     if quality:
         fact_passed = _quality_verified(quality)
@@ -1288,6 +1296,8 @@ def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[
             "每个 project-* 必须包含：一个反常识或场景化开头；一句具体痛点或爽点；一句锁定目标人群，格式可以用「适合：被 X 折磨的人」。"
             "visual_potential 是制作侧画面建议，禁止直接写入口播；不要把 README 可展示、仓库页做信息卡片、"
             "终端截图可展示、截图可展示、画面潜力、信息卡片当成项目亮点。"
+            "daily_growth / growth_note 只表示按当前总 stars 和项目年龄折算的估算日均 star，不是真实新增 star。"
+            "如果要提热度，只能说“估算日均 star”或“热度估算”，禁止说“今天涨了”“新增了”“真实增长”。"
         ),
         "projects": project_context,
         "content_strategy": {
@@ -1358,6 +1368,7 @@ def _polish_narrations(
             "禁止使用：如果你纠结、如果你觉得、如果你在找、如果你卡在、先看看它、先看它、很有价值、值得关注、适合开发者、适合开源项目关注者。"
             "保留项目真实能力和观众收益，删除制作侧画面话术；禁止出现 README 可展示、仓库页做信息卡片、"
             "终端截图可展示、截图可展示、画面潜力、信息卡片作为亮点。"
+            "daily_growth 仅表示估算日均 star，不是真实新增 star；禁止润色成“新增了”“暴涨了”“今天涨了”等事实口吻。"
         ),
         "projects": [
             {
@@ -1472,7 +1483,11 @@ def _quality_check_script(
         return
 
     prompt = {
-        "instruction": "检查 GitHub 热榜短视频中文口播是否存在事实风险、夸大承诺、表达不清。只根据输入字段判断，不能补充外部事实。",
+        "instruction": (
+            "检查 GitHub 热榜短视频中文口播是否存在事实风险、夸大承诺、表达不清。只根据输入字段判断，不能补充外部事实。"
+            "daily_growth / growth_note 仅表示按当前总 stars 和仓库创建时间折算的估算日均 star，不是真实新增 star。"
+            "如果口播把这类估算说成真实新增、单日暴涨、今天上涨等事实，必须标成风险。"
+        ),
         "projects": [
             {
                 "rank": index,
@@ -1484,6 +1499,8 @@ def _quality_check_script(
                 "recommendation": project.get("recommendation"),
                 "risk": project.get("risk"),
                 "stars": project.get("stars"),
+                "daily_growth": project.get("daily_growth"),
+                "growth_note": project.get("growth_note") or ESTIMATED_GROWTH_NOTE,
             }
             for index, project in enumerate(projects, start=1)
         ],
@@ -1618,7 +1635,30 @@ def _local_fact_flags(projects: list[dict[str, Any]], segments: list[dict[str, A
             flags.append(f"{project.get('full_name') or project.get('name')}: core_action 与项目描述/README 支撑不足，请复核。")
         elif mention < 0.12:
             flags.append(f"{project.get('full_name') or project.get('name')}: 口播未明显使用 core_action，请重写该段。")
+        if _contains_growth_overclaim(narration):
+            flags.append(f"{project.get('full_name') or project.get('name')}: daily_growth 仅为估算日均 star，口播不应表述为真实新增 star。")
     return flags
+
+
+def _contains_growth_overclaim(text: str) -> bool:
+    lowered = re.sub(r"\s+", "", text.lower())
+    if not lowered:
+        return False
+    blocked_phrases = (
+        "新增star",
+        "新增星标",
+        "真实增长",
+        "真实新增",
+        "今天涨了",
+        "今天新增",
+        "单日涨了",
+        "单日新增",
+        "暴涨了",
+        "涨了",
+    )
+    if any(phrase in lowered for phrase in blocked_phrases):
+        return "估算日均star" not in lowered and "热度估算" not in lowered
+    return False
 
 
 def _fact_similarity(left: str, right: str) -> float:

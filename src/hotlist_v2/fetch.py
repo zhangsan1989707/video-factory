@@ -90,8 +90,8 @@ def _estimate_daily_growth(stars: int, created_at: str) -> str:
     daily_avg = stars / age_days
     recent_daily = int(daily_avg * random.uniform(1.5, 3.0))
     if recent_daily >= 1000:
-        return f"+{recent_daily / 1000:.1f}k"
-    return f"+{recent_daily}"
+        return f"估算日均 star 约 +{recent_daily / 1000:.1f}k"
+    return f"估算日均 star 约 +{recent_daily}"
 
 
 def _simulate_star_history(stars: int) -> list[int]:
@@ -148,14 +148,14 @@ def _recommendation_reason(item: dict[str, Any]) -> str:
     text = f"{desc} {' '.join(topics)}".lower()
 
     if any(k in text for k in ("ai", "agent", "llm", "claude")):
-        return f"AI 领域热门项目，{lang} 实现，社区关注度持续攀升"
+        return f"AI 领域热门项目，{lang} 实现，社区关注度较高"
     if any(k in text for k in ("editor", "ide", "vscode")):
         return f"新一代开发工具，{lang} 编写，开发者体验出色"
     if any(k in text for k in ("framework", "runtime")):
         return f"核心框架类项目，{lang} 生态重要补充"
     if stars > 5000:
-        return f"高星标项目，{lang} 实现，近期热度爆发"
-    return f"近期获得关注的 {lang} 项目，有实际使用价值"
+        return f"高星标项目，{lang} 实现，估算热度明显上升"
+    return f"近期进入候选列表的 {lang} 项目，有实际使用价值"
 
 
 async def fetch_trending(

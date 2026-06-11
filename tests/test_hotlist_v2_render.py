@@ -242,7 +242,7 @@ class HotlistV2RenderTest(unittest.TestCase):
                 "description": "AI powered PowerPoint presentation workflow",
                 "topics": ["ai", "ppt", "workflow"],
                 "stars": 3290,
-                "daily_growth": "+329",
+                "daily_growth": "估算日均 star 约 +329",
                 "language": "Python",
             },
             {
@@ -251,7 +251,7 @@ class HotlistV2RenderTest(unittest.TestCase):
                 "description": "Claude agent skills for generating UI design drafts",
                 "topics": ["ai", "design", "claude"],
                 "stars": 980,
-                "daily_growth": "+45",
+                "daily_growth": "估算日均 star 约 +45",
                 "language": "JavaScript",
             },
         ])
@@ -270,6 +270,8 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertEqual(design_project["trend_heat"], "steady")
         self.assertNotEqual(ppt_project["outcome"], design_project["outcome"])
         self.assertEqual(data["total_new_stars"], "374")
+        self.assertIn("估算", ppt_project["trend_label"])
+        self.assertIn("估算日均 star", ppt_project["proof_point"])
         self.assertIn("证据", ppt_project["reason"])
         self.assertNotIn("值得关注", ppt_project["reason"])
 
@@ -304,7 +306,7 @@ class HotlistV2RenderTest(unittest.TestCase):
                 "description_source": "readme",
                 "readme_excerpt": "# performative-ui\n\nAI-native React components for satirical product interfaces.",
                 "stars": 545,
-                "daily_growth": "+272",
+                "daily_growth": "估算日均 star 约 +272",
                 "language": "TypeScript",
                 "repo_url": "https://github.com/vorpus/performativeUI",
             }

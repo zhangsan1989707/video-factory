@@ -28,7 +28,8 @@ class GithubHotlistTest(unittest.TestCase):
         self.assertEqual(result["items"][0]["full_name"], "demo/alpha")
         self.assertEqual(result["items"][0]["forks"], 17)
         self.assertEqual(result["items"][0]["issues"], 3)
-        self.assertRegex(result["items"][0]["daily_growth"], r"^约 \+\d+/天$")
+        self.assertRegex(result["items"][0]["daily_growth"], r"^估算日均 star 约 \+\d+/天$")
+        self.assertIn("不是真实新增 star", result["items"][0]["growth_note"])
 
     def test_collect_candidates_with_token(self) -> None:
         seen_headers = {}

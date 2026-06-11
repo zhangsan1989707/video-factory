@@ -452,7 +452,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 cover_meta = read_json(jobs_dir / job["id"] / "cover_frame.json", {})
                 self.assertEqual(cover_meta["source"], str(previews[0]))
                 readiness = read_json(jobs_dir / job["id"] / "readiness_report.json", {})
-                self.assertEqual(readiness["score"], 83)
+                self.assertEqual(readiness["score"], 85)
                 self.assertEqual(job_detail(job["id"])["readiness_report"]["status"], "review")
                 self.assertEqual(job_detail(job["id"])["cover_frame"]["status"], "ready")
 
@@ -1948,13 +1948,60 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(pack["title"], "GitHub热榜2个项目")
                 self.assertIn("本期项目：", pack["description"])
                 self.assertIn("demo/alpha", pack["description"])
+                self.assertIn("数据说明：", pack["description"])
+                self.assertIn("估算日均 star", pack["description"])
                 self.assertIn("GitHub", pack["hashtags"])
                 self.assertIn("AI工具", pack["hashtags"])
                 self.assertIn("本周黑马：alpha", pack["cover_text"]["subhead"])
+                self.assertIn("估算日均 star", pack["cover_text"]["subhead"])
+                self.assertIn("不是真实新增 star", pack["data_note"])
                 saved = read_json(jobs_dir / job["id"] / "publish_pack.json", {})
                 self.assertEqual(saved["source_projects"], ["demo/alpha", "demo/beta"])
                 detail = job_detail(job["id"])
                 self.assertEqual(detail["publish_pack"]["title"], "GitHub热榜2个项目")
+
+    def test_save_script_flags_growth_overclaim_in_quality_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
+                patch("src.console.jobs.chat_json_detail", return_value={
+                    "data": {
+                        "status": "pass",
+                        "summary": "整体通过",
+                        "risk_flags": [],
+                        "factual_notes": [],
+                        "overclaim_notes": [],
+                        "readability_score": 90,
+                    },
+                    "route": {"provider_name": "Mock", "model": "mock-model"},
+                    "raw": "{}",
+                    "error": "",
+                }),
+            ):
+                job = create_job("GH-HOTLIST-20990101-QA-GROWTH", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                overclaimed = [
+                    {**segment, "text": "alpha 今天涨了 300 star，已经证明它是这周最猛的项目。" if segment["id"] == "project-1" else segment["text"]}
+                    for segment in selection["segments"]
+                ]
+
+                result = save_script(job["id"], {"segments": overclaimed})
+
+                self.assertEqual(result["job"]["status"], "awaiting_input")
+                report = read_json(jobs_dir / job["id"] / "quality_report.json", {})
+                self.assertEqual(report["status"], "caution")
+                self.assertFalse(report["passed"])
+                self.assertTrue(any("估算日均 star" in flag for flag in report["risk_flags"]))
 
     def test_save_script_blocks_when_fact_check_returns_invalid_json_until_overridden(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -2279,6 +2326,7 @@ def _sample_projects() -> list[dict[str, object]]:
             "full_name": "demo/alpha",
             "repo_url": "https://github.com/demo/alpha",
             "stars": 1520,
+            "daily_growth": "估算日均 star 约 +217/天",
             "description": "AI agent workflow",
             "description_zh": "AI 工作流工具",
             "recommendation": "解决重复操作",
@@ -2292,6 +2340,7 @@ def _sample_projects() -> list[dict[str, object]]:
             "full_name": "demo/beta",
             "repo_url": "https://github.com/demo/beta",
             "stars": 88,
+            "daily_growth": "估算日均 star 约 +12/天",
             "description": "CLI helper",
             "description_zh": "命令行助手",
             "recommendation": "减少切工具",

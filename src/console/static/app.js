@@ -783,7 +783,7 @@ function renderCandidates() {
         <small class="source-desc">${escapeHtml(item.description || "无英文描述")}</small>
       </td>
       <td class="score">${item.score}</td>
-      <td>${Number(item.stars || 0).toLocaleString()}</td>
+      <td>${Number(item.stars || 0).toLocaleString()}<small class="source-desc">${escapeHtml(item.daily_growth || "估算日均 star 暂无")}</small></td>
       <td>${escapeHtml(item.language || "-")}</td>
       <td>${escapeHtml(item.recommendation || "")}<small>${escapeHtml(item.ranking_reason || item.visual_potential || "")}</small></td>
       <td>${escapeHtml(item.risk || "")}</td>

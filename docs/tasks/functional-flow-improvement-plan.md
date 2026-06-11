@@ -104,7 +104,7 @@
 
 ### P0-3 明确热榜数据口径
 
-状态：`todo`
+状态：`done`
 
 问题：
 
@@ -115,6 +115,18 @@
 - 字段命名或展示文案改为“估算日均 star”。
 - 候选表、日志、发布包中标注数据来源与缓存状态。
 - 口播生成提示中禁止把估算增长描述成真实增量。
+
+验收证据：
+
+- `2026-06-11`：`.venv/bin/python tests/test_github_hotlist.py`
+- `2026-06-11`：`.venv/bin/python tests/test_console_jobs.py`
+- `2026-06-11`：`.venv/bin/python tests/test_hotlist_v2_render.py`
+- `2026-06-11`：`node tests/test_console_static_app.js`
+- 回归覆盖：
+  - `test_collect_candidates_without_token`
+  - `test_save_script_writes_publish_pack`
+  - `test_save_script_flags_growth_overclaim_in_quality_report`
+  - `test_ai_projects_get_specific_hooks_outcomes_and_tags`
 
 验收标准：
 
@@ -380,6 +392,7 @@ git diff --check
 
 | 日期 | 更新 | 证据 |
 | --- | --- | --- |
+| 2026-06-11 | 完成 P0-3：`daily_growth` 统一改为“估算日均 star”口径，候选表/发布辅助包/准备度报告展示数据说明，质检可拦截“真实增长”类口播 | `.venv/bin/python tests/test_github_hotlist.py` ; `.venv/bin/python tests/test_console_jobs.py` ; `.venv/bin/python tests/test_hotlist_v2_render.py` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P0-2：候选生成、项目确认、口播确认、计划生成与计划校验统一改为后台任务快速返回，前端改为轮询接管 | `.venv/bin/python tests/test_console_jobs.py` ; `.venv/bin/python tests/test_console_server_smoke.py` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P0-4：HyperFrames 渲染改为按真实步骤记录 `generating_tts -> composing_html -> rendering_hyperframes -> mixing_audio -> post_processing` | `.venv/bin/python tests/test_console_jobs.py` ; `.venv/bin/python tests/test_hotlist_v2_render.py` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P0-1：重新生成、重选项目、重存脚本与渲染失败时保留历史正式视频版本，仅清理当前 `final.mp4` 与工作产物 | `.venv/bin/python tests/test_console_jobs.py` |

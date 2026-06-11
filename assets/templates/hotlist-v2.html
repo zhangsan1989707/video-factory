@@ -582,7 +582,7 @@ body {
       热榜速报
     </h1>
     <p class="intro-sub">
-      精选本周 GitHub 热度飙升的开源项目<br>一分钟掌握技术圈最新动态
+      精选本周 GitHub 热度上升的开源项目<br>热度趋势基于估算日均 star，仅作选题参考
     </p>
     <div class="stats-row">
       <div class="stat-chip">
@@ -595,7 +595,7 @@ body {
       </div>
       <div class="stat-chip">
         <span class="stat-num">{{ total_new_stars }}</span>
-        <span class="stat-lbl">新增星标</span>
+        <span class="stat-lbl">估算日均 star</span>
       </div>
     </div>
     <div class="lang-tags">
@@ -628,7 +628,7 @@ body {
     <div class="list-header">
       <div class="list-header-top">
         <div class="list-header-title">GitHub 开源热榜</div>
-        <div class="header-badge">● 实时</div>
+        <div class="header-badge">● 估算热度</div>
       </div>
       <div class="list-meta">
         <span class="list-date-chip">{{ date }} · 本周</span>
@@ -719,7 +719,7 @@ body {
         <div class="metric-card hot">
           <span class="metric-icon">{{ top1.trend_icon }}</span>
           <span class="metric-val" style="font-size:32px;line-height:1.12;">{{ top1.trend_label }}</span>
-          <span class="metric-lbl">星标趋势</span>
+          <span class="metric-lbl">估算热度</span>
         </div>
         <div class="metric-card">
           <span class="metric-icon" style="font-size:16px">⑂</span>
@@ -757,7 +757,7 @@ body {
       </div>
 
       <div>
-        <div class="section-label">星标趋势 · 近 14 天</div>
+        <div class="section-label">热度趋势 · 近 14 天模拟</div>
         <div class="activity-chart">
           {% for val in top1.star_history %}
           <div class="bar {% if val >= 90 %}peak{% elif val >= 70 %}high{% elif val >= 50 %}mid{% else %}low{% endif %}" style="height:{{ val }}%"></div>

@@ -22,6 +22,7 @@ CACHE_TTL_SECONDS = {
     "monthly": 12 * 60 * 60,
 }
 CACHE_SCHEMA_VERSION = 2
+ESTIMATED_GROWTH_NOTE = "热度口径：估算日均 star 由当前总 stars 和仓库创建时间折算，不是真实新增 star。"
 
 
 def created_after(time_window: str) -> str:
@@ -94,6 +95,7 @@ async def collect_candidates_with_meta(
                 "readme_excerpt": readme_excerpt,
                 "stars": item.get("stargazers_count", 0),
                 "daily_growth": _estimated_daily_growth(item),
+                "growth_note": ESTIMATED_GROWTH_NOTE,
                 "forks": item.get("forks_count", 0),
                 "issues": item.get("open_issues_count", 0),
                 "language": item.get("language") or "",
@@ -210,7 +212,7 @@ def _estimated_daily_growth(item: dict[str, Any]) -> str:
         age_days = max(1, (datetime.now(timezone.utc) - created).days)
     except ValueError:
         age_days = 30
-    return f"约 +{max(1, round(stars / age_days))}/天" if stars else "暂无"
+    return f"估算日均 star 约 +{max(1, round(stars / age_days))}/天" if stars else "估算日均 star 暂无"
 
 
 def _rate_limit_label(headers: httpx.Headers) -> str:

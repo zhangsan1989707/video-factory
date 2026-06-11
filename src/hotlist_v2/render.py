@@ -495,7 +495,7 @@ def _proof_point(item: dict, stars: int, growth_num: int) -> str:
     if stars:
         parts.append(f"当前 {_star_display(stars)} stars")
     if growth_num:
-        parts.append(f"日均增量约 +{_compact_number(growth_num)}")
+        parts.append(f"估算日均 star 约 +{_compact_number(growth_num)}")
     if topics:
         parts.append("标签：" + " / ".join(topics[:3]))
     if item.get("homepage"):
@@ -632,7 +632,7 @@ def _trend_label(item: dict) -> str:
         icon = "📉"
 
     if growth_num:
-        return f"{icon} +{_compact_number(growth_num)}/天 {word}"
+        return f"{icon} 估算 +{_compact_number(growth_num)}/天 {word}"
     if growth_text:
         return f"{icon} {growth_text} {word}"
     return f"{icon} 热度{word}"
@@ -995,7 +995,7 @@ def _list_narration(projects: list[dict]) -> str:
 def _project_narration(project: dict) -> str:
     rank = project.get("rank") or 1
     name = project.get("name") or "GitHub 项目"
-    reason = project.get("reason") or project.get("description") or project.get("tagline") or "近期热度上升，值得关注。"
+    reason = project.get("reason") or project.get("description") or project.get("tagline") or "近期进入热榜候选，建议结合 README 和 stars 走势复核。"
     return f"第 {rank} 个，{name}。{reason}"
 
 
