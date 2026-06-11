@@ -91,6 +91,14 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_
             append_log(job_id, f"GitHub API 额度: {result.get('rate_limit') or '未检测'}。")
         append_log(job_id, ESTIMATED_GROWTH_NOTE)
         update_job(job_id, status="running", stage="analyzing_candidates")
+        _update_candidate_source(job_id, {
+            "cache_status": str(result.get("cache_status") or "fresh"),
+            "cache_label": _candidate_cache_label(str(result.get("cache_status") or "fresh")),
+            "analysis_status": "pending",
+            "analysis_label": "候选分析进行中",
+            "ranking_status": "pending",
+            "ranking_label": "排序进行中",
+        })
         candidates = _analyze_candidates(job_id, candidates)
         candidates = _rank_candidates(job_id, candidates)
         write_json(JOBS_DIR / job_id / "candidates.json", {"items": candidates})
@@ -576,6 +584,7 @@ def job_detail(job_id: str) -> dict[str, Any]:
         "artifacts": job_artifacts(job_id),
         "latest_model_call": model_calls[-1] if model_calls else {},
         "narration_source": job.get("narration_source") or {},
+        "candidate_source": job.get("candidate_source") or {},
     }
 
 
@@ -583,6 +592,10 @@ def _analyze_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[d
     route = route_snapshot("candidate_analysis")
     if not _route_available(route):
         append_log(job_id, f"候选分析使用启发式评分：{_route_skip_reason(route)}。")
+        _update_candidate_source(job_id, {
+            "analysis_status": "heuristic",
+            "analysis_label": f"启发式评分（{_route_skip_reason(route)}）",
+        })
         return candidates
     prompt = {
         "instruction": (
@@ -634,6 +647,10 @@ def _analyze_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[d
             _write_ai_raw_response(job_id, "candidate_analysis", detail)
             _record_model_call(job_id, "candidate_analysis", detail, "invalid_json")
             append_log(job_id, f"候选分析模型未返回可用 JSON，保留启发式结果。")
+            _update_candidate_source(job_id, {
+                "analysis_status": "ai_failed_fallback",
+                "analysis_label": f"AI 响应异常后回退启发式（{_short_text(detail.get('error') or '模型未返回可用 JSON', 80)}）",
+            })
             return candidates
         for index, candidate in enumerate(candidates, start=1):
             patch = by_index.get(index)
@@ -641,9 +658,17 @@ def _analyze_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[d
                 _merge_candidate_analysis(candidate, patch)
         _record_model_call(job_id, "candidate_analysis", detail, "success")
         append_log(job_id, f"候选分析已使用 {used_route['provider_name']} / {used_route['model']}。")
+        _update_candidate_source(job_id, {
+            "analysis_status": "ai_success",
+            "analysis_label": f"AI 分析：{used_route['provider_name']} / {used_route['model']}",
+        })
     except Exception as exc:
         _record_model_call(job_id, "candidate_analysis", {"route": route, "error": str(exc)}, "failed")
         append_log(job_id, f"候选分析模型失败，保留启发式结果: {exc}")
+        _update_candidate_source(job_id, {
+            "analysis_status": "ai_failed_fallback",
+            "analysis_label": f"AI 失败后回退启发式（{_short_text(str(exc), 80)}）",
+        })
     return candidates
 
 
@@ -651,6 +676,10 @@ def _rank_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[dict
     route = route_snapshot("hotlist_ranking")
     if not _route_available(route):
         append_log(job_id, f"热榜排序使用默认顺序：{_route_skip_reason(route)}。")
+        _update_candidate_source(job_id, {
+            "ranking_status": "default",
+            "ranking_label": f"默认顺序（{_route_skip_reason(route)}）",
+        })
         return candidates
     prompt = {
         "instruction": "为中文 GitHub 热榜短视频给候选项目排序。优先考虑观众价值、可解释性、画面潜力和事实稳妥性。",
@@ -686,14 +715,26 @@ def _rank_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[dict
             _write_ai_raw_response(job_id, "hotlist_ranking", detail)
             _record_model_call(job_id, "hotlist_ranking", detail, "invalid_json")
             append_log(job_id, "热榜排序模型未返回可用 JSON，保留默认顺序。")
+            _update_candidate_source(job_id, {
+                "ranking_status": "ai_failed_default",
+                "ranking_label": f"AI 排序异常后保留默认顺序（{_short_text(detail.get('error') or '模型未返回可用 JSON', 80)}）",
+            })
             return candidates
         _record_model_call(job_id, "hotlist_ranking", detail, "success")
         used_route = detail["route"]
         append_log(job_id, f"热榜排序已使用 {used_route['provider_name']} / {used_route['model']}。")
+        _update_candidate_source(job_id, {
+            "ranking_status": "ai_success",
+            "ranking_label": f"AI 排序：{used_route['provider_name']} / {used_route['model']}",
+        })
         return ranked
     except Exception as exc:
         _record_model_call(job_id, "hotlist_ranking", {"route": route, "error": str(exc)}, "failed")
         append_log(job_id, f"热榜排序模型失败，保留默认顺序: {exc}")
+        _update_candidate_source(job_id, {
+            "ranking_status": "ai_failed_default",
+            "ranking_label": f"AI 排序失败后保留默认顺序（{_short_text(str(exc), 80)}）",
+        })
         return candidates
 
 
@@ -1860,6 +1901,31 @@ def _record_model_call(job_id: str, task: str, detail: dict[str, Any], status: s
         "status": status,
         "error": detail.get("error") or "",
     })
+
+
+def _update_candidate_source(job_id: str, patch: dict[str, Any]) -> None:
+    job = read_job(job_id) or {}
+    source = dict(job.get("candidate_source") or {})
+    source.update(patch)
+    source["summary"] = " · ".join([
+        value
+        for value in (
+            source.get("cache_label"),
+            source.get("analysis_label"),
+            source.get("ranking_label"),
+        )
+        if value
+    ])
+    update_job(job_id, candidate_source=source)
+
+
+def _candidate_cache_label(status: str) -> str:
+    labels = {
+        "hit": "缓存命中",
+        "stale_rate_limit": "额度受限时使用缓存",
+        "fresh": "GitHub 实时拉取",
+    }
+    return labels.get(status, "GitHub 实时拉取")
 
 
 def _update_narration_source(job_id: str, route: dict[str, Any], status: str, reason: str) -> None:

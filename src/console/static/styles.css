@@ -497,6 +497,12 @@ td small {
   font-size: 12px;
 }
 
+.panel-meta {
+  margin-top: 6px;
+  color: var(--soft);
+  font-size: 12px;
+}
+
 .score {
   color: var(--success);
   font-family: var(--mono);

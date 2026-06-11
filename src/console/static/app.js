@@ -544,6 +544,8 @@ function renderJob(job) {
   if (job.project_count) $("projectCount").value = String(job.project_count);
   $("openJobFolderBtn").disabled = !job.id;
   renderModelCall(job.model_calls || []);
+  renderCandidateSourceSummary(job.candidate_source || {});
+  renderNarrationSourceSummary(job.narration_source || {});
   renderJobError(job.error || "");
   if (job.status !== "failed") renderDiagnostics({});
   if (Array.isArray(job.stage_history)) renderStageTimeline(job.stage_history);
@@ -571,6 +573,24 @@ function narrationSourceLabel(source) {
   if (status === "model_skipped") return `口播: 模型跳过后模板回退${reason}`;
   if (status === "ai_failed_fallback") return `口播: AI失败后模板回退${reason}`;
   return `口播: ${status}`;
+}
+
+function candidateSourceLabel(source) {
+  if (!source || !Object.keys(source).length) return "候选来源：待生成。";
+  return `候选来源：${source.summary || "待生成。"}`;
+}
+
+function renderCandidateSourceSummary(source) {
+  const node = $("candidateSourceSummary");
+  if (!node) return;
+  node.textContent = candidateSourceLabel(source);
+}
+
+function renderNarrationSourceSummary(source) {
+  const node = $("narrationSourceSummary");
+  if (!node) return;
+  const label = narrationSourceLabel(source || {});
+  node.textContent = label || "口播来源：待生成。";
 }
 
 async function openJobFolder() {
@@ -769,6 +789,7 @@ function nextActionForJob(job) {
 
 function renderCandidates() {
   const body = $("candidateRows");
+  renderCandidateSourceSummary((state.currentJob && state.currentJob.candidate_source) || {});
   if (!state.candidates.length) {
     body.innerHTML = `<tr><td colspan="8" class="empty">${escapeHtml(candidateEmptyMessage())}</td></tr>`;
     return;
@@ -818,6 +839,7 @@ function candidateOrder(item, index) {
 
 function renderScript() {
   const editor = $("scriptEditor");
+  renderNarrationSourceSummary((state.currentJob && state.currentJob.narration_source) || {});
   if (!state.segments.length) {
     editor.className = "script-editor empty";
     editor.textContent = "确认项目后会在这里生成口播草稿。";
@@ -1042,6 +1064,8 @@ function renderArtifactSummary(detail) {
   const publish = detail.publish_pack || {};
   const cover = detail.cover_frame || {};
   const versions = detail.video_versions || [];
+  const latestModelCall = detail.latest_model_call || {};
+  const narrationSource = detail.narration_source || {};
   const latestVideo = versions.length ? versions[versions.length - 1] : null;
   const summaryJobId = detail.job?.id || detail.artifacts?.job_id || "";
   const latestVideoMarkup = latestVideo
@@ -1056,6 +1080,7 @@ function renderArtifactSummary(detail) {
     return;
   }
   const tags = (publish.hashtags || []).slice(0, 4).join(" / ");
+  const modelStatus = modelSummaryLabel(latestModelCall, narrationSource);
   box.innerHTML = `
     <div class="summary-row">
       <span>准备度</span>
@@ -1073,8 +1098,35 @@ function renderArtifactSummary(detail) {
       <span>版本</span>
       <strong>${latestVideoMarkup}</strong>
     </div>
+    <div class="summary-row">
+      <span>模型状态</span>
+      <strong>${escapeHtml(modelStatus)}</strong>
+    </div>
     ${tags ? `<small>${escapeHtml(tags)}</small>` : ""}
   `;
+}
+
+function modelSummaryLabel(call, narrationSource) {
+  const parts = [];
+  if (call && (call.task || call.status)) {
+    parts.push(`${modelTaskLabel(call.task || "-")} · ${call.provider || "-"} / ${call.model || "-"} · ${call.status || "-"}`);
+  }
+  const narration = narrationSourceLabel(narrationSource || {});
+  if (narration) parts.push(narration);
+  return parts.length ? parts.join(" · ") : "暂无模型记录";
+}
+
+function modelTaskLabel(task) {
+  const labels = {
+    candidate_analysis: "候选分析",
+    hotlist_ranking: "热榜排序",
+    hook_generation: "标题钩子",
+    feature_extraction: "功能摘要",
+    narration_generation: "口播生成",
+    script_polishing: "脚本润色",
+    fact_check: "脚本质检",
+  };
+  return labels[task] || task || "-";
 }
 
 function officialVideoLabel(jobId, fileName) {
@@ -1338,5 +1390,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, focusScriptSegment, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, createDraft, focusScriptSegment, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

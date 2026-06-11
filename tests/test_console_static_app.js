@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, createDraft, focusScriptSegment, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, createDraft, focusScriptSegment, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -23,6 +23,9 @@ async function run() {
   testSyncDetailStateReplacesCandidateAndScriptSnapshots();
   testSelectionButtonStateShowsLimit();
   testCandidateDefaultsUseProjectCount();
+  testCandidateSourceLabelShowsSummary();
+  testNarrationSourceLabelShowsFallbackReason();
+  testModelSummaryLabelCombinesLatestCallAndNarrationSource();
   testQualityNotesPreferStructuredIssues();
   testFocusScriptSegmentHighlightsTarget();
   testRenderQualityReportShowsLocateAction();
@@ -401,6 +404,8 @@ function testRenderArtifactSummaryShowsPublishMetadata() {
     readiness_report: { status: "ready", score: 100 },
     publish_pack: { title: "GitHub热榜2个项目", hashtags: ["GitHub", "开源项目", "AI工具"] },
     cover_frame: { status: "ready" },
+    latest_model_call: { task: "fact_check", provider: "Mock", model: "mock-model", status: "success" },
+    narration_source: { status: "ai_success", provider: "Mock", model: "mock-model" },
     video_versions: [
       { name: "GH-HOTLIST-20990101-001-测试视频.mp4" },
       { name: "GH-HOTLIST-20990101-001-测试视频-v2.mp4" },
@@ -413,6 +418,8 @@ function testRenderArtifactSummaryShowsPublishMetadata() {
   assert.match(nodes.artifactSummary.innerHTML, /GH-HOTLIST-20990101-001-测试视频-v2\.mp4/);
   assert.match(nodes.artifactSummary.innerHTML, /GH-HOTLIST-20990101-001-%E6%B5%8B%E8%AF%95%E8%A7%86%E9%A2%91-v2\.mp4/);
   assert.match(nodes.artifactSummary.innerHTML, /GitHub \/ 开源项目 \/ AI工具/);
+  assert.match(nodes.artifactSummary.innerHTML, /脚本质检 · Mock \/ mock-model · success/);
+  assert.match(nodes.artifactSummary.innerHTML, /口播: AI Mock \/ mock-model/);
 }
 
 function testRenderHistoryJobsShowsOpenAndDeleteActions() {
@@ -626,6 +633,28 @@ function testCandidateDefaultsUseProjectCount() {
   assert.equal(candidateOrder({}, 0), 1);
   assert.equal(candidateOrder({}, 5), "");
   assert.equal(candidateChecked({ selected: false }, 0), false);
+}
+
+function testCandidateSourceLabelShowsSummary() {
+  assert.equal(candidateSourceLabel({ summary: "缓存命中 · 启发式评分 · 默认顺序" }), "候选来源：缓存命中 · 启发式评分 · 默认顺序");
+  assert.equal(candidateSourceLabel({}), "候选来源：待生成。");
+}
+
+function testNarrationSourceLabelShowsFallbackReason() {
+  assert.equal(
+    narrationSourceLabel({ status: "ai_failed_fallback", reason: "model overloaded", provider: "Mock", model: "mock-model" }),
+    "口播: AI失败后模板回退 (model overloaded)",
+  );
+}
+
+function testModelSummaryLabelCombinesLatestCallAndNarrationSource() {
+  assert.equal(
+    modelSummaryLabel(
+      { task: "candidate_analysis", provider: "Mock", model: "analysis-model", status: "failed" },
+      { status: "model_skipped", reason: "未配置模型路由" },
+    ),
+    "候选分析 · Mock / analysis-model · failed · 口播: 模型跳过后模板回退 (未配置模型路由)",
+  );
 }
 
 function testQualityNotesPreferStructuredIssues() {

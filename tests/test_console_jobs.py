@@ -1401,6 +1401,8 @@ class ConsoleJobsTest(unittest.TestCase):
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"][0]["task"], "candidate_analysis")
                 self.assertEqual(saved["model_calls"][0]["status"], "invalid_json")
+                self.assertEqual(saved["candidate_source"]["analysis_status"], "ai_failed_fallback")
+                self.assertIn("回退启发式", saved["candidate_source"]["analysis_label"])
 
     def test_candidate_analysis_sends_up_to_30_candidates_to_model(self) -> None:
         captured = {}
@@ -1461,6 +1463,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 from src.console.jobs import _analyze_candidates
 
                 result = _analyze_candidates(job["id"], candidates)
+                saved = read_json(jobs_dir / job["id"] / "task.json", {})
 
         self.assertEqual(captured["task"], "candidate_analysis")
         self.assertEqual(captured["max_tokens"], 5000)
@@ -1474,6 +1477,8 @@ class ConsoleJobsTest(unittest.TestCase):
         self.assertEqual(result[29]["project_highlight"], "自动整理开发流程")
         self.assertEqual(result[29]["viewer_benefit"], "减少重复判断成本")
         self.assertEqual(result[30]["description"], "project 31")
+        self.assertEqual(saved["candidate_source"]["analysis_status"], "ai_success")
+        self.assertIn("AI 分析：Mock / analysis-model", saved["candidate_source"]["analysis_label"])
 
     def test_generate_candidates_uses_hotlist_ranking_when_available(self) -> None:
         async def collect(**kwargs):
@@ -1518,6 +1523,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"][0]["task"], "hotlist_ranking")
                 self.assertEqual(saved["model_calls"][0]["status"], "success")
+                self.assertEqual(saved["candidate_source"]["ranking_status"], "ai_success")
                 self.assertIn("analyzing_candidates", [item["stage"] for item in saved["stage_history"]])
 
     def test_generate_candidates_records_analysis_failure_stage(self) -> None:
@@ -1629,6 +1635,28 @@ class ConsoleJobsTest(unittest.TestCase):
                 saved = read_json(jobs_dir / job["id"] / "task.json", {})
                 self.assertEqual(saved["model_calls"][0]["task"], "hotlist_ranking")
                 self.assertEqual(saved["model_calls"][0]["status"], "invalid_json")
+                self.assertEqual(saved["candidate_source"]["ranking_status"], "ai_failed_default")
+
+    def test_generate_candidates_records_cache_and_fallback_source_summary(self) -> None:
+        async def collect(**kwargs):
+            return {"items": _sample_projects(), "rate_limit": "cached", "cache_status": "hit"}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.collect_candidates_with_meta", side_effect=collect),
+            ):
+                job = create_job("GH-HOTLIST-20990101-CANDIDATE-SOURCE", {"project_count": 2})
+                result = asyncio.run(generate_candidates(job["id"]))
+
+                detail = job_detail(job["id"])
+                self.assertEqual(result["job"]["candidate_source"]["cache_status"], "hit")
+                self.assertEqual(result["job"]["candidate_source"]["analysis_status"], "heuristic")
+                self.assertEqual(result["job"]["candidate_source"]["ranking_status"], "default")
+                self.assertIn("缓存命中", result["job"]["candidate_source"]["summary"])
+                self.assertIn("启发式评分", detail["candidate_source"]["summary"])
 
     def test_selection_falls_back_when_model_is_unconfigured(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
