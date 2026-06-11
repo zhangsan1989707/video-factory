@@ -1,8 +1,10 @@
 """视觉特效模块"""
 
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
 from pathlib import Path
+
+from src.utils.render import get_font
 
 
 def create_gradient_background(width: int, height: int, color1: tuple, color2: tuple) -> Image.Image:
@@ -43,12 +45,8 @@ def create_title_card(
         title_y = height // 2 - 50 + int(30 * (1 - progress))
 
         # 标题文字
-        try:
-            font_large = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", 72)
-            font_small = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", 36)
-        except:
-            font_large = ImageFont.load_default()
-            font_small = ImageFont.load_default()
+        font_large = get_font(72)
+        font_small = get_font(36)
 
         # 绘制标题（居中）
         title_bbox = draw.textbbox((0, 0), title, font=font_large)
@@ -99,14 +97,9 @@ def create_info_card(
         width=1,
     )
 
-    try:
-        font_icon = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", 48)
-        font_title = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", 20)
-        font_value = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", 36)
-    except:
-        font_icon = ImageFont.load_default()
-        font_title = ImageFont.load_default()
-        font_value = ImageFont.load_default()
+    font_icon = get_font(48)
+    font_title = get_font(20)
+    font_value = get_font(36)
 
     # 图标
     draw.text((30, 30), icon, fill=(96, 165, 250), font=font_icon)
@@ -147,14 +140,9 @@ def create_feature_card(
         fill=(59, 130, 246),
     )
 
-    try:
-        font_num = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", 24)
-        font_title = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", 28)
-        font_desc = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", 18)
-    except:
-        font_num = ImageFont.load_default()
-        font_title = ImageFont.load_default()
-        font_desc = ImageFont.load_default()
+    font_num = get_font(24)
+    font_title = get_font(28)
+    font_desc = get_font(18)
 
     # 数字
     draw.text((25, 20), number, fill=(255, 255, 255), font=font_num)
@@ -189,10 +177,7 @@ def create_cta_card(
     mask_draw = ImageDraw.Draw(mask)
     mask_draw.rounded_rectangle([(0, 0), (width, height)], radius=40, fill=255)
 
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", 32)
-    except:
-        font = ImageFont.load_default()
+    font = get_font(32)
 
     # 文字
     bbox = draw.textbbox((0, 0), text, font=font)

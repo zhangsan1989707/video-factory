@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from moviepy import (
-    ImageSequenceClip,
+    VideoClip,
     AudioFileClip,
     AudioClip,
     concatenate_audioclips,
@@ -18,6 +18,7 @@ from rich.console import Console
 
 from src.models import VideoScript
 from src.utils.config import VIDEO_FPS, VIDEO_WIDTH_H, VIDEO_HEIGHT_H
+from src.utils.render import get_font
 from src.composer.effects import (
     create_title_card,
     create_info_card,
@@ -36,17 +37,12 @@ def _render_subtitle_image(
     video_height: int,
 ) -> Image.Image:
     """渲染带背景和阴影的大号字幕图像"""
-    from PIL import ImageFont
-
     font_size = 42
     margin_bottom = 80
     padding_h = 24
     padding_v = 12
 
-    try:
-        font = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", font_size)
-    except Exception:
-        font = ImageFont.load_default()
+    font = get_font(font_size)
 
     # 先测量文字尺寸
     tmp = Image.new("RGBA", (1, 1))
@@ -108,12 +104,12 @@ def compose_video(
     """
     将所有素材合成为最终视频
     """
-    # 1. 加载帧序列
+    # 1. 加载帧序列文件列表
     frame_files = sorted(mouse_frames_dir.glob("mouse-*.png"))
     if not frame_files:
         raise ValueError("没有找到鼠标动效帧")
 
-    console.print(f"  加载 {len(frame_files)} 帧...")
+    console.print(f"  找到 {len(frame_files)} 帧...")
 
     # 2. 加载音频并计算每段时长
     audio_clips = []
@@ -127,7 +123,14 @@ def compose_video(
 
     total_audio = sum(audio_durations)
 
-    # 3. 创建开场标题卡片
+    # 3. 预计算时间边界
+    title_duration = 2.5
+    cta_duration = 2.0
+    body_duration = total_audio
+    total_duration = title_duration + body_duration + cta_duration
+    num_body_frames = len(frame_files)
+
+    # 4. 预生成开场标题卡片帧
     console.print(f"  生成开场动画...")
     project_name = script.title.replace("介绍 ", "")
     title_frames = create_title_card(
@@ -135,61 +138,59 @@ def compose_video(
         subtitle="GitHub 项目推荐",
         width=VIDEO_WIDTH_H,
         height=VIDEO_HEIGHT_H,
-        duration_frames=int(2.5 * fps),  # 2.5秒
+        duration_frames=int(title_duration * fps),
     )
 
-    # 4. 创建结尾CTA卡片
+    # 5. 预生成结尾CTA卡片
     console.print(f"  生成结尾动画...")
     cta_card = create_cta_card("⭐ Star 收藏，支持开源")
-    cta_frames = []
-    for i in range(int(2 * fps)):  # 2秒
-        # 淡入效果
-        progress = min(1, i / (fps * 0.5))
-        alpha = int(255 * progress)
-        frame = Image.new('RGB', (VIDEO_WIDTH_H, VIDEO_HEIGHT_H), (15, 23, 42))
-        cta_with_alpha = cta_card.copy()
-        cta_with_alpha.putalpha(int(alpha * cta_with_alpha.getextrema()[3][1] / 255))
-        # 居中粘贴
-        x = (VIDEO_WIDTH_H - cta_card.width) // 2
-        y = (VIDEO_HEIGHT_H - cta_card.height) // 2
-        frame.paste(cta_with_alpha, (x, y), cta_with_alpha)
-        cta_frames.append(frame)
 
-    # 5. 合并所有帧：开场 + 主体 + 结尾
-    all_frames = []
+    # 6. 创建 make_frame 回调（按需加载帧，避免内存爆炸）
+    def make_frame(t):
+        if t < title_duration:
+            # 开场标题卡片
+            frame_idx = min(int(t * fps), len(title_frames) - 1)
+            return np.array(title_frames[frame_idx])
+        elif t < title_duration + body_duration:
+            # 主体帧（从磁盘按需加载）
+            body_t = t - title_duration
+            frame_idx = min(int(body_t * fps), num_body_frames - 1)
+            frame = Image.open(frame_files[frame_idx])
+            if frame_idx % 30 == 0:
+                frame = add_particles(frame, num_particles=15)
+            return np.array(frame)
+        else:
+            # 结尾CTA卡片
+            cta_t = t - title_duration - body_duration
+            frame_idx = min(int(cta_t * fps), int(cta_duration * fps) - 1)
+            progress = min(1, frame_idx / (fps * 0.5))
+            alpha = int(255 * progress)
+            frame = Image.new('RGB', (VIDEO_WIDTH_H, VIDEO_HEIGHT_H), (15, 23, 42))
+            cta_with_alpha = cta_card.copy()
+            if cta_with_alpha.mode != "RGBA":
+                cta_with_alpha = cta_with_alpha.convert("RGBA")
+            cta_with_alpha.putalpha(int(alpha * cta_with_alpha.getextrema()[3][1] / 255))
+            x = (VIDEO_WIDTH_H - cta_card.width) // 2
+            y = (VIDEO_HEIGHT_H - cta_card.height) // 2
+            frame.paste(cta_with_alpha, (x, y), cta_with_alpha)
+            return np.array(frame)
 
-    # 开场帧
-    for frame in title_frames:
-        all_frames.append(np.array(frame))
+    # 7. 创建视频片段
+    video_clip = VideoClip(make_frame=make_frame, duration=total_duration)
 
-    # 主体帧（添加粒子效果）
-    for i, frame_file in enumerate(frame_files):
-        frame = Image.open(frame_file)
-        # 每隔30帧添加一次粒子效果
-        if i % 30 == 0:
-            frame = add_particles(frame, num_particles=15)
-        all_frames.append(np.array(frame))
-
-    # 结尾帧
-    for frame in cta_frames:
-        all_frames.append(np.array(frame))
-
-    # 6. 创建视频片段
-    video_clip = ImageSequenceClip(all_frames, fps=fps)
-
-    # 7. 合并音频（添加静音填充开场和结尾）
+    # 8. 合并音频（添加静音填充开场和结尾）
+    title_audio = None
+    cta_audio = None
     if audio_clips:
-        # 开场静音
-        title_audio = AudioClip(lambda t: 0, duration=2.5, fps=44100)
-        # 结尾静音
-        cta_audio = AudioClip(lambda t: 0, duration=2, fps=44100)
+        title_audio = AudioClip(lambda t: 0, duration=title_duration, fps=44100)
+        cta_audio = AudioClip(lambda t: 0, duration=cta_duration, fps=44100)
 
         final_audio = concatenate_audioclips([title_audio] + audio_clips + [cta_audio])
         video_clip = video_clip.with_audio(final_audio)
 
-    # 8. 添加字幕（使用 Pillow 渲染带背景的大号字幕）
+    # 9. 添加字幕（使用 Pillow 渲染带背景的大号字幕）
     subtitle_clips = []
-    current_time = 2.5  # 从开场结束后开始
+    current_time = title_duration  # 从开场结束后开始
     for i, segment in enumerate(script.segments):
         if i < len(audio_durations):
             actual_duration = audio_durations[i]
@@ -212,13 +213,13 @@ def compose_video(
 
         current_time += actual_duration
 
-    # 9. 合成最终视频
+    # 10. 合成最终视频
     if subtitle_clips:
         final_clip = CompositeVideoClip([video_clip] + subtitle_clips)
     else:
         final_clip = video_clip
 
-    # 10. 输出视频
+    # 11. 输出视频
     console.print(f"  编码输出视频...")
     final_clip.write_videofile(
         str(output_path),
@@ -232,8 +233,15 @@ def compose_video(
 
     # 清理
     video_clip.close()
+    final_clip.close()
+    for clip in subtitle_clips:
+        clip.close()
     for clip in audio_clips:
         clip.close()
+    if title_audio:
+        title_audio.close()
+    if cta_audio:
+        cta_audio.close()
 
     console.print(f"  ✓ 视频已保存到: {output_path}")
     return output_path
