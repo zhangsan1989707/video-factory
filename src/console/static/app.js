@@ -60,6 +60,7 @@ function bindEvents() {
   $("confirmSelectionBtn").addEventListener("click", confirmSelection);
   $("saveScriptBtn").addEventListener("click", saveScript);
   $("regenerateCandidatesBtn").addEventListener("click", regenerateCandidates);
+  $("refreshCandidatesBtn").addEventListener("click", refreshCandidates);
   $("regenerateScriptBtn").addEventListener("click", regenerateScript);
   $("regenerateVideoBtn").addEventListener("click", regenerateVideo);
   $("cancelJobBtn").addEventListener("click", cancelCurrentJob);
@@ -285,6 +286,30 @@ async function regenerateCandidates() {
     state.qualityReport = null;
     renderJob(result.job);
     renderScript();
+    await refreshCurrentJob();
+    await loadJobs();
+    if (!isBackgroundStart(result)) switchTab("candidates");
+  } catch (error) {
+    alert(error.message);
+    await refreshCurrentJob();
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function refreshCandidates() {
+  if (!state.currentJobId) {
+    alert("请先创建任务");
+    return;
+  }
+  if (!confirm("将跳过缓存，直接从 GitHub API 拉取最新候选数据。已选项目和口播不会被清除。继续吗？")) return;
+  setBusy(true);
+  try {
+    switchTab("progress");
+    appendLogLine("正在跳过缓存，刷新候选数据...");
+    startPollingCurrentJob();
+    const result = await post(`/api/jobs/${state.currentJobId}/refresh-candidates`);
+    renderJob(result.job);
     await refreshCurrentJob();
     await loadJobs();
     if (!isBackgroundStart(result)) switchTab("candidates");
@@ -724,6 +749,7 @@ function updateRegenerateActions(job) {
   const scriptButton = $("regenerateScriptBtn");
   const videoButton = $("regenerateVideoBtn");
   const cancelButton = $("cancelJobBtn");
+  const refreshBtn = $("refreshCandidatesBtn");
   if (!candidatesButton || !scriptButton || !videoButton || !cancelButton) return;
   const stage = job.stage || "draft_pending";
   const status = job.status || "";
@@ -731,11 +757,14 @@ function updateRegenerateActions(job) {
   const isRunning = status === "running";
   const hasSelection = !["draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"].includes(stage);
   const hasScript = hasSelection && !["generating_script", "awaiting_script_confirmation"].includes(stage);
+  const canRefreshCandidates = hasJob && !isRunning &&
+    ["draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"].includes(stage);
   candidatesButton.disabled = !hasJob || isRunning;
   scriptButton.disabled = !hasJob || isRunning || !hasSelection;
   videoButton.disabled = !hasJob || isRunning || !hasScript;
   cancelButton.disabled = !hasJob || !isRunning || Boolean(job.cancel_requested);
   cancelButton.textContent = job.cancel_requested ? "取消中" : "取消任务";
+  if (refreshBtn) refreshBtn.disabled = !canRefreshCandidates;
 }
 
 function nextActionForJob(job) {

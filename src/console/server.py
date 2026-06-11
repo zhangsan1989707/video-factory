@@ -196,6 +196,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     if action == "candidates":
                         self._json(start_candidates_job(job_id))
                         return
+                    if action == "refresh-candidates":
+                        self._json(start_refresh_candidates_job(job_id))
+                        return
                     if action == "regenerate-candidates":
                         self._json(start_regenerate_candidates_job(job_id))
                         return
@@ -380,13 +383,26 @@ def start_render_job(job_id: str) -> dict:
 
 def start_candidates_job(job_id: str) -> dict:
     job = _ensure_job_exists(job_id)
-    if str(job.get("stage") or "") not in {"draft_pending", "collecting_candidates", "analyzing_candidates"}:
+    if str(job.get("stage") or "") not in {"draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"}:
         raise ValueError(f"当前阶段不能生成候选项目: {job.get('stage') or 'unknown'}")
 
     async def worker(_job_id: str) -> None:
         await generate_candidates(_job_id)
 
     return _start_background_action(job_id, worker, "后台候选任务失败")
+
+
+def start_refresh_candidates_job(job_id: str) -> dict:
+    job = _ensure_job_exists(job_id)
+    if str(job.get("stage") or "") not in {"draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"}:
+        raise ValueError(f"当前阶段不能刷新候选: {job.get('stage') or 'unknown'}")
+    if str(job.get("status") or "") == "running":
+        raise ValueError("任务运行中，不能刷新")
+
+    async def worker(_job_id: str) -> None:
+        await generate_candidates(_job_id, force_refresh=True)
+
+    return _start_background_action(job_id, worker, "后台刷新候选任务失败")
 
 
 def start_regenerate_candidates_job(job_id: str) -> dict:

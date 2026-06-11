@@ -54,12 +54,12 @@ def create_hotlist_job(payload: dict[str, Any]) -> dict[str, Any]:
     raise last_error or ValueError("无法创建任务")
 
 
-async def generate_candidates(job_id: str) -> dict[str, Any]:
+async def generate_candidates(job_id: str, force_refresh: bool = False) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
-    _require_stage(job, {"draft_pending", "collecting_candidates", "analyzing_candidates"}, "当前阶段不能生成候选项目")
-    return await _generate_candidates_snapshot(job_id, job)
+    _require_stage(job, {"draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"}, "当前阶段不能生成候选项目")
+    return await _generate_candidates_snapshot(job_id, job, force_refresh=force_refresh)
 
 
 async def regenerate_candidates(job_id: str) -> dict[str, Any]:
@@ -69,9 +69,15 @@ async def regenerate_candidates(job_id: str) -> dict[str, Any]:
 
 
 async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_refresh: bool = False) -> dict[str, Any]:
-    _clear_candidate_artifacts(job_id)
+    is_refresh = force_refresh and str(job.get("stage") or "") == "awaiting_project_confirmation"
+    if is_refresh:
+        _clear_candidates_only(job_id)
+        append_log(job_id, "已请求跳过缓存，仅刷新候选数据，保留已选项目和口播。")
+    else:
+        _clear_candidate_artifacts(job_id)
     update_job(job_id, status="running", stage="collecting_candidates", failed_stage="", error="")
-    append_log(job_id, f"开始拉取 {job.get('time_window', 'weekly')} 候选项目。")
+    append_log(job_id, f"开始拉取 {job.get('time_window', 'weekly')} 候选项目。"
+               + ("（跳过缓存）" if force_refresh else ""))
     try:
         result = await collect_candidates_with_meta(
             time_window=str(job.get("time_window") or "weekly"),
@@ -275,6 +281,13 @@ def _clear_candidate_artifacts(job_id: str) -> None:
             path.unlink()
     _clear_script_metadata(job_id)
     _clear_plan_artifacts(job_id)
+
+
+def _clear_candidates_only(job_id: str) -> None:
+    """Only clear candidates.json, preserving selected projects and narration."""
+    path = JOBS_DIR / job_id / "candidates.json"
+    if path.exists() and path.is_file():
+        path.unlink()
 
 
 def _clear_plan_artifacts(job_id: str) -> None:
