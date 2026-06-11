@@ -2,13 +2,14 @@
 
 from pathlib import Path
 
-from moviepy import AudioClip, AudioFileClip, ImageSequenceClip, concatenate_audioclips
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from moviepy import AudioClip, AudioFileClip, VideoClip, concatenate_audioclips
+from PIL import Image, ImageDraw, ImageFilter
 import numpy as np
 from rich.console import Console
 
 from src.models import DesktopReviewPlan, VideoScript
 from src.utils.config import VIDEO_FPS
+from src.utils.render import get_font, ease_out, create_cursor
 
 console = Console()
 
@@ -18,16 +19,6 @@ PAGE_W = 1380
 PAGE_H = 880
 
 
-def _font(size: int):
-    try:
-        return ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", size)
-    except Exception:
-        return ImageFont.load_default()
-
-
-def _ease(t: float) -> float:
-    return 1 - (1 - t) * (1 - t)
-
 
 def _draw_text_stroke(draw: ImageDraw.ImageDraw, pos, text: str, font, fill, stroke, width: int) -> None:
     draw.text(pos, text, font=font, fill=fill, stroke_width=width, stroke_fill=stroke)
@@ -35,26 +26,18 @@ def _draw_text_stroke(draw: ImageDraw.ImageDraw, pos, text: str, font, fill, str
 
 def _cursor() -> Image.Image:
     """创建更显眼的鼠标指针（比参考视频大 1.5 倍）"""
-    img = Image.new("RGBA", (96, 96), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    # 外框（黑色阴影）
-    outline = [(10, 6), (10, 78), (28, 58), (46, 92), (62, 82), (44, 52), (76, 48)]
-    draw.polygon(outline, fill=(0, 0, 0, 230))
-    # 内部（白色填充）
-    inner = [(18, 16), (18, 68), (32, 52), (50, 84), (56, 80), (38, 44), (62, 40)]
-    draw.polygon(inner, fill=(255, 255, 255, 255))
-    return img
+    return create_cursor(96)
 
 
 def _render_intro_card(project_name: str, hook_text: str, progress: float) -> Image.Image:
     """渲染开场卡：中文大标题 + 项目核心价值"""
-    canvas = _desktop_background().convert("RGBA")
+    canvas = _get_desktop_background().convert("RGBA")
     draw = ImageDraw.Draw(canvas)
 
     # 标题字体
-    title_font = _font(88)
-    hook_font = _font(48)
-    sub_font = _font(36)
+    title_font = get_font(88)
+    hook_font = get_font(48)
+    sub_font = get_font(36)
 
     # 标题：项目名称
     title_text = project_name
@@ -111,6 +94,16 @@ def _desktop_background() -> Image.Image:
     return bg.convert("RGB")
 
 
+_CACHED_BG = None
+
+
+def _get_desktop_background():
+    global _CACHED_BG
+    if _CACHED_BG is None:
+        _CACHED_BG = _desktop_background()
+    return _CACHED_BG
+
+
 def _crop_for_zoom(page: Image.Image, bounds: dict | None, zoom: float, progress: float) -> tuple[Image.Image, tuple[int, int]]:
     if zoom <= 1.02:
         mouse = (PAGE_W // 2, PAGE_H // 2)
@@ -118,7 +111,7 @@ def _crop_for_zoom(page: Image.Image, bounds: dict | None, zoom: float, progress
             mouse = (int(bounds["x"] + bounds["width"] / 2), int(bounds["y"] + bounds["height"] / 2))
         return page, mouse
 
-    target_zoom = 1 + (zoom - 1) * _ease(progress)
+    target_zoom = 1 + (zoom - 1) * ease_out(progress)
     crop_w = int(PAGE_W / target_zoom)
     crop_h = int(PAGE_H / target_zoom)
     if bounds:
@@ -147,13 +140,13 @@ def _render_frame(
         page = Image.new("RGB", (PAGE_W, PAGE_H), (13, 17, 23))
 
     page, mouse_pos = _crop_for_zoom(page, bounds, shot.zoom, progress)
-    canvas = _desktop_background().convert("RGBA")
+    canvas = _get_desktop_background().convert("RGBA")
     draw = ImageDraw.Draw(canvas)
 
-    top_font = _font(70)
-    account_font = _font(52)
-    bottom_font = _font(68)
-    label_font = _font(28)
+    top_font = get_font(70)
+    account_font = get_font(52)
+    bottom_font = get_font(68)
+    label_font = get_font(28)
 
     _draw_text_stroke(draw, (24, 8), plan.hook_title, top_font, (255, 255, 255), (235, 0, 72), 8)
     account = plan.account_label
@@ -210,8 +203,8 @@ def _render_frame(
     start = (CANVAS_W - 160, CANVAS_H - 200)
     end = (win_x + mouse_pos[0] - 18, win_y + mouse_pos[1] - 12)
     move = min(1.0, progress / 0.42)
-    cursor_x = int(start[0] + (end[0] - start[0]) * _ease(move))
-    cursor_y = int(start[1] + (end[1] - start[1]) * _ease(move))
+    cursor_x = int(start[0] + (end[0] - start[0]) * ease_out(move))
+    cursor_y = int(start[1] + (end[1] - start[1]) * ease_out(move))
 
     # 鼠标到达后，添加点击/指向效果
     if progress > 0.58:
@@ -248,50 +241,72 @@ def compose_desktop_review_video(
         else:
             audio_durations.append(segment.duration)
 
-    frames = []
     preview_dir.mkdir(parents=True, exist_ok=True)
 
     # 开场卡：2 秒
     intro_duration = 2.0
-    intro_frames_count = int(intro_duration * fps)
     project_name = plan.title.split(":")[0] if ":" in plan.title else plan.title
     hook_text = plan.shots[0].narration[:20] + "..." if len(plan.shots[0].narration) > 20 else plan.shots[0].narration
 
-    console.print("  生成开场卡...")
-    for frame_i in range(intro_frames_count):
-        progress = frame_i / max(1, intro_frames_count - 1)
-        frame = _render_intro_card(project_name, hook_text, progress)
-        frames.append(np.array(frame))
-    # 保存开场卡预览
+    # 预计算每个 shot 的时长和动态帧数
+    shot_durations = []
+    shot_dynamic_counts = []
+    for i, info in enumerate(frames_info):
+        duration = audio_durations[i] if i < len(audio_durations) else plan.shots[i].duration
+        shot_durations.append(duration)
+        total_frames = max(1, int(duration * fps))
+        dynamic_frames = min(total_frames, max(8, int(duration * 6)))
+        shot_dynamic_counts.append(dynamic_frames)
+
+    total_duration = intro_duration + sum(shot_durations)
+
+    # 保存预览帧
+    console.print("  生成预览帧...")
     intro_preview = _render_intro_card(project_name, hook_text, 0.5)
     intro_preview.save(preview_dir / "desktop-shot-00-intro.png")
 
-    # 正常视频内容
     for i, info in enumerate(frames_info):
-        duration = audio_durations[i] if i < len(audio_durations) else plan.shots[i].duration
-        total_frames = max(1, int(duration * fps))
-        dynamic_frames = min(total_frames, max(8, int(duration * 6)))
-        rendered = []
-        preview = None
-        for frame_i in range(dynamic_frames):
-            progress = frame_i / max(1, dynamic_frames - 1)
-            frame = _render_frame(plan, info["path"], info.get("bounds"), i, progress)
-            if frame_i == min(dynamic_frames - 1, max(0, int(dynamic_frames * 0.55))):
-                preview = frame
-            rendered.append(np.array(frame))
-        for frame_i in range(total_frames):
-            source_i = min(dynamic_frames - 1, int(frame_i * dynamic_frames / total_frames))
-            frames.append(rendered[source_i])
-        if preview:
-            preview.save(preview_dir / f"desktop-shot-{i + 1:02d}.png")
+        dynamic_frames = shot_dynamic_counts[i]
+        preview_progress = min(1.0, max(0.0, 0.55))
+        preview_frame_i = min(dynamic_frames - 1, max(0, int(dynamic_frames * 0.55)))
+        progress = preview_frame_i / max(1, dynamic_frames - 1)
+        frame = _render_frame(plan, info["path"], info.get("bounds"), i, progress)
+        frame.save(preview_dir / f"desktop-shot-{i + 1:02d}.png")
 
-    video_clip = ImageSequenceClip(frames, fps=fps)
+    # 构建 make_frame 回调
+    def make_frame(t: float):
+        if t < intro_duration:
+            # 开场卡区域
+            progress = t / intro_duration if intro_duration > 0 else 1.0
+            frame = _render_intro_card(project_name, hook_text, progress)
+            return np.array(frame)
+
+        # 正常 shot 区域
+        remaining = t - intro_duration
+        shot_index = 0
+        for i, dur in enumerate(shot_durations):
+            if remaining < dur:
+                shot_index = i
+                break
+            remaining -= dur
+        else:
+            shot_index = len(shot_durations) - 1
+            remaining = shot_durations[-1] if shot_durations else 0
+
+        duration = shot_durations[shot_index]
+        progress = min(1.0, remaining / duration) if duration > 0 else 1.0
+        info = frames_info[shot_index]
+        frame = _render_frame(plan, info["path"], info.get("bounds"), shot_index, progress)
+        return np.array(frame)
+
+    video_clip = VideoClip(make_frame, duration=total_duration)
 
     # 开场卡没有音频，需要添加静音
     intro_audio = AudioClip(lambda t: 0, duration=intro_duration, fps=44100)
+    all_audio = None
     if audio_clips:
-        all_audio = [intro_audio] + audio_clips
-        video_clip = video_clip.with_audio(concatenate_audioclips(all_audio))
+        all_audio = concatenate_audioclips([intro_audio] + audio_clips)
+        video_clip = video_clip.with_audio(all_audio)
     else:
         video_clip = video_clip.with_audio(intro_audio)
 
@@ -307,6 +322,9 @@ def compose_desktop_review_video(
         logger=None,
     )
     video_clip.close()
+    intro_audio.close()
+    if all_audio is not None:
+        all_audio.close()
     for clip in audio_clips:
         clip.close()
     console.print(f"  ✓ desktop-review 视频已保存到: {output_path}")
