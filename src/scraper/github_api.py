@@ -3,34 +3,39 @@
 import httpx
 
 from src.models import ProjectInfo
-from src.utils.config import GITHUB_TOKEN
 
 GITHUB_API = "https://api.github.com"
 
-HEADERS = {
-    "Accept": "application/vnd.github.v3+json",
-    "User-Agent": "github-video-maker",
-}
 
-if GITHUB_TOKEN:
-    HEADERS["Authorization"] = f"token {GITHUB_TOKEN}"
+def _get_headers() -> dict:
+    """获取 GitHub API 请求头（延迟读取 Token）"""
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "github-video-maker",
+    }
+    from src.utils.config import GITHUB_TOKEN
+    if GITHUB_TOKEN:
+        headers["Authorization"] = f"token {GITHUB_TOKEN}"
+    return headers
 
 
 async def fetch_repo_info(owner: str, repo: str) -> ProjectInfo:
     """通过 GitHub API 获取仓库信息"""
     async with httpx.AsyncClient(timeout=30.0) as client:
+        headers = _get_headers()
         # 获取仓库基本信息
         repo_resp = await client.get(
             f"{GITHUB_API}/repos/{owner}/{repo}",
-            headers=HEADERS,
+            headers=headers,
         )
         repo_resp.raise_for_status()
         repo_data = repo_resp.json()
 
         # 获取 README 内容
+        readme_headers = {**headers, "Accept": "application/vnd.github.v3.raw"}
         readme_resp = await client.get(
             f"{GITHUB_API}/repos/{owner}/{repo}/readme",
-            headers={**HEADERS, "Accept": "application/vnd.github.v3.raw"},
+            headers=readme_headers,
         )
         readme_text = ""
         if readme_resp.status_code == 200:

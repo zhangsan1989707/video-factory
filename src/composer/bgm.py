@@ -24,16 +24,19 @@ def find_bgm() -> Path | None:
 
 def _get_duration(video_path: Path) -> float:
     """用 ffprobe 获取视频时长（秒）"""
-    result = subprocess.run(
-        [
-            "ffprobe", "-v", "quiet",
-            "-show_entries", "format=duration",
-            "-of", "csv=p=0",
-            str(video_path),
-        ],
-        capture_output=True, text=True,
-    )
-    return float(result.stdout.strip())
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "quiet",
+                "-show_entries", "format=duration",
+                "-of", "csv=p=0",
+                str(video_path),
+            ],
+            capture_output=True, text=True,
+        )
+        return float(result.stdout.strip())
+    except (subprocess.SubprocessError, ValueError, FileNotFoundError):
+        return 0.0
 
 
 def add_bgm(

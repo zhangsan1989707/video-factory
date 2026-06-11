@@ -84,6 +84,11 @@ def get_audio_duration(audio_path: Path) -> float:
             capture_output=True,
             text=True,
         )
-        return float(result.stdout.strip())
-    except Exception:
-        return 5.0  # 默认 5 秒
+        duration = float(result.stdout.strip())
+        if duration <= 0:
+            console.print(f"  [yellow]⚠ 音频时长异常: {audio_path.name} ({duration}s)，使用默认 5.0s[/yellow]")
+            return 5.0
+        return duration
+    except Exception as e:
+        console.print(f"  [yellow]⚠ 获取音频时长失败: {audio_path.name} ({e})，使用默认 5.0s[/yellow]")
+        return 5.0
