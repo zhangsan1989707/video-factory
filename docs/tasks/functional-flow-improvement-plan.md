@@ -293,7 +293,7 @@ HyperFrames 分支会先把状态设为 `generating_tts`，随后很快设为 `c
 
 ### P1-4 增强预检为真实 smoke check
 
-状态：`todo`
+状态：`done`
 
 问题：
 
@@ -310,6 +310,16 @@ HyperFrames 分支会先把状态设为 `generating_tts`，随后很快设为 `c
 - 预检报告区分“依赖存在”和“真实 smoke 通过”。
 - smoke 检查失败时给出可执行修复建议。
 - 不显著拖慢控制台启动。
+
+验收证据：
+
+- `2026-06-12`：`.venv/bin/python -m pytest tests/test_console_preflight.py -q`
+- `2026-06-12`：手动快照：`preflight_snapshot()` 返回 `ready 本机渲染依赖和 smoke 均可用。`
+- 回归覆盖：
+  - `test_preflight_snapshot_reports_required_render_checks`
+  - `test_preflight_summary_mentions_smoke_when_all_smoke_checks_pass`
+  - `test_ffmpeg_smoke_failure_is_blocking_and_actionable`
+  - `test_preflight_endpoint_returns_snapshot`
 
 参考位置：
 
@@ -428,6 +438,7 @@ git diff --check
 
 | 日期 | 更新 | 证据 |
 | --- | --- | --- |
+| 2026-06-12 | 完成 P1-4：预检新增 `ffmpeg/ffprobe` 短视频 smoke 和 HyperFrames CLI smoke，摘要可区分真实 smoke 状态并给出修复建议 | `.venv/bin/python -m pytest tests/test_console_preflight.py -q` ; `preflight_snapshot()` |
 | 2026-06-12 | 完成 P1-3：右侧工作台支持内嵌最终视频预览、封面/时长/大小/版本列表展示，并提供发布标题/标签/描述复制按钮 | `.venv/bin/python -m pytest tests/test_console_jobs.py -q` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P1-1：候选区补充缓存/AI/启发式来源标识，口播区明确 AI 成功与回退状态，产物摘要展示最近模型调用与口播来源 | `.venv/bin/python -m pytest tests/test_console_jobs.py -q` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P0-3：`daily_growth` 统一改为“估算日均 star”口径，候选表/发布辅助包/准备度报告展示数据说明，质检可拦截“真实增长”类口播 | `.venv/bin/python tests/test_github_hotlist.py` ; `.venv/bin/python tests/test_console_jobs.py` ; `.venv/bin/python tests/test_hotlist_v2_render.py` ; `node tests/test_console_static_app.js` |

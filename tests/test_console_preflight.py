@@ -28,6 +28,48 @@ class ConsolePreflightTest(unittest.TestCase):
         self.assertIn("playwright.browsers", check_ids)
         self.assertIn("python.edge_tts", check_ids)
         self.assertIn("config.model_provider", check_ids)
+        self.assertIn("smoke.ffmpeg_ffprobe", check_ids)
+        self.assertIn("smoke.hyperframes_cli", check_ids)
+
+    def test_preflight_summary_mentions_smoke_when_all_smoke_checks_pass(self) -> None:
+        with (
+            patch("src.console.preflight._ffmpeg_smoke_check", return_value={
+                "id": "smoke.ffmpeg_ffprobe",
+                "label": "ffmpeg/ffprobe smoke",
+                "status": "ok",
+                "severity": "blocking",
+                "message": "短视频 smoke 通过。",
+            }),
+            patch("src.console.preflight._hyperframes_cli_smoke_check", return_value={
+                "id": "smoke.hyperframes_cli",
+                "label": "HyperFrames CLI smoke",
+                "status": "ok",
+                "severity": "blocking",
+                "message": "HyperFrames CLI 可启动。",
+            }),
+        ):
+            report = preflight_snapshot()
+
+        self.assertIn("smoke", report["summary"])
+
+    def test_ffmpeg_smoke_failure_is_blocking_and_actionable(self) -> None:
+        with (
+            patch("src.console.preflight.shutil.which", return_value=None),
+            patch("src.console.preflight._hyperframes_cli_smoke_check", return_value={
+                "id": "smoke.hyperframes_cli",
+                "label": "HyperFrames CLI smoke",
+                "status": "ok",
+                "severity": "blocking",
+                "message": "HyperFrames CLI 可启动。",
+            }),
+        ):
+            report = preflight_snapshot()
+
+        check = next(item for item in report["checks"] if item["id"] == "smoke.ffmpeg_ffprobe")
+        self.assertEqual(check["status"], "missing")
+        self.assertEqual(check["severity"], "blocking")
+        self.assertIn("请先安装 ffmpeg", check["message"])
+        self.assertEqual(report["status"], "blocked")
 
     def test_model_provider_check_warns_when_configured_provider_failed_last_test(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

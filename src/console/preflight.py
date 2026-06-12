@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -24,25 +26,28 @@ def preflight_snapshot() -> dict[str, Any]:
         _node_package_check("node.hyperframes", "hyperframes"),
         _playwright_browser_check(),
         *_config_checks(),
+        _ffmpeg_smoke_check(),
+        _hyperframes_cli_smoke_check(),
     ]
     blocking = [item for item in checks if item["status"] == "missing" and item["severity"] == "blocking"]
     warnings = [item for item in checks if item["status"] in {"missing", "warning"} and item["severity"] == "warning"]
+    smoke_failed = [item for item in checks if item["id"].startswith("smoke.") and item["status"] == "missing"]
     status = "ready" if not blocking else "blocked"
     return {
         "status": status,
-        "summary": _summary(status, len(warnings)),
+        "summary": _summary(status, len(warnings), not smoke_failed),
         "blocking_count": len(blocking),
         "warning_count": len(warnings),
         "checks": checks,
     }
 
 
-def _summary(status: str, warning_count: int) -> str:
+def _summary(status: str, warning_count: int, smoke_passed: bool = True) -> str:
     if status != "ready":
-        return "本机渲染依赖不完整，最终出片可能失败。"
+        return "本机渲染依赖或 smoke 检查未通过，最终出片可能失败。"
     if warning_count:
-        return f"本机渲染依赖可用，但有 {warning_count} 项配置警告。"
-    return "本机渲染依赖可用。"
+        return f"本机渲染依赖和 smoke 可用，但有 {warning_count} 项配置警告。"
+    return "本机渲染依赖和 smoke 均可用。"
 
 
 def _module_check(check_id: str, module_name: str) -> dict[str, Any]:
@@ -94,6 +99,117 @@ def _playwright_browser_check() -> dict[str, Any]:
     }
 
 
+def _ffmpeg_smoke_check() -> dict[str, Any]:
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        return _smoke_result(
+            "smoke.ffmpeg_ffprobe",
+            "ffmpeg/ffprobe smoke",
+            False,
+            "缺少 ffmpeg 或 ffprobe，无法执行短视频 smoke。请先安装 ffmpeg 并确认命令在 PATH 中。",
+        )
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "smoke.mp4"
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:s=16x16:d=0.2",
+                    "-an",
+                    "-y",
+                    str(output),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            probe = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(output),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            duration = float((probe.stdout or "").strip())
+            return _smoke_result(
+                "smoke.ffmpeg_ffprobe",
+                "ffmpeg/ffprobe smoke",
+                output.exists() and duration > 0,
+                f"短视频 smoke 通过，样例时长 {duration:.1f}s。",
+            )
+    except Exception as exc:
+        return _smoke_result(
+            "smoke.ffmpeg_ffprobe",
+            "ffmpeg/ffprobe smoke",
+            False,
+            f"ffmpeg/ffprobe smoke 失败：{_short_error(exc)}。请执行 ffmpeg -version 和 ffprobe -version 排查安装与编码器。",
+        )
+
+
+def _hyperframes_cli_smoke_check() -> dict[str, Any]:
+    if not shutil.which("npx"):
+        return _smoke_result(
+            "smoke.hyperframes_cli",
+            "HyperFrames CLI smoke",
+            False,
+            "缺少 npx，无法验证 HyperFrames CLI。请安装 Node.js/npm。",
+        )
+    if not (ROOT_DIR / "node_modules" / "hyperframes" / "package.json").exists():
+        return _smoke_result(
+            "smoke.hyperframes_cli",
+            "HyperFrames CLI smoke",
+            False,
+            "缺少 HyperFrames Node 依赖。请运行 npm install。",
+        )
+    try:
+        subprocess.run(
+            ["npx", "hyperframes", "--help"],
+            cwd=ROOT_DIR,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return _smoke_result(
+            "smoke.hyperframes_cli",
+            "HyperFrames CLI smoke",
+            True,
+            "HyperFrames CLI 可启动。",
+        )
+    except Exception as exc:
+        return _smoke_result(
+            "smoke.hyperframes_cli",
+            "HyperFrames CLI smoke",
+            False,
+            f"HyperFrames CLI smoke 失败：{_short_error(exc)}。请运行 npm install 或 npx hyperframes doctor。",
+        )
+
+
+def _smoke_result(check_id: str, label: str, ok: bool, message: str) -> dict[str, Any]:
+    return {
+        "id": check_id,
+        "label": label,
+        "status": "ok" if ok else "missing",
+        "severity": "blocking",
+        "message": message,
+    }
+
+
 def _config_checks() -> list[dict[str, Any]]:
     config = config_snapshot()
     providers = config.get("providers", {}).get("providers", [])
@@ -131,3 +247,7 @@ def _model_provider_status(providers: list[dict[str, Any]]) -> tuple[str, str]:
         return "warning", f"{len(providers)} 个供应商已配置，但最近连接测试失败"
 
     return "warning", f"{len(providers)} 个供应商已配置，但尚未通过连接测试"
+
+
+def _short_error(exc: Exception) -> str:
+    return str(exc).replace("\n", " ")[:180] or exc.__class__.__name__
