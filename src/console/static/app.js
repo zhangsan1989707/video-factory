@@ -224,6 +224,10 @@ function isBackgroundStart(result) {
   return Boolean(result && result.started);
 }
 
+function hasBackgroundWork(job) {
+  return Boolean(job && (job.active || job.status === "running"));
+}
+
 function clearCurrentJob() {
   state.currentJobId = "";
   state.currentJob = null;
@@ -535,7 +539,7 @@ async function refreshCurrentJob() {
   renderDiagnostics(detail);
   renderArtifactSummary(detail);
   renderArtifacts(detail.artifacts || {});
-  if (detail.job && detail.job.status !== "running") stopPollingCurrentJob();
+  if (detail.job && !hasBackgroundWork(detail.job)) stopPollingCurrentJob();
 }
 
 function syncDetailState(detail) {
@@ -754,7 +758,7 @@ function updateRegenerateActions(job) {
   const stage = job.stage || "draft_pending";
   const status = job.status || "";
   const hasJob = Boolean(job.id);
-  const isRunning = status === "running";
+  const isRunning = hasBackgroundWork(job);
   const hasSelection = !["draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"].includes(stage);
   const hasScript = hasSelection && !["generating_script", "awaiting_script_confirmation"].includes(stage);
   const canRefreshCandidates = hasJob && !isRunning &&
@@ -770,6 +774,9 @@ function updateRegenerateActions(job) {
 function nextActionForJob(job) {
   const stage = job.stage || "draft_pending";
   const status = job.status || "";
+  if (hasBackgroundWork(job)) {
+    return { label: "任务执行中", action: "running", disabled: true };
+  }
   if (stage === "awaiting_project_confirmation") {
     return { label: "确认项目并生成口播", action: "confirm-selection", disabled: false };
   }
@@ -787,9 +794,6 @@ function nextActionForJob(job) {
   }
   if (status === "completed") {
     return { label: "已完成", action: "completed", disabled: true };
-  }
-  if (status === "running") {
-    return { label: "任务执行中", action: "running", disabled: true };
   }
   if (status === "failed") {
     const retryActions = {
@@ -1419,5 +1423,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, createDraft, focusScriptSegment, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, createDraft, focusScriptSegment, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

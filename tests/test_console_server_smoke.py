@@ -378,6 +378,33 @@ class ConsoleServerSmokeTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertTrue(job_dir_exists)
 
+    def test_job_detail_reports_active_flag_while_background_context_is_open(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+            ):
+                job = create_job("GH-HOTLIST-20990101-ACTIVE-DETAIL", {})
+                update_job(job["id"], status="awaiting_input", stage="awaiting_project_confirmation")
+
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                try:
+                    with active_job(job["id"]):
+                        detail = _get(base_url, f"/api/jobs/{job['id']}")
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+        self.assertTrue(detail["job"]["active"])
+        self.assertEqual(detail["job"]["status"], "awaiting_input")
+        self.assertEqual(detail["job"]["stage"], "awaiting_project_confirmation")
+
     def test_cancel_job_endpoint_marks_active_job_cancel_requested(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp) / "jobs"

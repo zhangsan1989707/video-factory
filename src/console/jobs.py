@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
-from src.console.background import JobCancelled, raise_if_cancelled
+from src.console.background import JobCancelled, is_active, raise_if_cancelled
 from src.console.github_hotlist import ESTIMATED_GROWTH_NOTE, collect_candidates_with_meta
 from src.console.model_router import chat_json_detail, route_snapshot
 from src.console.store import (
@@ -577,6 +577,7 @@ def job_detail(job_id: str) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
+    job = {**job, "active": is_active(job_id)}
     model_calls = job.get("model_calls") or []
     return {
         "job": job,

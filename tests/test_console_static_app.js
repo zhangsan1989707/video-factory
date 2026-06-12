@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, createDraft, focusScriptSegment, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, createDraft, focusScriptSegment, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -9,6 +9,7 @@ async function run() {
   testFailedJobsExposeRetryActions();
   testPlanStagesExposeSeparateActions();
   testDraftJobsExposeSeparateCreateAndCollectActions();
+  testActiveAwaitingInputKeepsActionsBlocked();
   testRegenerateButtonsFollowStage();
   testUnverifiedQualityDoesNotHardBlockRender();
   testRenderTemplateStylesPopulatesStyleSelect();
@@ -152,6 +153,15 @@ function testDraftJobsExposeSeparateCreateAndCollectActions() {
   assert.equal(candidateEmptyMessage(), "还没有任务。先选择时间维度和项目数，再点击“创建任务”。");
   state.currentJobId = "GH-HOTLIST-20990101-001";
   assert.equal(candidateEmptyMessage(), "任务已创建。点击“生成候选草稿”拉取候选项目。");
+}
+
+function testActiveAwaitingInputKeepsActionsBlocked() {
+  assert.equal(hasBackgroundWork({ status: "awaiting_input", stage: "awaiting_project_confirmation", active: true }), true);
+  assert.deepEqual(nextActionForJob({ status: "awaiting_input", stage: "awaiting_project_confirmation", active: true }), {
+    label: "任务执行中",
+    action: "running",
+    disabled: true,
+  });
 }
 
 async function testCreateDraftDoesNotCollectCandidates() {
@@ -300,6 +310,12 @@ function testRegenerateButtonsFollowStage() {
   updateRegenerateActions({ id: "job-1", status: "running", stage: "composing_video", cancel_requested: true });
   assert.equal(nodes.cancelJobBtn.disabled, true);
   assert.equal(nodes.cancelJobBtn.textContent, "取消中");
+
+  updateRegenerateActions({ id: "job-1", status: "awaiting_input", stage: "awaiting_project_confirmation", active: true });
+  assert.equal(nodes.regenerateCandidatesBtn.disabled, true);
+  assert.equal(nodes.regenerateScriptBtn.disabled, true);
+  assert.equal(nodes.regenerateVideoBtn.disabled, true);
+  assert.equal(nodes.cancelJobBtn.disabled, false);
 }
 
 function testUnverifiedQualityDoesNotHardBlockRender() {
