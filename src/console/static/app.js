@@ -775,7 +775,7 @@ function updateActionState(job) {
   button.dataset.action = action;
   button.disabled = disabled;
   confirmSelection.textContent = "确认项目并生成口播";
-  confirmSelection.disabled = action !== "confirm-selection";
+  updateSelectionState();
   saveScriptButton.textContent = "确认口播并进入出片";
   saveScriptButton.disabled = action !== "confirm-script";
   updateRegenerateActions(job);
