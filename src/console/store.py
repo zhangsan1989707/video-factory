@@ -78,6 +78,7 @@ DEFAULT_GITHUB = {"token": "", "last_rate_limit": "未检测"}
 
 DEFAULT_SCHEDULER = {
     "enabled": False,
+    "mode": "candidates_only",
     "frequency": "daily",
     "time": "09:00",
     "time_window": "daily",
@@ -625,6 +626,8 @@ def _normalize_scheduler(data: dict[str, Any], preserve_last_run: bool = True) -
     current = read_json(CONFIG_DIR / "scheduler.json", DEFAULT_SCHEDULER) if preserve_last_run else {}
     item = dict(data)
     item["enabled"] = bool_value(item.get("enabled"))
+    if item.get("mode") not in {"candidates_only", "auto_script"}:
+        item["mode"] = DEFAULT_SCHEDULER["mode"]
     if item.get("frequency") not in {"daily", "weekly"}:
         item["frequency"] = DEFAULT_SCHEDULER["frequency"]
     item["time_window"] = normalize_time_window(item.get("time_window"), DEFAULT_SCHEDULER["time_window"])

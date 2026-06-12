@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from src.console.background import active_job
-from src.console.jobs import create_hotlist_job, generate_candidates
+from src.console.jobs import create_hotlist_job, generate_candidates, save_selection
 from src.console.store import CONFIG_DIR, DEFAULT_SCHEDULER, DEFAULT_TEMPLATES, bool_value, config_snapshot, normalize_project_count, normalize_time_window, read_json, update_scheduler_last_run
 from src.hotlist_v2.template import normalize_style
 
@@ -41,6 +41,8 @@ def run_due_scheduled_draft(now: datetime | None = None) -> dict[str, Any]:
         job = create_hotlist_job(payload)
         with active_job(job["id"]):
             result = asyncio.run(generate_candidates(job["id"]))
+            if schedule.get("mode") == "auto_script":
+                result = _generate_scheduled_script(job["id"], result, normalize_project_count(schedule.get("project_count")))
         _mark_schedule_run(run_key)
         return {"started": True, "reason": "due", "job": {**job, **(result.get("job") or {})}}
     finally:
@@ -94,6 +96,8 @@ def _run_key(schedule: dict[str, Any], now: datetime) -> str:
 def _normalized_schedule(schedule: dict[str, Any]) -> dict[str, Any]:
     data = dict(schedule)
     data["enabled"] = bool_value(data.get("enabled"))
+    if data.get("mode") not in {"candidates_only", "auto_script"}:
+        data["mode"] = DEFAULT_SCHEDULER["mode"]
     if data.get("frequency") not in {"daily", "weekly"}:
         data["frequency"] = DEFAULT_SCHEDULER["frequency"]
     data["time_window"] = normalize_time_window(data.get("time_window"), DEFAULT_SCHEDULER["time_window"])
@@ -108,6 +112,14 @@ def _normalized_schedule(schedule: dict[str, Any]) -> dict[str, Any]:
             params["style"] = normalize_style(str(params.get("style") or ""))
         data["template_params"] = params
     return data
+
+
+def _generate_scheduled_script(job_id: str, result: dict[str, Any], project_count: int) -> dict[str, Any]:
+    candidates = result.get("candidates") or []
+    selected = candidates[:project_count]
+    if not selected:
+        raise RuntimeError("定时脚本模式没有可用候选项目")
+    return save_selection(job_id, {"items": selected})
 
 
 def _mark_schedule_run(run_key: str) -> None:

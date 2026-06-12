@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduler, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -30,6 +30,7 @@ async function run() {
   testNarrationSourceLabelShowsFallbackReason();
   testModelSummaryLabelCombinesLatestCallAndNarrationSource();
   testRenderPublishActionsShowsCopyButtons();
+  testRenderSchedulerShowsAutoScriptMode();
   testQualityNotesPreferStructuredIssues();
   testFocusScriptSegmentHighlightsTarget();
   testRenderQualityReportShowsLocateAction();
@@ -884,6 +885,38 @@ function testRenderPublishActionsShowsCopyButtons() {
   assert.match(publishActions.innerHTML, /复制标签/);
   assert.match(publishActions.innerHTML, /复制描述/);
   assert.equal(handlers.length, 1);
+}
+
+function testRenderSchedulerShowsAutoScriptMode() {
+  const nodes = {
+    scheduleEnabled: { checked: false },
+    scheduleMode: { value: "" },
+    scheduleFrequency: { value: "" },
+    scheduleTime: { value: "" },
+    scheduleWindow: { value: "" },
+    scheduleProjectCount: { value: "" },
+    scheduleStatus: { textContent: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  renderScheduler({
+    enabled: true,
+    mode: "auto_script",
+    frequency: "daily",
+    time: "09:30",
+    time_window: "weekly",
+    project_count: 5,
+    last_run_date: "2099-01-02",
+  });
+
+  assert.equal(nodes.scheduleEnabled.checked, true);
+  assert.equal(nodes.scheduleMode.value, "auto_script");
+  assert.equal(nodes.scheduleStatus.textContent.includes("自动确认前 N 个候选并生成口播草稿"), true);
+  assert.equal(nodes.scheduleStatus.textContent.includes("不会自动渲染"), true);
 }
 
 async function testCopyTextUsesClipboardWhenAvailable() {

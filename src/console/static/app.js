@@ -1380,12 +1380,16 @@ function renderSettings(config) {
 
 function renderScheduler(schedule) {
   $("scheduleEnabled").checked = Boolean(schedule.enabled);
+  $("scheduleMode").value = schedule.mode || "candidates_only";
   $("scheduleFrequency").value = schedule.frequency || "daily";
   $("scheduleTime").value = schedule.time || "09:00";
   $("scheduleWindow").value = schedule.time_window || "daily";
   $("scheduleProjectCount").value = String(schedule.project_count || 5);
   const lastRun = schedule.last_run_date ? `上次运行: ${schedule.last_run_date}` : "尚未运行";
-  $("scheduleStatus").textContent = `定时任务只生成候选草稿，不会自动确认或渲染。${lastRun}`;
+  const modeText = (schedule.mode || "candidates_only") === "auto_script"
+    ? "定时任务会自动确认前 N 个候选并生成口播草稿，但不会自动渲染。"
+    : "定时任务只生成候选草稿，不会自动确认或渲染。";
+  $("scheduleStatus").textContent = `${modeText}${lastRun}`;
 }
 
 async function saveSettings() {
@@ -1421,6 +1425,7 @@ async function saveSettings() {
 
   const schedulerPayload = {
     enabled: $("scheduleEnabled").checked,
+    mode: $("scheduleMode").value,
     frequency: $("scheduleFrequency").value,
     time: $("scheduleTime").value || "09:00",
     time_window: $("scheduleWindow").value,
@@ -1564,5 +1569,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduler, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

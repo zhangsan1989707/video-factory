@@ -56,6 +56,58 @@ class ConsoleSchedulerTest(unittest.TestCase):
             saved = read_json(config_dir / "scheduler.json", {})
             self.assertEqual(saved["last_run_date"], "2099-01-02")
 
+    def test_auto_script_schedule_selects_candidates_and_waits_for_script_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "mode": "auto_script",
+                "frequency": "daily",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 5,
+                "template_params": {},
+                "last_run_date": "",
+            })
+            selected_payloads = []
+
+            async def fake_generate(job_id: str) -> dict:
+                return {
+                    "job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_project_confirmation"},
+                    "candidates": [
+                        {"full_name": "demo/one"},
+                        {"full_name": "demo/two"},
+                        {"full_name": "demo/three"},
+                        {"full_name": "demo/four"},
+                        {"full_name": "demo/five"},
+                        {"full_name": "demo/six"},
+                    ],
+                }
+
+            def fake_save_selection(job_id: str, payload: dict) -> dict:
+                selected_payloads.append((job_id, payload))
+                return {"job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_script_confirmation"}}
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+                patch("src.console.scheduler.save_selection", side_effect=fake_save_selection),
+            ):
+                result = run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+
+            self.assertTrue(result["started"])
+            self.assertEqual(result["job"]["stage"], "awaiting_script_confirmation")
+            self.assertEqual(
+                [item["full_name"] for item in selected_payloads[0][1]["items"]],
+                ["demo/one", "demo/two", "demo/three", "demo/four", "demo/five"],
+            )
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "2099-01-02")
+
     def test_due_schedule_does_not_start_duplicate_job_while_running(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp) / "config"
@@ -218,6 +270,41 @@ class ConsoleSchedulerTest(unittest.TestCase):
             saved = read_json(config_dir / "scheduler.json", {})
             self.assertEqual(saved["last_run_date"], "")
 
+    def test_failed_auto_script_schedule_does_not_mark_day_as_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "mode": "auto_script",
+                "frequency": "daily",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 2,
+                "template_params": {},
+                "last_run_date": "",
+            })
+
+            async def fake_generate(job_id: str) -> dict:
+                return {"job": {"id": job_id}, "candidates": [{"full_name": "demo/one"}]}
+
+            def fail_save_selection(job_id: str, payload: dict) -> dict:
+                raise RuntimeError("script generation failed")
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+                patch("src.console.scheduler.save_selection", side_effect=fail_save_selection),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "script generation failed"):
+                    run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "")
+
     def test_successful_schedule_preserves_concurrent_config_edits(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp) / "config"
@@ -294,6 +381,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
             ):
                 update_config("scheduler", {
                     "enabled": True,
+                    "mode": "fully_automatic",
                     "frequency": "hourly",
                     "time": "soon",
                     "time_window": "yearly",
@@ -303,6 +391,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
                 })
 
             saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["mode"], "candidates_only")
             self.assertEqual(saved["frequency"], "daily")
             self.assertEqual(saved["time"], "09:00")
             self.assertEqual(saved["time_window"], "daily")
