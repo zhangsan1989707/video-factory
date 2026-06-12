@@ -711,6 +711,23 @@ textarea {
   font-size: 12px;
 }
 
+.artifact-player,
+.artifact-cover {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.artifact-player {
+  background: #000;
+}
+
+.artifact-cover {
+  aspect-ratio: 9 / 16;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
 .summary-row {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
@@ -732,6 +749,30 @@ textarea {
 
 .artifact-summary small {
   color: var(--muted);
+}
+
+.artifact-version-list {
+  display: grid;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.artifact-version {
+  display: grid;
+  gap: 3px;
+}
+
+.artifact-version span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.publish-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .artifact,

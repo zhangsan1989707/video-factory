@@ -247,6 +247,7 @@ function clearCurrentJob() {
   renderLogs("");
   renderStageTimeline([]);
   renderArtifactSummary({});
+  renderPublishActions({});
   renderArtifacts({});
   updateActionState({ stage: "draft_pending", status: "draft_pending" });
 }
@@ -538,6 +539,7 @@ async function refreshCurrentJob() {
   renderStageTimeline(detail.stage_history || []);
   renderDiagnostics(detail);
   renderArtifactSummary(detail);
+  renderPublishActions(detail);
   renderArtifacts(detail.artifacts || {});
   if (detail.job && !hasBackgroundWork(detail.job)) stopPollingCurrentJob();
 }
@@ -1099,13 +1101,18 @@ function renderArtifactSummary(detail) {
   const versions = detail.video_versions || [];
   const latestModelCall = detail.latest_model_call || {};
   const narrationSource = detail.narration_source || {};
-  const latestVideo = versions.length ? versions[versions.length - 1] : null;
+  const officialVideo = versions.find((item) => item.is_official) || null;
+  const latestVideo = officialVideo || (versions.length ? versions[versions.length - 1] : null);
   const summaryJobId = detail.job?.id || detail.artifacts?.job_id || "";
+  const coverHref = cover.status === "ready" && summaryJobId ? artifactHref(summaryJobId, "cover_frame.png", {}) : "";
   const latestVideoMarkup = latestVideo
     ? (summaryJobId
       ? `<a href="${escapeAttr(artifactHref(summaryJobId, latestVideo.name, latestVideo))}" target="_blank" rel="noreferrer">${escapeHtml(latestVideo.name)}</a>`
       : escapeHtml(latestVideo.name))
     : "-";
+  const playerMarkup = latestVideo && summaryJobId
+    ? `<video class="artifact-player" controls preload="metadata" src="${escapeAttr(artifactHref(summaryJobId, latestVideo.name, latestVideo))}"></video>`
+    : "";
   const hasSummary = readiness.status || publish.title || cover.status || versions.length;
   box.className = hasSummary ? "artifact-summary" : "artifact-summary empty";
   if (!hasSummary) {
@@ -1114,7 +1121,15 @@ function renderArtifactSummary(detail) {
   }
   const tags = (publish.hashtags || []).slice(0, 4).join(" / ");
   const modelStatus = modelSummaryLabel(latestModelCall, narrationSource);
+  const versionItems = versions.map((item) => `
+    <div class="artifact-version">
+      <a href="${escapeAttr(artifactHref(summaryJobId, item.name, item))}" target="_blank" rel="noreferrer">${escapeHtml(item.name)}</a>
+      <span>${item.is_official ? "正式版本" : "历史版本"} · ${formatFileSize(item.size || 0)} · ${formatDuration(item.duration_seconds)}</span>
+    </div>
+  `).join("");
   box.innerHTML = `
+    ${playerMarkup}
+    ${coverHref ? `<img class="artifact-cover" src="${escapeAttr(coverHref)}" alt="cover frame">` : ""}
     <div class="summary-row">
       <span>准备度</span>
       <strong>${escapeHtml(readiness.status || "-")}${readiness.score === undefined ? "" : ` · ${readiness.score}`}</strong>
@@ -1132,11 +1147,47 @@ function renderArtifactSummary(detail) {
       <strong>${latestVideoMarkup}</strong>
     </div>
     <div class="summary-row">
+      <span>时长</span>
+      <strong>${escapeHtml(formatDuration(latestVideo && latestVideo.duration_seconds))}</strong>
+    </div>
+    <div class="summary-row">
+      <span>大小</span>
+      <strong>${escapeHtml(latestVideo ? formatFileSize(latestVideo.size || 0) : "-")}</strong>
+    </div>
+    <div class="summary-row">
       <span>模型状态</span>
       <strong>${escapeHtml(modelStatus)}</strong>
     </div>
+    ${versionItems ? `<div class="artifact-version-list">${versionItems}</div>` : ""}
     ${tags ? `<small>${escapeHtml(tags)}</small>` : ""}
   `;
+}
+
+function renderPublishActions(detail) {
+  const box = $("publishActions");
+  if (!box) return;
+  const publish = detail.publish_pack || {};
+  const title = String(publish.title || "").trim();
+  const hashtags = (publish.hashtags || []).join(" / ");
+  const description = String(publish.description || "").trim();
+  const hasPublish = title || hashtags || description;
+  box.hidden = !hasPublish;
+  if (!hasPublish) {
+    box.innerHTML = "";
+    return;
+  }
+  box.innerHTML = `
+    <button class="tiny" type="button" data-copy-publish="title">复制标题</button>
+    <button class="tiny" type="button" data-copy-publish="hashtags">复制标签</button>
+    <button class="tiny" type="button" data-copy-publish="description">复制描述</button>
+  `;
+  box.querySelectorAll("[data-copy-publish]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const kind = button.dataset.copyPublish || "";
+      const value = kind === "title" ? title : kind === "hashtags" ? hashtags : description;
+      await copyText(value, kind);
+    });
+  });
 }
 
 function modelSummaryLabel(call, narrationSource) {
@@ -1147,6 +1198,38 @@ function modelSummaryLabel(call, narrationSource) {
   const narration = narrationSourceLabel(narrationSource || {});
   if (narration) parts.push(narration);
   return parts.length ? parts.join(" · ") : "暂无模型记录";
+}
+
+function formatFileSize(bytes) {
+  const value = Number(bytes || 0);
+  if (!value) return "0 KB";
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.ceil(value / 1024)} KB`;
+}
+
+function formatDuration(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value <= 0) return "-";
+  const total = Math.round(value);
+  const minutes = Math.floor(total / 60);
+  const remain = total % 60;
+  return `${minutes}:${String(remain).padStart(2, "0")}`;
+}
+
+async function copyText(text, label) {
+  const value = String(text || "").trim();
+  if (!value) return;
+  try {
+    const clipboard = typeof globalThis !== "undefined" ? globalThis.navigator?.clipboard : undefined;
+    if (clipboard && clipboard.writeText) {
+      await clipboard.writeText(value);
+      return;
+    }
+  } catch (_error) {
+  }
+  if (typeof window !== "undefined" && typeof window.prompt === "function") {
+    window.prompt(`复制${label || "内容"}`, value);
+  }
 }
 
 function modelTaskLabel(task) {
@@ -1423,5 +1506,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, createDraft, focusScriptSegment, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

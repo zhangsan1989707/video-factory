@@ -254,7 +254,7 @@ HyperFrames 分支会先把状态设为 `generating_tts`，随后很快设为 `c
 
 ### P1-3 优化产物预览与发布工作台
 
-状态：`todo`
+状态：`done`
 
 问题：
 
@@ -272,6 +272,18 @@ HyperFrames 分支会先把状态设为 `generating_tts`，随后很快设为 `c
 - 完成任务后不用打开文件夹即可预览最终视频。
 - 多个版本能清晰区分。
 - 发布文案可直接复制。
+
+验收证据：
+
+- `2026-06-12`：`.venv/bin/python -m pytest tests/test_console_jobs.py -q`
+- `2026-06-12`：`node tests/test_console_static_app.js`
+- 回归覆盖：
+  - `test_video_versions_sort_by_version_when_timestamps_match`
+  - `test_job_numbering_and_finalize_do_not_overwrite_outputs`
+  - `testRenderArtifactSummaryShowsPublishMetadata`
+  - `testFormatHelpersForArtifactWorkbench`
+  - `testRenderPublishActionsShowsCopyButtons`
+  - `testCopyTextUsesClipboardWhenAvailable`
 
 参考位置：
 
@@ -416,6 +428,7 @@ git diff --check
 
 | 日期 | 更新 | 证据 |
 | --- | --- | --- |
+| 2026-06-12 | 完成 P1-3：右侧工作台支持内嵌最终视频预览、封面/时长/大小/版本列表展示，并提供发布标题/标签/描述复制按钮 | `.venv/bin/python -m pytest tests/test_console_jobs.py -q` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P1-1：候选区补充缓存/AI/启发式来源标识，口播区明确 AI 成功与回退状态，产物摘要展示最近模型调用与口播来源 | `.venv/bin/python -m pytest tests/test_console_jobs.py -q` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P0-3：`daily_growth` 统一改为“估算日均 star”口径，候选表/发布辅助包/准备度报告展示数据说明，质检可拦截“真实增长”类口播 | `.venv/bin/python tests/test_github_hotlist.py` ; `.venv/bin/python tests/test_console_jobs.py` ; `.venv/bin/python tests/test_hotlist_v2_render.py` ; `node tests/test_console_static_app.js` |
 | 2026-06-11 | 完成 P0-2：候选生成、项目确认、口播确认、计划生成与计划校验统一改为后台任务快速返回，前端改为轮询接管 | `.venv/bin/python tests/test_console_jobs.py` ; `.venv/bin/python tests/test_console_server_smoke.py` ; `node tests/test_console_static_app.js` |

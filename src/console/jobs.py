@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -537,6 +538,8 @@ def finalize_numbered_output(job_id: str, title: str = "") -> dict[str, Any]:
 
 
 def _video_versions(job_id: str) -> list[dict[str, Any]]:
+    job = read_job(job_id) or {}
+    official_name = Path(str(job.get("official_video") or "")).name
     job_dir = JOBS_DIR / job_id
     if not job_dir.exists():
         return []
@@ -553,8 +556,34 @@ def _video_versions(job_id: str) -> list[dict[str, Any]]:
             "path": str(path),
             "size": stat.st_size,
             "updated_at": int(stat.st_mtime),
+            "duration_seconds": _probe_video_duration(path),
+            "is_official": bool(official_name and path.name == official_name),
         })
     return sorted(versions, key=lambda item: (item["updated_at"], _version_index(str(item["name"]))))
+
+
+def _probe_video_duration(path: Path) -> float | None:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        value = float((result.stdout or "").strip())
+        return round(value, 1) if value >= 0 else None
+    except Exception:
+        return None
 
 
 def _clear_video_outputs(job_id: str) -> None:

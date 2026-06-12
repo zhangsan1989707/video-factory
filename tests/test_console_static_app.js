@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, createDraft, focusScriptSegment, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -24,13 +24,16 @@ async function run() {
   testSyncDetailStateReplacesCandidateAndScriptSnapshots();
   testSelectionButtonStateShowsLimit();
   testCandidateDefaultsUseProjectCount();
+  testFormatHelpersForArtifactWorkbench();
   testCandidateSourceLabelShowsSummary();
   testNarrationSourceLabelShowsFallbackReason();
   testModelSummaryLabelCombinesLatestCallAndNarrationSource();
+  testRenderPublishActionsShowsCopyButtons();
   testQualityNotesPreferStructuredIssues();
   testFocusScriptSegmentHighlightsTarget();
   testRenderQualityReportShowsLocateAction();
   await testCreateDraftDoesNotCollectCandidates();
+  await testCopyTextUsesClipboardWhenAvailable();
   await testProviderTestKeepsUnsavedFormValues();
 }
 
@@ -225,6 +228,7 @@ async function testCreateDraftDoesNotCollectCandidates() {
     candidateRows: { innerHTML: "", querySelectorAll() { return []; } },
     scriptEditor: { className: "", textContent: "", innerHTML: "" },
     qualityReport: { hidden: false, innerHTML: "", className: "" },
+    publishActions: { hidden: true, innerHTML: "", querySelectorAll() { return []; } },
     logBox: { textContent: "" },
     historyList: {
       className: "",
@@ -423,17 +427,21 @@ function testRenderArtifactSummaryShowsPublishMetadata() {
     latest_model_call: { task: "fact_check", provider: "Mock", model: "mock-model", status: "success" },
     narration_source: { status: "ai_success", provider: "Mock", model: "mock-model" },
     video_versions: [
-      { name: "GH-HOTLIST-20990101-001-测试视频.mp4" },
-      { name: "GH-HOTLIST-20990101-001-测试视频-v2.mp4" },
+      { name: "GH-HOTLIST-20990101-001-测试视频.mp4", size: 2048, duration_seconds: 61, is_official: false },
+      { name: "GH-HOTLIST-20990101-001-测试视频-v2.mp4", size: 3145728, duration_seconds: 125, is_official: true },
     ],
   });
 
   assert.equal(nodes.artifactSummary.className, "artifact-summary");
+  assert.match(nodes.artifactSummary.innerHTML, /artifact-player/);
+  assert.match(nodes.artifactSummary.innerHTML, /artifact-cover/);
   assert.match(nodes.artifactSummary.innerHTML, /ready · 100/);
   assert.match(nodes.artifactSummary.innerHTML, /GitHub热榜2个项目/);
   assert.match(nodes.artifactSummary.innerHTML, /GH-HOTLIST-20990101-001-测试视频-v2\.mp4/);
   assert.match(nodes.artifactSummary.innerHTML, /GH-HOTLIST-20990101-001-%E6%B5%8B%E8%AF%95%E8%A7%86%E9%A2%91-v2\.mp4/);
   assert.match(nodes.artifactSummary.innerHTML, /GitHub \/ 开源项目 \/ AI工具/);
+  assert.match(nodes.artifactSummary.innerHTML, /正式版本 · 3\.0 MB · 2:05/);
+  assert.match(nodes.artifactSummary.innerHTML, /历史版本 · 2 KB · 1:01/);
   assert.match(nodes.artifactSummary.innerHTML, /脚本质检 · Mock \/ mock-model · success/);
   assert.match(nodes.artifactSummary.innerHTML, /口播: AI Mock \/ mock-model/);
 }
@@ -520,6 +528,8 @@ function testRenderJobRefreshesEmbeddedStageHistory() {
     currentModelCall: { textContent: "" },
     currentError: { hidden: true, textContent: "" },
     currentDiagnostics: { hidden: false, textContent: "stale" },
+    candidateSourceSummary: { textContent: "" },
+    narrationSourceSummary: { textContent: "" },
     visualStyle: { value: "" },
     renderEngine: { value: "" },
     subtitleMode: { value: "" },
@@ -651,6 +661,15 @@ function testCandidateDefaultsUseProjectCount() {
   assert.equal(candidateChecked({ selected: false }, 0), false);
 }
 
+function testFormatHelpersForArtifactWorkbench() {
+  assert.equal(formatFileSize(0), "0 KB");
+  assert.equal(formatFileSize(2048), "2 KB");
+  assert.equal(formatFileSize(3145728), "3.0 MB");
+  assert.equal(formatDuration(61), "1:01");
+  assert.equal(formatDuration(125), "2:05");
+  assert.equal(formatDuration(null), "-");
+}
+
 function testCandidateSourceLabelShowsSummary() {
   assert.equal(candidateSourceLabel({ summary: "缓存命中 · 启发式评分 · 默认顺序" }), "候选来源：缓存命中 · 启发式评分 · 默认顺序");
   assert.equal(candidateSourceLabel({}), "候选来源：待生成。");
@@ -671,6 +690,63 @@ function testModelSummaryLabelCombinesLatestCallAndNarrationSource() {
     ),
     "候选分析 · Mock / analysis-model · failed · 口播: 模型跳过后模板回退 (未配置模型路由)",
   );
+}
+
+function testRenderPublishActionsShowsCopyButtons() {
+  const handlers = [];
+  const publishActions = {
+    hidden: true,
+    innerHTML: "",
+    querySelectorAll(selector) {
+      assert.equal(selector, "[data-copy-publish]");
+      return [{
+        dataset: { copyPublish: "title" },
+        addEventListener(event, handler) {
+          assert.equal(event, "click");
+          handlers.push(handler);
+        },
+      }];
+    },
+  };
+  global.document = {
+    getElementById(id) {
+      assert.equal(id, "publishActions");
+      return publishActions;
+    },
+  };
+
+  renderPublishActions({
+    publish_pack: {
+      title: "标题",
+      hashtags: ["GitHub", "AI"],
+      description: "描述",
+    },
+  });
+
+  assert.equal(publishActions.hidden, false);
+  assert.match(publishActions.innerHTML, /复制标题/);
+  assert.match(publishActions.innerHTML, /复制标签/);
+  assert.match(publishActions.innerHTML, /复制描述/);
+  assert.equal(handlers.length, 1);
+}
+
+async function testCopyTextUsesClipboardWhenAvailable() {
+  let copied = "";
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      clipboard: {
+        async writeText(value) {
+          copied = value;
+        },
+      },
+    },
+  });
+  global.window = {};
+
+  await copyText("hello", "title");
+
+  assert.equal(copied, "hello");
 }
 
 function testQualityNotesPreferStructuredIssues() {

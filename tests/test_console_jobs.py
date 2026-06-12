@@ -2159,6 +2159,8 @@ class ConsoleJobsTest(unittest.TestCase):
                     Path(one).name,
                     Path(two).name,
                 ])
+                self.assertFalse(versions[0]["is_official"])
+                self.assertTrue(versions[1]["is_official"])
                 self.assertNotIn("final.mp4", [item["name"] for item in versions])
 
     def test_video_versions_sort_by_version_when_timestamps_match(self) -> None:
@@ -2181,6 +2183,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 versions = job_detail(job["id"])["video_versions"]
 
             self.assertEqual([item["name"] for item in versions], [base.name, second.name, third.name])
+            self.assertTrue(all("duration_seconds" in item for item in versions))
 
     def test_video_versions_skip_symlinked_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
