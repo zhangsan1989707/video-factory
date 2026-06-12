@@ -1481,7 +1481,8 @@ async function testProviderFromButton(event) {
     if (result.saved) {
       state.config = result.config;
       $("routingStatus").textContent = providerStatusLabel(result.config.providers.providers || []);
-      renderSettings(state.config);
+      const statusSpan = card.querySelector(".provider-title > span");
+      if (statusSpan) statusSpan.textContent = result.message;
     }
     $("settingsMessage").textContent = result.saved ? result.message : `${result.message}；当前表单尚未保存，状态未写回。`;
   } catch (error) {

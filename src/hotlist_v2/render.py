@@ -31,7 +31,7 @@ async def render_hotlist_v2(
     output_path: Path | None = None,
     time_window: str = "weekly",
     token: str = "",
-    limit: int = 10,
+    limit: int = 9,
     durations: dict[str, int] | None = None,
     style: str = DEFAULT_STYLE,
 ) -> Path:
@@ -909,7 +909,7 @@ def _timeline_context(
         "detail_screens": detail_screens,
         "hook_screen": hook_screen,
         "total_duration": round(cursor, 1),
-        "top_projects": projects[: min(10, len(projects))],
+        "top_projects": projects[: min(9, len(projects))],
         "intro_duration": intro_duration,
         "list_duration": list_duration,
         "detail_duration": detail_base or 0,

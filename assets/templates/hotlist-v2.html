@@ -271,7 +271,6 @@ body {
 .rank-item:nth-child(7) { animation-delay: 0.47s; }
 .rank-item:nth-child(8) { animation-delay: 0.54s; }
 .rank-item:nth-child(9) { animation-delay: 0.61s; }
-.rank-item:nth-child(10) { animation-delay: 0.68s; }
 
 .rank-item.top-1 {
   border-color: rgba(var(--accent-cyan-rgb), 0.3);
@@ -952,11 +951,6 @@ body {
         </div>
       </div>
 
-      <div class="reason-box">
-        <div class="reason-label">真实证据</div>
-        <div class="reason-text">{{ top1.proof_point or "公开信息不足" }}{% if top1.visual_asset_label %} · 视觉来源：{{ top1.visual_asset_label }}{% endif %}</div>
-      </div>
-
       <div>
         <div class="section-label">热度趋势 · 近 14 天模拟</div>
         <div class="activity-chart">
@@ -969,11 +963,6 @@ body {
       <div class="reason-box">
         <div class="reason-label">上榜理由</div>
         <div class="reason-text">{{ top1.reason or "近期热度上升，值得持续关注。" }}</div>
-      </div>
-
-      <div class="reason-box">
-        <div class="reason-label">谨慎点</div>
-        <div class="reason-text">{{ top1.risk_note or "只按仓库公开信息判断，具体效果建议实测后再展开。" }}</div>
       </div>
     </div>
   </div>

@@ -733,7 +733,7 @@ def normalize_project_count(value: Any) -> int:
         count = int(value or 5)
     except (TypeError, ValueError):
         return 5
-    return 5 if count <= 5 else 10
+    return max(1, min(count, 9))
 
 
 def normalize_time_window(value: Any, default: str = "daily") -> str:
