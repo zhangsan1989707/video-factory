@@ -228,6 +228,13 @@ function hasBackgroundWork(job) {
   return Boolean(job && (job.active || job.status === "running"));
 }
 
+function autoTabForCompletedBackground(job) {
+  const stage = job && job.stage;
+  if (stage === "awaiting_project_confirmation") return "candidates";
+  if (stage === "awaiting_script_confirmation") return "script";
+  return "";
+}
+
 function clearCurrentJob() {
   state.currentJobId = "";
   state.currentJob = null;
@@ -529,6 +536,7 @@ async function runNextAction() {
 
 async function refreshCurrentJob() {
   if (!state.currentJobId) return;
+  const wasPolling = Boolean(state.pollTimer);
   const detail = await api(`/api/jobs/${state.currentJobId}`);
   syncDetailState(detail);
   renderJob(detail.job);
@@ -541,7 +549,11 @@ async function refreshCurrentJob() {
   renderArtifactSummary(detail);
   renderPublishActions(detail);
   renderArtifacts(detail.artifacts || {});
-  if (detail.job && !hasBackgroundWork(detail.job)) stopPollingCurrentJob();
+  if (detail.job && !hasBackgroundWork(detail.job)) {
+    const nextTab = wasPolling ? autoTabForCompletedBackground(detail.job) : "";
+    stopPollingCurrentJob();
+    if (nextTab) switchTab(nextTab);
+  }
 }
 
 function syncDetailState(detail) {
@@ -1506,5 +1518,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

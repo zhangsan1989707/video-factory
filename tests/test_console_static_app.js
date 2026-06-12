@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -10,6 +10,7 @@ async function run() {
   testPlanStagesExposeSeparateActions();
   testDraftJobsExposeSeparateCreateAndCollectActions();
   testActiveAwaitingInputKeepsActionsBlocked();
+  testCompletedBackgroundStagesChooseReviewTabs();
   testRegenerateButtonsFollowStage();
   testUnverifiedQualityDoesNotHardBlockRender();
   testRenderTemplateStylesPopulatesStyleSelect();
@@ -165,6 +166,12 @@ function testActiveAwaitingInputKeepsActionsBlocked() {
     action: "running",
     disabled: true,
   });
+}
+
+function testCompletedBackgroundStagesChooseReviewTabs() {
+  assert.equal(autoTabForCompletedBackground({ status: "awaiting_input", stage: "awaiting_project_confirmation" }), "candidates");
+  assert.equal(autoTabForCompletedBackground({ status: "awaiting_input", stage: "awaiting_script_confirmation" }), "script");
+  assert.equal(autoTabForCompletedBackground({ status: "awaiting_render", stage: "preparing_plan" }), "");
 }
 
 async function testCreateDraftDoesNotCollectCandidates() {
