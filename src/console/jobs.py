@@ -30,7 +30,7 @@ from src.console.store import (
     update_job,
     write_json,
 )
-from src.models import AssetManifest, Shot, ShotPlan, VisualAsset
+from src.models import AssetManifest, ScriptSegment, Shot, ShotPlan, VideoScript, VisualAsset, shot_plan_from_dict
 from src.pipeline import run_pipeline
 from src.composer.bgm import post_process_video
 from src.composer.vertical import render_vertical_previews
@@ -55,10 +55,25 @@ def create_hotlist_job(payload: dict[str, Any]) -> dict[str, Any]:
     raise last_error or ValueError("无法创建任务")
 
 
+def create_single_project_vertical_job(payload: dict[str, Any]) -> dict[str, Any]:
+    last_error: ValueError | None = None
+    item = {**payload, "type": "single_project_vertical"}
+    for _attempt in range(5):
+        job_id = next_job_id("GH-SINGLE")
+        try:
+            return create_job(job_id, item)
+        except ValueError as exc:
+            if "任务目录已存在" not in str(exc):
+                raise
+            last_error = exc
+    raise last_error or ValueError("无法创建任务")
+
+
 async def generate_candidates(job_id: str, force_refresh: bool = False) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
+    _require_job_type(job, "github_hotlist", "当前任务类型不支持候选生成")
     _require_stage(job, {"draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"}, "当前阶段不能生成候选项目")
     return await _generate_candidates_snapshot(job_id, job, force_refresh=force_refresh)
 
@@ -169,6 +184,11 @@ def _generate_script_for_selection(job_id: str, selected: list[dict[str, Any]]) 
 
 def reset_video_for_regeneration(job_id: str) -> dict[str, Any]:
     _require_regenerable_job(job_id)
+    job = read_job(job_id)
+    if _job_type(job) == "single_project_vertical":
+        _clear_current_video_output(job_id)
+        append_log(job_id, "已请求重新生成单项目最终视频；保留计划文件和历史正式版本。")
+        return update_job(job_id, status="ready_to_render", stage="preparing_plan", failed_stage="", error="", official_video="")
     selected = read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items") or []
     segments = read_json(JOBS_DIR / job_id / "narration.json", {}).get("segments") or []
     if not selected:
@@ -320,11 +340,22 @@ def _clear_script_metadata(job_id: str) -> None:
             path.unlink()
 
 
+def _job_type(job: dict[str, Any]) -> str:
+    return str(job.get("type") or "github_hotlist")
+
+
+def _require_job_type(job: dict[str, Any], expected: str, message: str) -> None:
+    if _job_type(job) != expected:
+        raise ValueError(f"{message}: {_job_type(job)}")
+
+
 def prepare_plan(job_id: str) -> dict[str, Any]:
     """Prepare current pipeline files without starting expensive rendering."""
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
+    if _job_type(job) == "single_project_vertical":
+        return _prepare_single_project_plan(job_id, job)
     _require_stage(job, {"preparing_plan"}, "当前阶段不能生成计划文件")
     if str(job.get("status") or "") not in {"awaiting_render", "awaiting_validation", "ready_to_render", "failed"}:
         raise ValueError(f"当前状态不能生成计划文件: {job.get('status') or 'unknown'}")
@@ -378,10 +409,107 @@ def prepare_plan(job_id: str) -> dict[str, Any]:
         raise
 
 
+def _prepare_single_project_plan(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+    _require_stage(job, {"preparing_plan"}, "当前阶段不能生成计划文件")
+    if str(job.get("status") or "") not in {"awaiting_render", "awaiting_validation", "ready_to_render", "failed"}:
+        raise ValueError(f"当前状态不能生成计划文件: {job.get('status') or 'unknown'}")
+    repo_url = str(job.get("repo_url") or "").strip()
+    if not repo_url:
+        raise ValueError("单项目任务缺少 GitHub 仓库地址")
+
+    _clear_plan_artifacts(job_id)
+    update_job(job_id, status="running", stage="preparing_plan", failed_stage="", error="")
+    append_log(job_id, f"开始生成单项目竖屏计划文件: {repo_url}。")
+
+    job_dir = JOBS_DIR / job_id
+    try:
+        import asyncio
+
+        asyncio.run(run_pipeline(
+            url=repo_url,
+            output=str(job_dir / "final.mp4"),
+            orientation="vertical",
+            style="single-review",
+            dry_run=True,
+        ))
+        manifest = _asset_manifest_from_dict(read_json(job_dir / "asset_manifest.json", {}))
+        shot_plan = shot_plan_from_dict(read_json(job_dir / "shot_plan.json", {}))
+        script = _video_script_from_dict(read_json(job_dir / "script.json", {}))
+        previews = render_vertical_previews(script, shot_plan, manifest, job_dir / "preview_frames")
+        cover = _write_cover_frame(job_id, previews)
+        readiness = _write_single_project_readiness_report(job_id, repo_url, len(previews), bool(cover.get("path")))
+        append_log(job_id, f"单项目计划文件已生成，并输出 {len(previews)} 张静态预览帧。")
+        update_job(
+            job_id,
+            status="awaiting_validation",
+            stage="preparing_plan",
+            plan_validation={"status": "not_run", "error": ""},
+        )
+        return {
+            "job": read_job(job_id),
+            "artifacts": job_artifacts(job_id),
+            "plan_validation": {"status": "not_run", "error": ""},
+            "cover_frame": cover,
+            "readiness_report": readiness,
+            "render_command": f".venv/bin/python -m src.cli {repo_url} -o {job_dir / 'final.mp4'} --vertical --style single-review",
+        }
+    except Exception as exc:
+        append_log(job_id, f"单项目计划文件生成失败: {exc}")
+        _clear_plan_artifacts(job_id)
+        update_job(job_id, status="failed", stage="preparing_plan", failed_stage="preparing_plan", error=str(exc))
+        raise
+
+
+async def _validate_single_project_plan(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+    _require_stage(job, {"preparing_plan"}, "当前阶段不能校验计划文件")
+    job_dir = JOBS_DIR / job_id
+    if not (job_dir / "shot_plan.json").exists():
+        import asyncio
+
+        await asyncio.to_thread(_prepare_single_project_plan, job_id, job)
+    append_log(job_id, "开始校验单项目 --from-plan dry run。")
+    update_job(
+        job_id,
+        status="running",
+        stage="preparing_plan",
+        failed_stage="",
+        error="",
+        plan_validation={"status": "running", "error": ""},
+    )
+    try:
+        await run_pipeline(
+            url="",
+            output=str(job_dir / "final.mp4"),
+            orientation="vertical",
+            from_plan=str(job_dir),
+            style="single-review",
+            dry_run=True,
+        )
+        details = _plan_validation_details(job_dir)
+        append_log(job_id, "单项目计划文件校验通过，可进入最终渲染。")
+        validation = {"status": "passed", "error": "", "details": details}
+        update_job(job_id, status="ready_to_render", stage="preparing_plan", plan_validation=validation)
+        return {"job": read_job(job_id), "plan_validation": validation, "artifacts": job_artifacts(job_id)}
+    except Exception as exc:
+        append_log(job_id, f"单项目计划文件校验失败: {exc}")
+        validation = {"status": "failed", "error": str(exc)}
+        update_job(
+            job_id,
+            status="failed",
+            stage="preparing_plan",
+            failed_stage="preparing_plan",
+            error=str(exc),
+            plan_validation=validation,
+        )
+        raise
+
+
 async def validate_plan(job_id: str) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
+    if _job_type(job) == "single_project_vertical":
+        return await _validate_single_project_plan(job_id, job)
     _require_stage(job, {"preparing_plan"}, "当前阶段不能校验计划文件")
 
     job_dir = JOBS_DIR / job_id
@@ -430,6 +558,8 @@ async def render_video(job_id: str) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
+    if _job_type(job) == "single_project_vertical":
+        return await _render_single_project_video(job_id, job)
     _require_stage(
         job,
         {
@@ -510,6 +640,72 @@ async def render_video(job_id: str) -> dict[str, Any]:
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
         append_log(job_id, f"视频生成失败: {exc}")
+        _clear_video_outputs(job_id)
+        if _video_versions(job_id):
+            append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
+        raise
+
+
+async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+    _require_stage(
+        job,
+        {
+            "preparing_plan",
+            "capturing_assets",
+            "generating_tts",
+            "composing_video",
+            "post_processing",
+        },
+        "当前阶段不能生成最终视频",
+    )
+    job_dir = JOBS_DIR / job_id
+    try:
+        raise_if_cancelled(job_id)
+        if not (job_dir / "shot_plan.json").exists():
+            import asyncio
+
+            await asyncio.to_thread(_prepare_single_project_plan, job_id, job)
+            job = read_job(job_id)
+        raise_if_cancelled(job_id)
+        if (job.get("plan_validation") or {}).get("status") != "passed":
+            await _validate_single_project_plan(job_id, job)
+            job = read_job(job_id)
+        raise_if_cancelled(job_id)
+
+        append_log(job_id, "开始生成单项目最终视频。这个阶段会采集素材、生成语音并合成 mp4。")
+        update_job(job_id, status="running", failed_stage="", error="", cancel_requested=False)
+
+        def on_pipeline_stage(stage: str, message: str) -> None:
+            raise_if_cancelled(job_id)
+            update_job(job_id, status="running", stage=stage)
+            append_log(job_id, message)
+
+        await run_pipeline(
+            url="",
+            output=str(job_dir / "final.mp4"),
+            orientation="vertical",
+            from_plan=str(job_dir),
+            style="single-review",
+            no_bgm=_no_bgm(job),
+            bgm_path=_bgm_path(job),
+            stage_callback=on_pipeline_stage,
+        )
+        raise_if_cancelled(job_id)
+        update_job(job_id, status="running", stage="post_processing")
+        append_log(job_id, f"单项目视频合成完成: {job_dir / 'final.mp4'}")
+        return finalize_numbered_output(job_id, str(job.get("title") or "单项目竖屏视频"))
+    except JobCancelled as exc:
+        failed_stage = str(read_job(job_id).get("stage") or "composing_video")
+        append_log(job_id, str(exc))
+        _clear_current_video_output(job_id)
+        if _video_versions(job_id):
+            append_log(job_id, "已保留历史正式视频版本；仅清理本次未完成输出。")
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
+        raise
+    except Exception as exc:
+        failed_stage = str(read_job(job_id).get("stage") or "composing_video")
+        append_log(job_id, f"单项目视频生成失败: {exc}")
         _clear_video_outputs(job_id)
         if _video_versions(job_id):
             append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
@@ -1283,6 +1479,36 @@ def _write_readiness_report(
     return report
 
 
+def _write_single_project_readiness_report(
+    job_id: str,
+    repo_url: str,
+    preview_count: int,
+    has_cover: bool,
+) -> dict[str, Any]:
+    job_dir = JOBS_DIR / job_id
+    script = read_json(job_dir / "script.json", {})
+    segments = script.get("segments", []) if isinstance(script.get("segments"), list) else []
+    checks = [
+        _readiness_check("repo_url", bool(repo_url), f"已设置仓库地址: {repo_url}", "缺少仓库地址"),
+        _readiness_check("asset_manifest", (job_dir / "asset_manifest.json").exists(), "已生成素材清单", "缺少素材清单"),
+        _readiness_check("shot_plan", (job_dir / "shot_plan.json").exists(), "已生成分镜计划", "缺少分镜计划"),
+        _readiness_check("script", bool(segments), "已生成单项目口播脚本", "缺少口播脚本"),
+        _readiness_check("preview_frames", preview_count > 0, f"已生成 {preview_count} 张预览帧", "缺少预览帧"),
+        _readiness_check("cover_frame", has_cover, "已生成封面帧", "缺少封面帧"),
+    ]
+    score = int(sum(item["score"] for item in checks) / max(1, len(checks)))
+    status = "ready" if all(item["passed"] for item in checks) else "review"
+    report = {
+        "status": status,
+        "score": score,
+        "checks": checks,
+        "summary": "单项目计划可进入最终渲染。" if status == "ready" else "进入最终渲染前建议复核未通过项。",
+    }
+    write_json(job_dir / "readiness_report.json", report)
+    append_log(job_id, f"单项目准备度评分: {score} / 100，状态 {status}。")
+    return report
+
+
 def _readiness_check(check_id: str, passed: bool, ok: str, fail: str) -> dict[str, Any]:
     return {
         "id": check_id,
@@ -1355,6 +1581,41 @@ def _plan_validation_details(job_dir: Path) -> dict[str, Any]:
         "duration_sum": round(sum(durations), 1),
         "subtitle_length_check": "all_under_35_chars" if all(len(text) <= 35 for text in subtitles) else "has_long_subtitle",
     }
+
+
+def _asset_manifest_from_dict(data: dict[str, Any]) -> AssetManifest:
+    return AssetManifest(assets=[
+        VisualAsset(
+            id=str(asset.get("id") or ""),
+            type=str(asset.get("type") or ""),
+            source=str(asset.get("source") or ""),
+            path=str(asset.get("path") or ""),
+            caption=str(asset.get("caption") or ""),
+            use_case=str(asset.get("use_case") or ""),
+            quality=str(asset.get("quality") or ""),
+        )
+        for asset in data.get("assets", [])
+        if isinstance(asset, dict)
+    ])
+
+
+def _video_script_from_dict(data: dict[str, Any]) -> VideoScript:
+    return VideoScript(
+        title=str(data.get("title") or "GitHub 项目推荐"),
+        total_duration=float(data.get("total_duration") or 0),
+        segments=[
+            ScriptSegment(
+                timestamp=float(segment.get("timestamp") or 0),
+                duration=float(segment.get("duration") or 4),
+                narration=str(segment.get("narration") or ""),
+                action=str(segment.get("action") or ""),
+                target=str(segment.get("target") or ""),
+                focus_area=str(segment.get("focus_area") or ""),
+            )
+            for segment in data.get("segments", [])
+            if isinstance(segment, dict)
+        ],
+    )
 
 
 def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[str, str]] | None:

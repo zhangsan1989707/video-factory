@@ -16,6 +16,7 @@ from src.console.preflight import preflight_snapshot
 from src.console.scheduler import run_due_scheduled_draft, start_scheduler_loop
 from src.console.jobs import (
     create_hotlist_job,
+    create_single_project_vertical_job,
     finalize_numbered_output,
     generate_candidates,
     job_detail,
@@ -168,7 +169,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 self._json(update_config(name, payload) if name else update_configs(payload))
                 return
             if parsed.path == "/api/jobs":
-                self._json({"job": create_hotlist_job(payload)})
+                job_type = str(payload.get("type") or "github_hotlist")
+                creator = create_single_project_vertical_job if job_type == "single_project_vertical" else create_hotlist_job
+                self._json({"job": creator(payload)})
                 return
             if parsed.path == "/api/scheduler/run-due":
                 self._json(run_due_scheduled_draft())
@@ -463,7 +466,9 @@ def start_prepare_plan_job(job_id: str) -> dict:
         raise ValueError(f"当前状态不能生成计划文件: {job.get('status') or 'unknown'}")
 
     async def worker(_job_id: str) -> None:
-        prepare_plan(_job_id)
+        import asyncio
+
+        await asyncio.to_thread(prepare_plan, _job_id)
 
     return _start_background_action(job_id, worker, "后台计划生成任务失败")
 

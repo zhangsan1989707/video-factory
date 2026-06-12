@@ -20,6 +20,13 @@
         </div>
         <div class="top-actions">
           <label>
+            <span>任务类型</span>
+            <select id="jobType">
+              <option value="github_hotlist" selected>GitHub 热榜</option>
+              <option value="single_project_vertical">单项目竖屏</option>
+            </select>
+          </label>
+          <label>
             <span>时间维度</span>
             <select id="timeWindow">
               <option value="daily">日榜</option>
@@ -33,6 +40,10 @@
               <option value="5" selected>5</option>
               <option value="10">10</option>
             </select>
+          </label>
+          <label id="repoUrlField" hidden>
+            <span>仓库 URL</span>
+            <input id="repoUrl" placeholder="https://github.com/owner/repo">
           </label>
           <button id="nextActionBtn" class="primary" data-action="create">创建任务</button>
           <button id="newJobBtn" class="ghost">新建任务</button>

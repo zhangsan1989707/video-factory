@@ -313,6 +313,8 @@ def next_job_id(prefix: str = "GH-HOTLIST") -> str:
 
 def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     _validate_job_id(job_id)
+    job_type = _normalize_job_type(payload.get("type"))
+    repo_url = _normalize_repo_url(payload.get("repo_url")) if job_type == "single_project_vertical" else ""
     job_dir = JOBS_DIR / job_id
     if job_dir.exists():
         raise ValueError(f"任务目录已存在: {job_id}")
@@ -321,7 +323,7 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     template = _normalize_job_template(str(payload.get("template") or "github_hotlist_vertical_v1"), payload.get("template_params") or {})
     job = {
         "id": job_id,
-        "type": "github_hotlist",
+        "type": job_type,
         "status": "draft_pending",
         "stage": "draft_pending",
         "created_at": now,
@@ -341,9 +343,39 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             {"stage": "draft_pending", "status": "draft_pending", "at": now}
         ],
     }
+    if job_type == "single_project_vertical":
+        job.update({
+            "title": payload.get("title") or "单项目竖屏视频",
+            "repo_url": repo_url,
+            "status": "awaiting_render",
+            "stage": "preparing_plan",
+            "project_count": 1,
+        })
+        job["stage_history"] = [
+            {"stage": "preparing_plan", "status": "awaiting_render", "at": now}
+        ]
     write_json(job_dir / "task.json", job)
-    append_log(job_id, "任务已创建，等待生成候选草稿。")
+    if job_type == "single_project_vertical":
+        append_log(job_id, f"单项目竖屏任务已创建: {job['repo_url']}。")
+    else:
+        append_log(job_id, "任务已创建，等待生成候选草稿。")
     return job
+
+
+def _normalize_job_type(value: Any) -> str:
+    job_type = str(value or "github_hotlist").strip()
+    if job_type not in {"github_hotlist", "single_project_vertical"}:
+        raise ValueError(f"未知任务类型: {job_type}")
+    return job_type
+
+
+def _normalize_repo_url(value: Any) -> str:
+    repo_url = str(value or "").strip()
+    if not repo_url:
+        raise ValueError("请输入 GitHub 仓库地址")
+    if not re.match(r"^https://github\.com/[^/\s]+/[^/\s]+/?$", repo_url):
+        raise ValueError("GitHub 仓库地址格式应为 https://github.com/owner/repo")
+    return repo_url.rstrip("/")
 
 
 def _normalize_job_template(template_name: str, params: Any) -> dict[str, Any]:

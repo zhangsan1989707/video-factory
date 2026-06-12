@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -34,6 +34,9 @@ async function run() {
   testFocusScriptSegmentHighlightsTarget();
   testRenderQualityReportShowsLocateAction();
   await testCreateDraftDoesNotCollectCandidates();
+  await testCreateSingleProjectDraftUsesRepoUrl();
+  testSingleProjectCandidateEmptyMessage();
+  testSyncJobTypeFieldsTogglesInputs();
   await testCopyTextUsesClipboardWhenAvailable();
   await testProviderTestKeepsUnsavedFormValues();
 }
@@ -278,6 +281,152 @@ async function testCreateDraftDoesNotCollectCandidates() {
   assert.deepEqual(state.candidates, []);
   assert.deepEqual(state.segments, []);
   assert.equal(state.qualityReport, null);
+}
+
+async function testCreateSingleProjectDraftUsesRepoUrl() {
+  const calls = [];
+  global.fetch = async (path, options = {}) => {
+    calls.push({ path, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null });
+    if (path === "/api/jobs" && options.method === "POST") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          job: {
+            id: "GH-SINGLE-20990101-DRAFT",
+            type: "single_project_vertical",
+            status: "awaiting_render",
+            stage: "preparing_plan",
+            repo_url: "https://github.com/demo/alpha",
+            project_count: 1,
+            template_params: {},
+            stage_history: [{ stage: "preparing_plan", status: "awaiting_render", at: "2026-06-10T10:00:00" }],
+          },
+        }),
+      };
+    }
+    if (path === "/api/jobs") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ jobs: [{ id: "GH-SINGLE-20990101-DRAFT", type: "single_project_vertical", status: "awaiting_render", stage: "preparing_plan" }] }),
+      };
+    }
+    throw new Error(`unexpected fetch: ${path}`);
+  };
+  global.alert = (message) => {
+    throw new Error(message);
+  };
+
+  const timeLabel = { hidden: false };
+  const countLabel = { hidden: false };
+  const buttons = [];
+  const values = {
+    jobType: { value: "single_project_vertical" },
+    repoUrlField: { hidden: true },
+    repoUrl: { value: "https://github.com/demo/alpha" },
+    timeWindow: { value: "weekly", parentElement: timeLabel },
+    projectCount: { value: "5", parentElement: countLabel },
+    visualStyle: { value: "tech_hotspot" },
+    renderEngine: { value: "hyperframes" },
+    subtitleMode: { value: "large_hook" },
+    tone: { value: "professional_review" },
+    bgmMode: { value: "default" },
+    bgmPath: { value: "" },
+    currentJobId: { textContent: "" },
+    currentStage: { textContent: "" },
+    openJobFolderBtn: { disabled: true },
+    currentModelCall: { textContent: "" },
+    currentError: { hidden: true, textContent: "" },
+    currentDiagnostics: { hidden: true, textContent: "" },
+    stageTimeline: { className: "", innerHTML: "", textContent: "" },
+    nextActionBtn: { textContent: "", dataset: {}, disabled: false },
+    confirmSelectionBtn: { textContent: "", disabled: false },
+    saveScriptBtn: { textContent: "", disabled: false },
+    refreshCandidatesBtn: { disabled: true },
+    regenerateCandidatesBtn: { disabled: true },
+    regenerateScriptBtn: { disabled: true },
+    regenerateVideoBtn: { disabled: true },
+    cancelJobBtn: { disabled: true, textContent: "" },
+    candidateRows: { innerHTML: "", querySelectorAll() { return []; } },
+    candidateSourceSummary: { textContent: "" },
+    narrationSourceSummary: { textContent: "" },
+    scriptEditor: { className: "", textContent: "", innerHTML: "" },
+    qualityReport: { hidden: false, innerHTML: "", className: "" },
+    artifactSummary: { className: "", innerHTML: "", textContent: "" },
+    publishActions: { hidden: true, innerHTML: "", querySelectorAll() { return []; } },
+    artifactList: { className: "", innerHTML: "", textContent: "" },
+    logBox: { textContent: "" },
+    historyList: {
+      className: "",
+      textContent: "",
+      innerHTML: "",
+      querySelectorAll() {
+        return [];
+      },
+    },
+  };
+  buttons.push(values.nextActionBtn, values.confirmSelectionBtn, values.saveScriptBtn);
+  buttons.forEach((button) => {
+    button.dataset ||= {};
+  });
+  global.document = {
+    getElementById(id) {
+      return values[id];
+    },
+    querySelectorAll(selector) {
+      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn)");
+      return buttons;
+    },
+  };
+
+  state.currentJobId = "";
+  state.currentJob = null;
+  state.candidates = [{ full_name: "old/candidate" }];
+  state.segments = [{ id: "intro", text: "old" }];
+  state.qualityReport = { status: "caution" };
+
+  await createDraft();
+
+  assert.equal(calls[0].body.type, "single_project_vertical");
+  assert.equal(calls[0].body.repo_url, "https://github.com/demo/alpha");
+  assert.equal(values.nextActionBtn.dataset.action, "prepare-plan");
+  assert.equal(values.logBox.textContent, "单项目竖屏任务已创建。点击“生成计划文件”准备分镜和脚本。\n");
+  assert.equal(values.candidateRows.innerHTML.includes("单项目竖屏任务不需要候选列表"), true);
+}
+
+function testSingleProjectCandidateEmptyMessage() {
+  state.currentJobId = "GH-SINGLE-20990101-DRAFT";
+  state.currentJob = { type: "single_project_vertical" };
+  assert.equal(candidateEmptyMessage(), "单项目竖屏任务不需要候选列表。点击“生成计划文件”准备分镜和脚本。");
+}
+
+function testSyncJobTypeFieldsTogglesInputs() {
+  const timeLabel = { hidden: false };
+  const countLabel = { hidden: false };
+  const nodes = {
+    jobType: { value: "single_project_vertical" },
+    repoUrlField: { hidden: true },
+    timeWindow: { parentElement: timeLabel },
+    projectCount: { parentElement: countLabel },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  assert.equal(currentJobType(), "single_project_vertical");
+  syncJobTypeFields();
+  assert.equal(nodes.repoUrlField.hidden, false);
+  assert.equal(timeLabel.hidden, true);
+  assert.equal(countLabel.hidden, true);
+
+  nodes.jobType.value = "github_hotlist";
+  syncJobTypeFields();
+  assert.equal(nodes.repoUrlField.hidden, true);
+  assert.equal(timeLabel.hidden, false);
+  assert.equal(countLabel.hidden, false);
 }
 
 function testRegenerateButtonsFollowStage() {

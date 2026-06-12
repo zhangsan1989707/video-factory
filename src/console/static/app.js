@@ -70,8 +70,10 @@ function bindEvents() {
   $("saveSettingsBtn").addEventListener("click", saveSettings);
   $("providerEditor").addEventListener("click", testProviderFromButton);
   $("openJobFolderBtn").addEventListener("click", openJobFolder);
+  $("jobType").addEventListener("change", syncJobTypeFields);
   $("visualStyle").addEventListener("change", syncRenderEngineForStyle);
   $("renderEngine").addEventListener("change", syncStyleForRenderEngine);
+  syncJobTypeFields();
 }
 
 function switchTab(name) {
@@ -168,8 +170,16 @@ async function loadJob(jobId) {
 async function createDraft() {
   setBusy(true);
   try {
+    const type = currentJobType();
+    const repoNode = $("repoUrl");
+    const repoUrl = repoNode ? repoNode.value.trim() : "";
+    if (type === "single_project_vertical" && !repoUrl) {
+      throw new Error("请输入 GitHub 仓库 URL");
+    }
     const created = await post("/api/jobs", {
-      title: "GitHub 热榜视频",
+      type,
+      title: type === "single_project_vertical" ? "单项目竖屏视频" : "GitHub 热榜视频",
+      repo_url: repoUrl,
       time_window: $("timeWindow").value,
       project_count: Number($("projectCount").value),
       template: "github_hotlist_vertical_v1",
@@ -183,7 +193,9 @@ async function createDraft() {
     renderCandidates();
     renderScript();
     renderQualityReport();
-    renderLogs("任务已按当前时间维度和项目数创建。点击“生成候选草稿”拉取候选项目。\n");
+    renderLogs(type === "single_project_vertical"
+      ? "单项目竖屏任务已创建。点击“生成计划文件”准备分镜和脚本。\n"
+      : "任务已按当前时间维度和项目数创建。点击“生成候选草稿”拉取候选项目。\n");
     await loadJobs();
   } catch (error) {
     alert(error.message);
@@ -196,9 +208,12 @@ function startNewJob() {
   stopPollingCurrentJob();
   clearCurrentJob();
   switchTab("candidates");
-  renderLogs("已准备新任务。请选择时间维度和项目数，然后点击“创建任务”。\n");
-  const timeWindow = $("timeWindow");
-  if (timeWindow && typeof timeWindow.focus === "function") timeWindow.focus();
+  syncJobTypeFields();
+  renderLogs(currentJobType() === "single_project_vertical"
+    ? "已准备单项目任务。请输入仓库 URL，然后点击“创建任务”。\n"
+    : "已准备新任务。请选择时间维度和项目数，然后点击“创建任务”。\n");
+  const focusTarget = currentJobType() === "single_project_vertical" ? $("repoUrl") : $("timeWindow");
+  if (focusTarget && typeof focusTarget.focus === "function") focusTarget.focus();
 }
 
 async function deleteHistoryJob(jobId) {
@@ -583,8 +598,11 @@ function renderJob(job) {
   state.currentJob = job;
   $("currentJobId").textContent = job.id || "未创建";
   $("currentStage").textContent = job.stage || "未知阶段";
+  if (job.type && $("jobType")) $("jobType").value = String(job.type);
+  if (job.repo_url && $("repoUrl")) $("repoUrl").value = String(job.repo_url);
   if (job.time_window) $("timeWindow").value = String(job.time_window);
   if (job.project_count) $("projectCount").value = String(job.project_count);
+  syncJobTypeFields();
   $("openJobFolderBtn").disabled = !job.id;
   renderModelCall(job.model_calls || []);
   renderCandidateSourceSummary(job.candidate_source || {});
@@ -771,8 +789,18 @@ function updateRegenerateActions(job) {
   if (!candidatesButton || !scriptButton || !videoButton || !cancelButton) return;
   const stage = job.stage || "draft_pending";
   const status = job.status || "";
+  const type = job.type || "github_hotlist";
   const hasJob = Boolean(job.id);
   const isRunning = hasBackgroundWork(job);
+  if (type === "single_project_vertical") {
+    candidatesButton.disabled = true;
+    scriptButton.disabled = true;
+    videoButton.disabled = !hasJob || isRunning || !["ready_to_render", "completed", "failed"].includes(status);
+    cancelButton.disabled = !hasJob || !isRunning || Boolean(job.cancel_requested);
+    cancelButton.textContent = job.cancel_requested ? "取消中" : "取消任务";
+    if (refreshBtn) refreshBtn.disabled = true;
+    return;
+  }
   const hasSelection = !["draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"].includes(stage);
   const hasScript = hasSelection && !["generating_script", "awaiting_script_confirmation"].includes(stage);
   const canRefreshCandidates = hasJob && !isRunning &&
@@ -865,9 +893,27 @@ function renderCandidates() {
 }
 
 function candidateEmptyMessage() {
+  if (state.currentJob && state.currentJob.type === "single_project_vertical") {
+    return "单项目竖屏任务不需要候选列表。点击“生成计划文件”准备分镜和脚本。";
+  }
   return state.currentJobId
     ? "任务已创建。点击“生成候选草稿”拉取候选项目。"
     : "还没有任务。先选择时间维度和项目数，再点击“创建任务”。";
+}
+
+function currentJobType() {
+  const node = $("jobType");
+  return node && node.value ? node.value : "github_hotlist";
+}
+
+function syncJobTypeFields() {
+  const type = currentJobType();
+  const repoField = $("repoUrlField");
+  const timeField = $("timeWindow") && $("timeWindow").parentElement;
+  const countField = $("projectCount") && $("projectCount").parentElement;
+  if (repoField) repoField.hidden = type !== "single_project_vertical";
+  if (timeField) timeField.hidden = type === "single_project_vertical";
+  if (countField) countField.hidden = type === "single_project_vertical";
 }
 
 function candidateAutoLimit() {
@@ -1518,5 +1564,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

@@ -128,6 +128,107 @@ class ConsoleJobsTest(unittest.TestCase):
             self.assertEqual(attempts, [first_id, f"GH-HOTLIST-{today}-002"])
             self.assertEqual(job["id"], f"GH-HOTLIST-{today}-002")
 
+    def test_create_single_project_vertical_job_records_repo_and_plan_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with patch("src.console.store.JOBS_DIR", jobs_dir), patch("src.console.jobs.JOBS_DIR", jobs_dir):
+                job = console_jobs.create_single_project_vertical_job({
+                    "repo_url": "https://github.com/demo/alpha",
+                })
+
+            self.assertTrue(job["id"].startswith("GH-SINGLE-"))
+            self.assertEqual(job["type"], "single_project_vertical")
+            self.assertEqual(job["repo_url"], "https://github.com/demo/alpha")
+            self.assertEqual(job["stage"], "preparing_plan")
+            self.assertEqual(job["status"], "awaiting_render")
+
+    def test_create_single_project_vertical_job_rejects_bad_repo_without_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with patch("src.console.store.JOBS_DIR", jobs_dir), patch("src.console.jobs.JOBS_DIR", jobs_dir):
+                with self.assertRaisesRegex(ValueError, "GitHub 仓库地址格式"):
+                    create_job("GH-SINGLE-20990101-BAD", {
+                        "type": "single_project_vertical",
+                        "repo_url": "https://example.com/demo/alpha",
+                    })
+
+            self.assertFalse((jobs_dir / "GH-SINGLE-20990101-BAD").exists())
+
+    def test_prepare_single_project_vertical_plan_uses_existing_pipeline(self) -> None:
+        async def fake_run_pipeline(**kwargs):
+            calls.append(kwargs)
+            job_dir = Path(kwargs["output"]).parent
+            write_json(job_dir / "asset_manifest.json", {"assets": []})
+            write_json(job_dir / "shot_plan.json", {
+                "title": "Alpha",
+                "shots": [{"start": 0, "duration": 4, "visual_asset": "", "visual_treatment": "single_hook", "narration_intent": "hook", "subtitle": "Alpha"}],
+            })
+            write_json(job_dir / "script.json", {
+                "title": "Alpha",
+                "total_duration": 4,
+                "segments": [{"timestamp": 0, "duration": 4, "narration": "Alpha", "action": "show", "target": ""}],
+            })
+            write_json(job_dir / "info.json", {"name": "alpha"})
+            return job_dir
+
+        def fake_vertical_previews(_script, _shot_plan, _manifest, preview_dir: Path):
+            preview_dir.mkdir(parents=True, exist_ok=True)
+            preview = preview_dir / "shot-01.png"
+            preview.write_bytes(b"preview")
+            return [preview]
+
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.run_pipeline", side_effect=fake_run_pipeline),
+                patch("src.console.jobs.render_vertical_previews", side_effect=fake_vertical_previews),
+            ):
+                job = console_jobs.create_single_project_vertical_job({"repo_url": "https://github.com/demo/alpha"})
+                result = prepare_plan(job["id"])
+
+            self.assertEqual(calls[0]["url"], "https://github.com/demo/alpha")
+            self.assertEqual(calls[0]["orientation"], "vertical")
+            self.assertEqual(calls[0]["style"], "single-review")
+            self.assertTrue(calls[0]["dry_run"])
+            self.assertEqual(result["job"]["status"], "awaiting_validation")
+            self.assertEqual(result["readiness_report"]["status"], "ready")
+            self.assertTrue((jobs_dir / job["id"] / "cover_frame.png").exists())
+
+    def test_render_single_project_vertical_uses_from_plan_and_finalizes_output(self) -> None:
+        async def fake_run_pipeline(**kwargs):
+            calls.append(kwargs)
+            output = Path(kwargs["output"])
+            output.write_bytes(b"video")
+            return output
+
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.run_pipeline", side_effect=fake_run_pipeline),
+            ):
+                job = console_jobs.create_single_project_vertical_job({
+                    "repo_url": "https://github.com/demo/alpha",
+                    "title": "Alpha Review",
+                })
+                job_dir = jobs_dir / job["id"]
+                write_json(job_dir / "asset_manifest.json", {"assets": []})
+                write_json(job_dir / "shot_plan.json", {"title": "Alpha", "shots": []})
+                write_json(job_dir / "script.json", {"title": "Alpha", "segments": []})
+                update_job(job["id"], status="ready_to_render", stage="preparing_plan", plan_validation={"status": "passed", "error": ""})
+
+                result = asyncio.run(render_video(job["id"]))
+
+            self.assertEqual(calls[0]["from_plan"], str(jobs_dir / job["id"]))
+            self.assertEqual(calls[0]["style"], "single-review")
+            self.assertEqual(result["job"]["status"], "completed")
+            self.assertTrue(Path(result["job"]["official_video"]).exists())
+
     def test_viewer_highlight_ignores_visual_potential_for_narration(self) -> None:
         self.assertEqual(
             console_jobs._viewer_highlight({
