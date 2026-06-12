@@ -61,6 +61,7 @@ function bindEvents() {
   $("saveScriptBtn").addEventListener("click", saveScript);
   $("regenerateCandidatesBtn").addEventListener("click", regenerateCandidates);
   $("refreshCandidatesBtn").addEventListener("click", refreshCandidates);
+  $("refreshCandidatesBtn2").addEventListener("click", refreshCandidates);
   $("regenerateScriptBtn").addEventListener("click", regenerateScript);
   $("regenerateVideoBtn").addEventListener("click", regenerateVideo);
   $("cancelJobBtn").addEventListener("click", cancelCurrentJob);
@@ -786,6 +787,7 @@ function updateRegenerateActions(job) {
   const videoButton = $("regenerateVideoBtn");
   const cancelButton = $("cancelJobBtn");
   const refreshBtn = $("refreshCandidatesBtn");
+  const refreshBtn2 = $("refreshCandidatesBtn2");
   if (!candidatesButton || !scriptButton || !videoButton || !cancelButton) return;
   const stage = job.stage || "draft_pending";
   const status = job.status || "";
@@ -799,6 +801,7 @@ function updateRegenerateActions(job) {
     cancelButton.disabled = !hasJob || !isRunning || Boolean(job.cancel_requested);
     cancelButton.textContent = job.cancel_requested ? "取消中" : "取消任务";
     if (refreshBtn) refreshBtn.disabled = true;
+    if (refreshBtn2) refreshBtn2.disabled = true;
     return;
   }
   const hasSelection = !["draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"].includes(stage);
@@ -811,6 +814,7 @@ function updateRegenerateActions(job) {
   cancelButton.disabled = !hasJob || !isRunning || Boolean(job.cancel_requested);
   cancelButton.textContent = job.cancel_requested ? "取消中" : "取消任务";
   if (refreshBtn) refreshBtn.disabled = !canRefreshCandidates;
+  if (refreshBtn2) refreshBtn2.disabled = !canRefreshCandidates;
 }
 
 function nextActionForJob(job) {

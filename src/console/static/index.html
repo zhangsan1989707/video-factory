@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>视频工厂控制台</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260610-regen" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260612-ux" />
   </head>
   <body>
     <noscript>
@@ -52,6 +52,24 @@
       </header>
 
       <aside class="left-rail panel">
+        <section>
+          <div class="section-title">当前任务</div>
+          <div class="job-card">
+            <code id="currentJobId">未创建</code>
+            <div id="currentStage">等待创建任务</div>
+            <div id="currentModelCall" class="job-meta">model: -</div>
+            <div id="currentError" class="job-error" hidden></div>
+            <pre id="currentDiagnostics" class="job-diagnostics" hidden></pre>
+            <div class="regen-actions">
+              <button id="refreshCandidatesBtn" class="tiny" disabled title="跳过缓存，从 GitHub API 重新拉取最新候选数据">跳过缓存</button>
+              <button id="regenerateCandidatesBtn" class="tiny" disabled>重生成候选</button>
+              <button id="regenerateScriptBtn" class="tiny" disabled>重生成口播</button>
+              <button id="regenerateVideoBtn" class="tiny" disabled>重生成视频</button>
+              <button id="cancelJobBtn" class="tiny danger" disabled>取消任务</button>
+            </div>
+          </div>
+        </section>
+
         <section class="run-summary">
           <div class="pulse"></div>
           <div>
@@ -130,23 +148,6 @@
           </label>
         </section>
 
-        <section>
-          <div class="section-title">当前任务</div>
-          <div class="job-card">
-            <code id="currentJobId">未创建</code>
-            <div id="currentStage">等待创建任务</div>
-            <div id="currentModelCall" class="job-meta">model: -</div>
-            <div id="currentError" class="job-error" hidden></div>
-            <pre id="currentDiagnostics" class="job-diagnostics" hidden></pre>
-            <div class="regen-actions">
-              <button id="refreshCandidatesBtn" class="tiny" disabled title="跳过缓存，从 GitHub API 重新拉取最新候选数据">跳过缓存</button>
-              <button id="regenerateCandidatesBtn" class="tiny" disabled>重生成候选</button>
-              <button id="regenerateScriptBtn" class="tiny" disabled>重生成口播</button>
-              <button id="regenerateVideoBtn" class="tiny" disabled>重生成视频</button>
-              <button id="cancelJobBtn" class="tiny danger" disabled>取消任务</button>
-            </div>
-          </div>
-        </section>
       </aside>
 
       <main class="workspace">
@@ -164,7 +165,10 @@
               <p>自动拉取后，勾选并调整要进入热榜视频的项目。</p>
               <div id="candidateSourceSummary" class="panel-meta">候选来源：待生成。</div>
             </div>
-            <button id="confirmSelectionBtn">确认项目</button>
+            <div class="panel-head-actions">
+              <button id="refreshCandidatesBtn2" class="ghost" disabled title="跳过缓存，直接从 GitHub API 拉取最新候选数据">跳过缓存刷新</button>
+              <button id="confirmSelectionBtn">确认项目</button>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -310,6 +314,6 @@
       </div>
     </aside>
 
-    <script src="/static/app.js?v=20260610-progress"></script>
+    <script src="/static/app.js?v=20260612-ux"></script>
   </body>
 </html>

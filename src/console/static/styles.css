@@ -408,6 +408,13 @@ section + section {
   backdrop-filter: blur(10px);
 }
 
+.panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .panel-head h2 {
   margin: 0;
   font-size: 18px;
