@@ -291,7 +291,7 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertEqual(data["total_new_stars"], "待确认")
         self.assertEqual(project["core_problem"], "功能证据待补齐")
         self.assertIn("证据", project["reason"])
-        self.assertIn("待补充真实截图", project["visual_asset_label"])
+        self.assertIn("截图待补充", project["visual_asset_label"])
         self.assertNotIn("近期热度上升", project["description"])
         self.assertNotIn("具体用途", project["reason"])
 
@@ -301,7 +301,7 @@ class HotlistV2RenderTest(unittest.TestCase):
                 "full_name": "vorpus/performativeUI",
                 "name": "performativeUI",
                 "description": "",
-                "description_zh": "README 显示：AI-native React components for satirical product interfaces.",
+                "description_zh": "项目说明显示：AI-native React components for satirical product interfaces.",
                 "repo_description_missing": True,
                 "description_source": "readme",
                 "readme_excerpt": "# performative-ui\n\nAI-native React components for satirical product interfaces.",
@@ -315,7 +315,7 @@ class HotlistV2RenderTest(unittest.TestCase):
         project = data["projects"][0]
         self.assertIn("AI-native React components", project["description"])
         self.assertIn("AI-native React components", project["purpose"])
-        self.assertIn("GitHub 简介字段未填写", project["risk_note"])
+        self.assertIn("简介未填写", project["risk_note"])
         self.assertNotIn("缺少项目描述", project["description"])
         self.assertNotIn("建议跳过", project["reason"])
 
