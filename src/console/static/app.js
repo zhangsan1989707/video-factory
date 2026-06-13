@@ -580,7 +580,10 @@ async function refreshCurrentJob() {
 }
 
 function syncDetailState(detail) {
-  state.candidates = detail.candidates || [];
+  state.candidates = (detail.candidates || []).map((item) => {
+    const { selected, ...rest } = item;
+    return rest;
+  });
   state.segments = detail.segments || [];
   state.qualityReport = detail.quality_report || null;
 }

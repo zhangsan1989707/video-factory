@@ -41,7 +41,7 @@ class GithubHotlistTest(unittest.TestCase):
         result = asyncio.run(_collect_with_transport("ghp_test", httpx.MockTransport(handler), force_refresh=True))
 
         self.assertEqual(seen_headers.get("authorization"), "Bearer ghp_test")
-        self.assertEqual(result["items"][0]["selected"], True)
+        self.assertEqual(result["items"][0]["full_name"], "demo/alpha")
 
     def test_collect_candidates_reports_github_error_context(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
