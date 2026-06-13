@@ -1961,12 +1961,23 @@ def _with_local_fact_checks(
     report = _bind_quality_issues(report, projects, segments)
     local_flags = _local_fact_flags(projects, segments)
     if local_flags:
-        report = dict(report)
-        report["risk_flags"] = [*report.get("risk_flags", []), *[flag["text"] for flag in local_flags]][:8]
-        report["issues"] = [*report.get("issues", []), *local_flags][:8]
-        report["status"] = "caution"
-        report["passed"] = False
-        report["summary"] = "脚本存在需要人工复核的事实一致性风险。"
+        # 区分硬错误（daily_growth 事实问题）和软建议（相似度问题）
+        hard_flags = [f for f in local_flags if "daily_growth" in str(f.get("text", ""))]
+        soft_flags = [f for f in local_flags if f not in hard_flags]
+        if hard_flags:
+            # 明确的事实错误：硬否决
+            report = dict(report)
+            report["risk_flags"] = [*report.get("risk_flags", []), *[flag["text"] for flag in hard_flags]][:8]
+            report["issues"] = [*report.get("issues", []), *hard_flags][:8]
+            report["status"] = "caution"
+            report["passed"] = False
+            report["summary"] = "脚本存在需要人工复核的事实一致性风险。"
+        if soft_flags:
+            # 相似度/表达建议：仅追加到 issues 和 risk_flags，不覆盖 AI 模型的 status/passed
+            report = dict(report)
+            report["risk_flags"] = [*report.get("risk_flags", []), *[flag["text"] for flag in soft_flags]][:8]
+            report["issues"] = [*report.get("issues", []), *soft_flags][:8]
+            # 注意：不再强制 status=caution / passed=False
     elif report.get("status") == "pass":
         report["passed"] = True
     return report
@@ -1978,6 +1989,9 @@ def _local_fact_flags(projects: list[dict[str, Any]], segments: list[dict[str, A
     for index, project in enumerate(projects, start=1):
         feature = _sanitize_feature_extract(project.get("feature_extract")) or _fallback_feature_extract(project)
         action = feature.get("core_action") or ""
+        if not action.strip():
+            # core_action 为空时跳过相似度检查（没有可比较的内容）
+            continue
         source = " ".join([
             str(project.get("description") or ""),
             str(project.get("description_zh") or ""),
@@ -1991,16 +2005,17 @@ def _local_fact_flags(projects: list[dict[str, Any]], segments: list[dict[str, A
         segment_id = f"project-{index}"
         narration = by_id.get(segment_id, "")
         mention = _fact_similarity(action, narration)
-        if support < 0.18:
+        # 阈值放低：只有当相似度极低时才提示（避免误判）
+        if support < 0.08:
             flags.append(_quality_issue(
                 "风险",
                 f"{project.get('full_name') or project.get('name')}: core_action 与项目描述/README 支撑不足，请复核。",
                 segment_id,
             ))
-        elif mention < 0.12:
+        elif mention < 0.06 and narration:
             flags.append(_quality_issue(
-                "风险",
-                f"{project.get('full_name') or project.get('name')}: 口播未明显使用 core_action，请重写该段。",
+                "建议",
+                f"{project.get('full_name') or project.get('name')}: 口播未明显使用 core_action，可以更贴近项目核心能力。",
                 segment_id,
             ))
         if _contains_growth_overclaim(narration):
@@ -2101,7 +2116,10 @@ def _contains_growth_overclaim(text: str) -> bool:
         "单日涨了",
         "单日新增",
         "暴涨了",
-        "涨了",
+        "今日上涨",
+        "今日新增",
+        "每日新增",
+        "每日上涨",
     )
     if any(phrase in lowered for phrase in blocked_phrases):
         return "估算日均star" not in lowered and "热度估算" not in lowered
@@ -2112,20 +2130,59 @@ def _fact_similarity(left: str, right: str) -> float:
     left_tokens = _fact_tokens(left)
     right_tokens = _fact_tokens(right)
     if left_tokens and right_tokens:
-        return len(left_tokens & right_tokens) / max(1, len(left_tokens))
-    left_compact = re.sub(r"\s+", "", left.lower())
-    right_compact = re.sub(r"\s+", "", right.lower())
+        left_compact = _normalize_fact_text(left)
+        right_compact = _normalize_fact_text(right)
+
+        # 1) 英文单词子串匹配：如果 left 里有英文单词，检查它是否作为子串出现在 right 中
+        english_words = re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}", left.lower())
+        sub_hits = sum(1 for w in english_words if w and w in right_compact)
+        english_hits_ratio = sub_hits / max(1, len(english_words)) if english_words else 0.0
+
+        # 2) 覆盖度：left 的 token 有多少在 right 中出现（适合 core_action vs source 的关系）
+        intersect = len(left_tokens & right_tokens)
+        coverage = intersect / max(1, len(left_tokens))
+
+        # 3) 中文关键词子串匹配：left 中 2-4 字的有意义词是否作为子串出现在 right 中
+        #    （作为 bigram 覆盖率的补充，避免因语序差异导致低匹配）
+        chinese_words = re.findall(r"[\u4e00-\u9fff]{2,4}", left)
+        chinese_hits = sum(1 for w in chinese_words if w and w in right_compact)
+        chinese_hits_ratio = chinese_hits / max(1, len(chinese_words)) if chinese_words else 0.0
+
+        return max(coverage * 1.2, english_hits_ratio * 0.8, chinese_hits_ratio * 0.7)
+    left_compact = _normalize_fact_text(left)
+    right_compact = _normalize_fact_text(right)
     if not left_compact or not right_compact:
         return 0.0
     return SequenceMatcher(None, left_compact, right_compact).ratio()
 
 
 def _fact_tokens(text: str) -> set[str]:
-    return {
-        token.lower()
-        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{2,}|[\u4e00-\u9fff]{2,}", text)
-        if token.lower() not in {"github", "readme", "project", "项目", "工具", "用户"}
+    """用中文 bigram + 英文单词做特征；对短中文也做 trigram 补充。"""
+    if not text:
+        return set()
+    stopwords = {
+        "github", "readme", "project", "项目", "工具", "用户",
+        "一个", "这个", "那个", "它是", "它可以", "它能",
+        "我们", "他们", "你是", "你可以", "的是",
     }
+    tokens: set[str] = set()
+    # 1) 英文单词：>=3 字符的英文/数字串
+    for m in re.finditer(r"[A-Za-z][A-Za-z0-9_-]{2,}", text):
+        w = m.group(0).lower()
+        if w not in stopwords:
+            tokens.add(w)
+    # 2) 中文 bigram：对连续中文字符做 2-char 滑窗
+    for chinese_segment in re.findall(r"[\u4e00-\u9fff]{2,}", text):
+        # bigram
+        for i in range(len(chinese_segment) - 1):
+            bg = chinese_segment[i:i + 2]
+            if bg not in stopwords:
+                tokens.add(bg)
+        # 对短中文（2-4字）把整个词也加进去（有时是有意义的词）
+        if 2 <= len(chinese_segment) <= 4:
+            if chinese_segment not in stopwords:
+                tokens.add(chinese_segment)
+    return tokens
 
 
 def _normalize_fact_text(text: str) -> str:
