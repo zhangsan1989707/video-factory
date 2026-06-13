@@ -26,6 +26,7 @@ from src.console.store import (
     read_json,
     read_log,
     read_log_tail,
+    summarize_model_usage,
     update_github_rate_limit,
     update_job,
     write_json,
@@ -822,6 +823,7 @@ def job_detail(job_id: str) -> dict[str, Any]:
         "stage_history": job.get("stage_history") or [],
         "artifacts": job_artifacts(job_id),
         "latest_model_call": model_calls[-1] if model_calls else {},
+        "model_usage": summarize_model_usage(model_calls),
         "narration_source": job.get("narration_source") or {},
         "candidate_source": job.get("candidate_source") or {},
     }
@@ -2204,6 +2206,7 @@ def _record_model_call(job_id: str, task: str, detail: dict[str, Any], status: s
         "route": route,
         "status": status,
         "error": detail.get("error") or "",
+        "usage": detail.get("usage") or {},
     })
 
 

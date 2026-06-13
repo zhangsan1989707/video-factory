@@ -430,6 +430,7 @@ def append_model_call(job_id: str, call: dict[str, Any]) -> dict[str, Any]:
         "model": str(route.get("model") or call.get("model") or ""),
         "status": str(call.get("status") or ""),
         "error": str(call.get("error") or ""),
+        "usage": normalize_model_usage(call.get("usage")),
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     calls = job.get("model_calls") or []
@@ -438,6 +439,49 @@ def append_model_call(job_id: str, call: dict[str, Any]) -> dict[str, Any]:
     job["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     write_json(JOBS_DIR / job_id / "task.json", job)
     return job
+
+
+def normalize_model_usage(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    prompt = _int_token(value.get("prompt_tokens") if "prompt_tokens" in value else value.get("input_tokens"))
+    completion = _int_token(value.get("completion_tokens") if "completion_tokens" in value else value.get("output_tokens"))
+    total = _int_token(value.get("total_tokens")) or prompt + completion
+    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
+
+
+def summarize_model_usage(calls: list[dict[str, Any]]) -> dict[str, int]:
+    summary = {"api_calls": 0, "billable_calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    for call in calls:
+        if not isinstance(call, dict):
+            continue
+        summary["api_calls"] += 1
+        usage = normalize_model_usage(call.get("usage"))
+        if usage["total_tokens"]:
+            summary["billable_calls"] += 1
+        summary["prompt_tokens"] += usage["prompt_tokens"]
+        summary["completion_tokens"] += usage["completion_tokens"]
+        summary["total_tokens"] += usage["total_tokens"]
+    return summary
+
+
+def summarize_jobs_model_usage(jobs: list[dict[str, Any]]) -> dict[str, int]:
+    summary = {"job_count": 0, "api_calls": 0, "billable_calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        summary["job_count"] += 1
+        usage = summarize_model_usage(job.get("model_calls") or [])
+        for key in ("api_calls", "billable_calls", "prompt_tokens", "completion_tokens", "total_tokens"):
+            summary[key] += usage[key]
+    return summary
+
+
+def _int_token(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def list_jobs() -> list[dict[str, Any]]:

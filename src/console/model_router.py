@@ -49,7 +49,7 @@ def chat_json_detail(task: str, system: str, prompt: str, max_tokens: int = 2000
     for candidate in _json_candidate_routes(route):
         for temperature in JSON_RETRY_TEMPERATURES:
             try:
-                content, used_route = _chat_text_with_route(
+                content, used_route, usage = _chat_text_with_route(
                     candidate,
                     system,
                     prompt,
@@ -67,19 +67,28 @@ def chat_json_detail(task: str, system: str, prompt: str, max_tokens: int = 2000
                 return {
                     "data": _parse_json(content),
                     "route": used_route,
+                    "usage": usage,
                     "raw": content,
                     "error": "",
                     "error_details": attempts,
                 }
             except Exception as exc:
-                attempts.append(_json_attempt(used_route, temperature, content, str(exc)))
+                attempts.append(_json_attempt(used_route, temperature, content, str(exc), usage))
     error = attempts[-1]["error"] if attempts else "empty response"
-    return {"data": None, "route": route, "raw": attempts[-1]["raw"] if attempts else "", "error": error, "error_details": attempts}
+    return {
+        "data": None,
+        "route": route,
+        "usage": attempts[-1].get("usage", _empty_usage()) if attempts else _empty_usage(),
+        "raw": attempts[-1]["raw"] if attempts else "",
+        "error": error,
+        "error_details": attempts,
+    }
 
 
 def chat_text(task: str, system: str, prompt: str, max_tokens: int = 2000) -> tuple[str, dict[str, str]]:
     route = route_snapshot(task)
-    return _chat_text_with_route(route, system, prompt, max_tokens=max_tokens, temperature=0.45, json_object=False)
+    content, used_route, _usage = _chat_text_with_route(route, system, prompt, max_tokens=max_tokens, temperature=0.45, json_object=False)
+    return content, used_route
 
 
 def _chat_text_with_route(
@@ -89,17 +98,18 @@ def _chat_text_with_route(
     max_tokens: int = 2000,
     temperature: float = 0.45,
     json_object: bool = False,
-) -> tuple[str, dict[str, str]]:
+) -> tuple[str, dict[str, str], dict[str, int]]:
     if not route.get("available"):
-        return "", route
+        return "", route, _empty_usage()
     provider = _provider_config(route["provider"])
     if _provider_type(provider) == "anthropic":
-        return _anthropic_text(provider or {}, route["model"], system, prompt, max_tokens, temperature), route
+        content, usage = _anthropic_text(provider or {}, route["model"], system, prompt, max_tokens, temperature)
+        return content, route, usage
     client = _openai_client(route["provider"], provider)
     if not client:
-        return "", route
+        return "", route, _empty_usage()
     response = _openai_completion(client, route["model"], system, prompt, max_tokens, temperature, json_object)
-    return str(response.choices[0].message.content or "").strip(), route
+    return str(response.choices[0].message.content or "").strip(), route, _openai_usage(response)
 
 
 def test_provider(provider_id: str, model: str = "", provider_config: dict[str, Any] | None = None) -> tuple[bool, str]:
@@ -112,7 +122,7 @@ def test_provider(provider_id: str, model: str = "", provider_config: dict[str, 
         return False, "缺少模型名称"
     try:
         if _provider_type(provider_config) == "anthropic":
-            content = _anthropic_text(provider_config or {}, model_name, "只回复 ok。", "ping", 8, 0)
+            content, _usage = _anthropic_text(provider_config or {}, model_name, "只回复 ok。", "ping", 8, 0)
             return True, content or "ok"
         client = _openai_client(provider_id, provider_config)
         if not client:
@@ -175,7 +185,7 @@ def _openai_completion(
         return client.chat.completions.create(**kwargs)
 
 
-def _anthropic_text(provider: dict[str, Any], model: str, system: str, prompt: str, max_tokens: int, temperature: float) -> str:
+def _anthropic_text(provider: dict[str, Any], model: str, system: str, prompt: str, max_tokens: int, temperature: float) -> tuple[str, dict[str, int]]:
     if not provider or not bool_value(provider.get("enabled")):
         raise ValueError("供应商未启用或缺少 API Key")
     api_key = str(provider.get("api_key") or "")
@@ -200,7 +210,7 @@ def _anthropic_text(provider: dict[str, Any], model: str, system: str, prompt: s
     )
     response.raise_for_status()
     data = response.json()
-    return _anthropic_content_text(data)
+    return _anthropic_content_text(data), _anthropic_usage(data)
 
 
 def _anthropic_content_text(data: dict[str, Any]) -> str:
@@ -262,14 +272,54 @@ def _route_from_provider(provider: dict[str, Any], model: str) -> dict[str, str]
     }
 
 
-def _json_attempt(route: dict[str, str], temperature: float, raw: str, error: str) -> dict[str, str]:
+def _json_attempt(route: dict[str, str], temperature: float, raw: str, error: str, usage: dict[str, int] | None = None) -> dict[str, Any]:
     return {
         "provider": route.get("provider_name") or route.get("provider") or "",
         "model": route.get("model") or "",
         "temperature": f"{temperature:.2f}",
         "error": error,
         "raw": raw,
+        "usage": usage or _empty_usage(),
     }
+
+
+def _empty_usage() -> dict[str, int]:
+    return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+
+def _openai_usage(response: Any) -> dict[str, int]:
+    usage = getattr(response, "usage", None)
+    return _normalize_usage({
+        "prompt_tokens": _usage_value(usage, "prompt_tokens"),
+        "completion_tokens": _usage_value(usage, "completion_tokens"),
+        "total_tokens": _usage_value(usage, "total_tokens"),
+    })
+
+
+def _anthropic_usage(data: dict[str, Any]) -> dict[str, int]:
+    usage = data.get("usage") if isinstance(data, dict) else {}
+    return _normalize_usage({
+        "prompt_tokens": _usage_value(usage, "input_tokens"),
+        "completion_tokens": _usage_value(usage, "output_tokens"),
+    })
+
+
+def _usage_value(usage: Any, key: str) -> int:
+    if isinstance(usage, dict):
+        value = usage.get(key)
+    else:
+        value = getattr(usage, key, 0)
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_usage(usage: dict[str, Any]) -> dict[str, int]:
+    prompt = _usage_value(usage, "prompt_tokens")
+    completion = _usage_value(usage, "completion_tokens")
+    total = _usage_value(usage, "total_tokens") or prompt + completion
+    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
 
 
 def _merged_provider_config(provider_id: str, provider_config: dict[str, Any] | None) -> dict[str, Any] | None:

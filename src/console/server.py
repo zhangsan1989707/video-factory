@@ -44,6 +44,7 @@ from src.console.store import (
     update_configs,
     update_job,
     update_provider_test_result,
+    summarize_jobs_model_usage,
 )
 
 
@@ -130,7 +131,8 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             self._json(config_snapshot())
             return
         if parsed.path == "/api/jobs":
-            self._json({"jobs": reconcile_running_jobs(list_jobs())})
+            jobs = reconcile_running_jobs(list_jobs())
+            self._json({"jobs": jobs, "model_usage": summarize_jobs_model_usage(jobs)})
             return
         if parsed.path.startswith("/api/jobs/"):
             parts = parsed.path.strip("/").split("/")
