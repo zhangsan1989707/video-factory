@@ -797,6 +797,8 @@ def compose_vertical_video(
                 shot_idx = i
         meta = shot_meta[shot_idx]
         elapsed = t - meta["start"]
+        # Skip the first 0.1s to avoid black/blank frames at the start
+        elapsed = max(0.1, elapsed)
         progress = min(1.0, elapsed / meta["duration"]) if meta["duration"] > 0 else 1.0
         # Map progress to dynamic frame index (same logic as before)
         dynamic_frames = meta["dynamic_frames"]

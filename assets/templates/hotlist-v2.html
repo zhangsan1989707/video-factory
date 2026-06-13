@@ -963,7 +963,7 @@ body {
       {% endfor %}
     </div>
     {% endif %}
-    {% if false %}<div class="intro-date">{{ date }} · 第 {{ issue }} 期</div>{% endif %}
+    <div class="intro-date">{{ date }} · 第 {{ issue }} 期</div>
     <div class="intro-cta">
       <div class="cta-icon">⚡</div>
       <div>
@@ -992,7 +992,7 @@ body {
         <div class="header-badge">● 估算热度</div>
       </div>
       <div class="list-meta">
-        {% if false %}<span class="list-date-chip">{{ date }} · 本周</span>{% endif %}
+        <span class="list-date-chip">{{ date }} · 本周</span>
         <div class="filter-pills">
           <div class="filter-pill active">全部</div>
           <div class="filter-pill inactive">AI</div>
@@ -1153,7 +1153,7 @@ body {
 
   <div class="hook-screen">
     <div class="hook-header">
-      {% if false %}<div class="hook-ep-badge">⚡ 周报速递 · 第 {{ issue }} 期</div>{% endif %}
+      <div class="hook-ep-badge">⚡ 周报速递 · 第 {{ issue }} 期</div>
       <h2 class="hook-title">本周<br><span class="em">TOP {{ total_projects }}</span><br>速览收尾</h2>
       <p class="hook-subtitle">点赞关注，每周更新不错过</p>
     </div>
@@ -1205,7 +1205,7 @@ body {
 window.__timelines = window.__timelines || {};
 const tl = gsap.timeline({ paused: true });
 
-// Each screen starts hidden, fades in at start, fades out at end
+// Each screen starts hidden, appears instantly at start, fades out at end
 document.querySelectorAll('.screen.clip').forEach(el => {
   const start = parseFloat(el.dataset.start || 0);
   const dur = parseFloat(el.dataset.duration || 5);
@@ -1213,9 +1213,9 @@ document.querySelectorAll('.screen.clip').forEach(el => {
     gsap.set(el, { opacity: 1, visibility: 'visible' });
   } else {
     gsap.set(el, { opacity: 0, visibility: 'visible' });
-    tl.to(el, { opacity: 1, duration: 0.25, ease: "power1.out" }, start);
+    tl.to(el, { opacity: 1, duration: 0.05, ease: "power1.out" }, start);
   }
-  tl.to(el, { opacity: 0, duration: 0.25, ease: "power1.in" }, start + dur - 0.25);
+  tl.to(el, { opacity: 0, duration: 0.05, ease: "power1.in" }, start + dur - 0.05);
 });
 
 // Key MUST match data-composition-id

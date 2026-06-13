@@ -148,20 +148,23 @@ def compose_video(
     # 6. 创建 make_frame 回调（按需加载帧，避免内存爆炸）
     def make_frame(t):
         if t < title_duration:
-            # 开场标题卡片
-            frame_idx = min(int(t * fps), len(title_frames) - 1)
+            # 开场标题卡片 - 跳过前 0.1s 避免黑屏
+            adjusted_t = max(0.1, t)
+            frame_idx = min(int(adjusted_t * fps), len(title_frames) - 1)
             return np.array(title_frames[frame_idx])
         elif t < title_duration + body_duration:
-            # 主体帧（从磁盘按需加载）
+            # 主体帧（从磁盘按需加载）- 跳过前 0.1s 避免黑屏
             body_t = t - title_duration
+            body_t = max(0.1, body_t)
             frame_idx = min(int(body_t * fps), num_body_frames - 1)
             frame = Image.open(frame_files[frame_idx])
             if frame_idx % 30 == 0:
                 frame = add_particles(frame, num_particles=15)
             return np.array(frame)
         else:
-            # 结尾CTA卡片
+            # 结尾CTA卡片 - 跳过前 0.1s 避免黑屏
             cta_t = t - title_duration - body_duration
+            cta_t = max(0.1, cta_t)
             frame_idx = min(int(cta_t * fps), int(cta_duration * fps) - 1)
             progress = min(1, frame_idx / (fps * 0.5))
             alpha = int(255 * progress)

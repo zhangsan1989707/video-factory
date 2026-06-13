@@ -276,12 +276,13 @@ def compose_desktop_review_video(
     # 构建 make_frame 回调
     def make_frame(t: float):
         if t < intro_duration:
-            # 开场卡区域
-            progress = t / intro_duration if intro_duration > 0 else 1.0
+            # 开场卡区域 - 跳过前 0.1s 避免黑屏
+            adjusted_t = max(0.1, t)
+            progress = adjusted_t / intro_duration if intro_duration > 0 else 1.0
             frame = _render_intro_card(project_name, hook_text, progress)
             return np.array(frame)
 
-        # 正常 shot 区域
+        # 正常 shot 区域 - 跳过前 0.1s 避免黑屏
         remaining = t - intro_duration
         shot_index = 0
         for i, dur in enumerate(shot_durations):
@@ -294,6 +295,8 @@ def compose_desktop_review_video(
             remaining = shot_durations[-1] if shot_durations else 0
 
         duration = shot_durations[shot_index]
+        # 跳过前 0.1s 避免黑屏
+        remaining = max(0.1, remaining)
         progress = min(1.0, remaining / duration) if duration > 0 else 1.0
         info = frames_info[shot_index]
         frame = _render_frame(plan, info["path"], info.get("bounds"), shot_index, progress)
