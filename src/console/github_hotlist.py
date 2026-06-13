@@ -21,7 +21,7 @@ CACHE_TTL_SECONDS = {
     "weekly": 2 * 60 * 60,
     "monthly": 12 * 60 * 60,
 }
-CACHE_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 3
 ESTIMATED_GROWTH_NOTE = "热度口径：估算日均 star 由当前总 stars 和仓库创建时间折算，不是真实新增 star。"
 
 
@@ -85,6 +85,7 @@ async def collect_candidates_with_meta(
             description_source = "github_description" if description else ("readme" if readme_excerpt else "missing")
             candidates.append({
                 "rank": index,
+                "selected": index <= 5,
                 "full_name": item.get("full_name", ""),
                 "name": item.get("name", ""),
                 "owner": owner.get("login", ""),
@@ -109,7 +110,6 @@ async def collect_candidates_with_meta(
                 "risk": _risk_note(enriched),
                 "audience": _audience(enriched),
                 "visual_potential": _visual_potential(enriched),
-                "selected": index <= 10,
             })
     result = {"items": candidates, "rate_limit": rate_limit, "cache_status": "fresh"}
     _write_cache(cache_key, result)

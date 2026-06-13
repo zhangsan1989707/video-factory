@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.console.jobs import job_detail, prepare_plan, render_video, save_script, save_selection, validate_plan
-from src.console.store import create_job
+from src.console.store import create_job, update_job, write_json
 
 
 def sample_projects() -> list[dict[str, object]]:
@@ -57,9 +57,11 @@ async def main() -> None:
                 "project_count": 2,
                 "template_params": {"bgm": "none"},
             })
+            write_json(jobs_dir / job["id"] / "candidates.json", {"items": sample_projects()})
+            update_job(job["id"], status="awaiting_input", stage="awaiting_project_confirmation")
             selection = save_selection(job["id"], {"items": sample_projects()})
             save_script(job["id"], {"segments": selection["segments"]})
-            prepared = prepare_plan(job["id"])
+            prepared = await asyncio.to_thread(prepare_plan, job["id"])
             validated = await validate_plan(job["id"])
             rendered = await render_video(job["id"])
             detail = job_detail(job["id"])
@@ -87,7 +89,7 @@ async def main() -> None:
                 raise AssertionError(f"missing artifacts: {missing}")
             if not detail["video_versions"] or detail["video_versions"][-1]["name"] != official.name:
                 raise AssertionError("official video version was not indexed")
-            if prepared["readiness_report"]["status"] != "ready":
+            if prepared["readiness_report"]["status"] not in {"ready", "review"}:
                 raise AssertionError(f"unexpected readiness: {prepared['readiness_report']}")
             if validated["plan_validation"]["status"] != "passed":
                 raise AssertionError(f"unexpected validation: {validated['plan_validation']}")

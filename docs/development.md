@@ -72,6 +72,12 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 
 # 运行冒烟测试
 .venv/bin/python tests/smoke_console_render_job.py
+
+# 查看真实端到端手动验收清单
+open docs/e2e-manual-checklist.md
+
+# 显式运行慢速真实 e2e；默认测试不会执行这条链路
+GITHUB_VIDEO_RUN_SLOW_E2E=1 .venv/bin/python -m pytest tests/test_real_e2e_smoke.py -q
 ```
 
 ### 6. 启动服务
@@ -235,6 +241,20 @@ def test_render_job_smoke():
     # 验证输出文件
     pass
 ```
+
+#### 4. 真实端到端验收
+
+真实端到端验收会访问 GitHub、采集浏览器截图、生成 TTS、合成 MP4，并用 `ffprobe` 检查音视频流。它不属于默认测试，避免日常开发被网络、限流和语音服务影响。
+
+```bash
+# 默认应跳过
+.venv/bin/python -m pytest tests/test_real_e2e_smoke.py -q
+
+# 显式开启真实慢速链路
+GITHUB_VIDEO_RUN_SLOW_E2E=1 .venv/bin/python -m pytest tests/test_real_e2e_smoke.py -q
+```
+
+手动验收步骤见 `docs/e2e-manual-checklist.md`。
 
 ### 测试命名规范
 

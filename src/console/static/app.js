@@ -74,6 +74,7 @@ function bindEvents() {
   $("jobType").addEventListener("change", syncJobTypeFields);
   $("visualStyle").addEventListener("change", syncRenderEngineForStyle);
   $("renderEngine").addEventListener("change", syncStyleForRenderEngine);
+  $("projectCount").addEventListener("change", () => { if (state.candidates.length) renderCandidates(); });
   syncJobTypeFields();
 }
 
@@ -573,7 +574,10 @@ async function refreshCurrentJob() {
 }
 
 function syncDetailState(detail) {
-  state.candidates = detail.candidates || [];
+  state.candidates = (detail.candidates || []).map((item) => {
+    const { selected, ...rest } = item;
+    return rest;
+  });
   state.segments = detail.segments || [];
   state.qualityReport = detail.quality_report || null;
 }

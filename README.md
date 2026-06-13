@@ -172,3 +172,9 @@ node --check tests/test_console_static_app.js && \
 node tests/test_console_static_app.js && \
 git diff --check
 ```
+
+真实端到端验收默认不运行；需要验证 GitHub API、浏览器采集、TTS 和 ffmpeg 合成时，按 [真实端到端验收清单](docs/e2e-manual-checklist.md) 执行，或显式运行：
+
+```bash
+GITHUB_VIDEO_RUN_SLOW_E2E=1 .venv/bin/python -m pytest tests/test_real_e2e_smoke.py -q
+```
