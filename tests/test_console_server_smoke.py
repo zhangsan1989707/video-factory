@@ -89,6 +89,13 @@ class ConsoleServerSmokeTest(unittest.TestCase):
                     "enabled": "",
                     "configured": "",
                 }),
+                patch("src.console.model_router.route_snapshot", return_value={
+                    "provider": "",
+                    "provider_name": "",
+                    "model": "",
+                    "enabled": "",
+                    "configured": "",
+                }),
                 patch("src.console.jobs.render_hotlist_v2_previews_from_projects", side_effect=fake_previews),
                 patch("src.console.jobs.run_pipeline", side_effect=fake_pipeline),
                 patch("src.console.server.render_video", side_effect=fake_render),

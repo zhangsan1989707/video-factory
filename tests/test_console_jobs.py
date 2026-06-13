@@ -30,20 +30,24 @@ def _fake_hyperframes_previews(projects: list[dict], output_dir: Path, **kwargs)
 
 class ConsoleJobsTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.route_patcher = patch("src.console.jobs.route_snapshot", return_value={
+        route_value = {
             "provider": "",
             "provider_name": "",
             "model": "",
             "enabled": "",
             "configured": "",
-        })
+        }
+        self.route_patcher = patch("src.console.jobs.route_snapshot", return_value=route_value)
         self.route_patcher.start()
+        self.model_route_patcher = patch("src.console.model_router.route_snapshot", return_value=route_value)
+        self.model_route_patcher.start()
         self.preview_patcher = patch("src.console.jobs.render_hotlist_v2_previews_from_projects", side_effect=_fake_hyperframes_previews)
         self.preview_patcher.start()
 
     def tearDown(self) -> None:
         self.preview_patcher.stop()
         self.route_patcher.stop()
+        self.model_route_patcher.stop()
 
     def test_background_runner_prevents_duplicate_active_job(self) -> None:
         async def slow_worker(job_id: str) -> None:
@@ -1320,6 +1324,13 @@ class ConsoleJobsTest(unittest.TestCase):
                     "enabled": "1",
                     "configured": "1",
                 }),
+                patch("src.console.model_router.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
                 patch("src.console.jobs.chat_json_detail", side_effect=chat),
             ):
                 job = create_job("GH-HOTLIST-20990101-002", {"project_count": 2})
@@ -1369,6 +1380,13 @@ class ConsoleJobsTest(unittest.TestCase):
                     "enabled": "1",
                     "configured": "1",
                 }),
+                patch("src.console.model_router.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
                 patch("src.console.jobs.chat_json_detail", return_value={
                     "data": {
                         "segments": [
@@ -1403,6 +1421,13 @@ class ConsoleJobsTest(unittest.TestCase):
                 patch("src.console.store.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
+                patch("src.console.model_router.route_snapshot", return_value={
                     "provider": "mock",
                     "provider_name": "Mock",
                     "model": "mock-model",
@@ -1447,6 +1472,13 @@ class ConsoleJobsTest(unittest.TestCase):
                     "enabled": "1",
                     "configured": "1",
                 }),
+                patch("src.console.model_router.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
                 patch("src.console.jobs.chat_json_detail", return_value={
                     "data": None,
                     "route": {"provider_name": "Mock", "model": "mock-model"},
@@ -1477,6 +1509,13 @@ class ConsoleJobsTest(unittest.TestCase):
                 patch("src.console.store.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
+                patch("src.console.model_router.route_snapshot", return_value={
                     "provider": "mock",
                     "provider_name": "Mock",
                     "model": "mock-model",
@@ -2033,7 +2072,27 @@ class ConsoleJobsTest(unittest.TestCase):
                     "enabled": "1",
                     "configured": "1",
                 }),
+                patch("src.console.model_router.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
                 patch("src.console.jobs.chat_json_detail", return_value={
+                    "data": {
+                        "status": "pass",
+                        "summary": "脚本事实风险低，表达清楚。",
+                        "risk_flags": [],
+                        "factual_notes": [],
+                        "overclaim_notes": [],
+                        "readability_score": 92,
+                    },
+                    "route": {"provider_name": "Mock", "model": "mock-model"},
+                    "raw": "{}",
+                    "error": "",
+                }),
+                patch("src.console.model_router.chat_json_detail", return_value={
                     "data": {
                         "status": "pass",
                         "summary": "脚本事实风险低，表达清楚。",
@@ -2075,7 +2134,27 @@ class ConsoleJobsTest(unittest.TestCase):
                     "enabled": "1",
                     "configured": "1",
                 }),
+                patch("src.console.model_router.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
                 patch("src.console.jobs.chat_json_detail", return_value={
+                    "data": {
+                        "status": "caution",
+                        "summary": "第 1 名口播有事实风险。",
+                        "risk_flags": [],
+                        "factual_notes": ["demo/alpha 这段把效果说满了，建议收敛。"],
+                        "overclaim_notes": [],
+                        "readability_score": 80,
+                    },
+                    "route": {"provider_name": "Mock", "model": "mock-model"},
+                    "raw": "{}",
+                    "error": "",
+                }),
+                patch("src.console.model_router.chat_json_detail", return_value={
                     "data": {
                         "status": "caution",
                         "summary": "第 1 名口播有事实风险。",
@@ -2141,7 +2220,27 @@ class ConsoleJobsTest(unittest.TestCase):
                     "enabled": "1",
                     "configured": "1",
                 }),
+                patch("src.console.model_router.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
                 patch("src.console.jobs.chat_json_detail", return_value={
+                    "data": {
+                        "status": "pass",
+                        "summary": "整体通过",
+                        "risk_flags": [],
+                        "factual_notes": [],
+                        "overclaim_notes": [],
+                        "readability_score": 90,
+                    },
+                    "route": {"provider_name": "Mock", "model": "mock-model"},
+                    "raw": "{}",
+                    "error": "",
+                }),
+                patch("src.console.model_router.chat_json_detail", return_value={
                     "data": {
                         "status": "pass",
                         "summary": "整体通过",
@@ -2185,7 +2284,20 @@ class ConsoleJobsTest(unittest.TestCase):
                     "enabled": "1",
                     "configured": "1",
                 }),
+                patch("src.console.model_router.route_snapshot", return_value={
+                    "provider": "mock",
+                    "provider_name": "Mock",
+                    "model": "mock-model",
+                    "enabled": "1",
+                    "configured": "1",
+                }),
                 patch("src.console.jobs.chat_json_detail", return_value={
+                    "data": None,
+                    "route": {"provider_name": "Mock", "model": "mock-model"},
+                    "raw": "坏响应",
+                    "error": "Expecting value",
+                }),
+                patch("src.console.model_router.chat_json_detail", return_value={
                     "data": None,
                     "route": {"provider_name": "Mock", "model": "mock-model"},
                     "raw": "坏响应",
