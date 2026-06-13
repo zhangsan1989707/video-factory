@@ -23,6 +23,7 @@ async function run() {
   testRenderJobRefreshesEmbeddedStageHistory();
   testBusyRestoreKeepsLatestJobActionState();
   testSyncDetailStateReplacesCandidateAndScriptSnapshots();
+  testSyncDetailStatePreservesSelectedField();
   testSelectionButtonStateShowsLimit();
   testCandidateDefaultsUseProjectCount();
   testFormatHelpersForArtifactWorkbench();
@@ -780,6 +781,31 @@ function testSyncDetailStateReplacesCandidateAndScriptSnapshots() {
   assert.deepEqual(state.candidates, [{ full_name: "demo/new" }]);
   assert.deepEqual(state.segments, [{ id: "intro", text: "new intro" }]);
   assert.deepEqual(state.qualityReport, { status: "pass" });
+}
+
+function testSyncDetailStatePreservesSelectedField() {
+  state.candidates = [];
+  state.segments = [];
+  state.qualityReport = null;
+
+  syncDetailState({
+    candidates: [
+      { full_name: "demo/a", selected: true, score: 50 },
+      { full_name: "demo/b", selected: false, score: 20 },
+      { full_name: "demo/c", selected: true, score: 60 },
+    ],
+    segments: [],
+    quality_report: null,
+  });
+
+  assert.equal(state.candidates.length, 3);
+  assert.equal(state.candidates[0].selected, true);
+  assert.equal(state.candidates[1].selected, false);
+  assert.equal(state.candidates[2].selected, true);
+  // candidateChecked should respect the selected field
+  assert.equal(candidateChecked(state.candidates[0], 0), true);
+  assert.equal(candidateChecked(state.candidates[1], 1), false);
+  assert.equal(candidateChecked(state.candidates[2], 2), true);
 }
 
 function testSelectionButtonStateShowsLimit() {
