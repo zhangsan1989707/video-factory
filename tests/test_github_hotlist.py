@@ -131,7 +131,7 @@ class GithubHotlistTest(unittest.TestCase):
                 )
             return _github_response(description=None, topics=["react", "ui"], language="TypeScript")
 
-        result = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=True))
+        result = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=True, enrich_with_llm=False))
         item = result["items"][0]
 
         self.assertEqual(item["description"], "")
@@ -149,6 +149,7 @@ async def _collect_with_transport(
     transport: httpx.MockTransport,
     force_refresh: bool = False,
     cache_dir: Path | None = None,
+    enrich_with_llm: bool = True,
 ):
     original = httpx.AsyncClient
 
@@ -162,7 +163,7 @@ async def _collect_with_transport(
         stack.enter_context(patch("src.console.github_hotlist.CACHE_DIR", cache_dir))
         httpx.AsyncClient = client_factory
         try:
-            return await github_hotlist.collect_candidates_with_meta("weekly", token=token, limit=1, force_refresh=force_refresh)
+            return await github_hotlist.collect_candidates_with_meta("weekly", token=token, limit=1, force_refresh=force_refresh, enrich_with_llm=enrich_with_llm)
         finally:
             httpx.AsyncClient = original
 
