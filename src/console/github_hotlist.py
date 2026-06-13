@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -46,13 +47,26 @@ async def collect_candidates_with_meta(
     token: str = "",
     limit: int = 30,
     force_refresh: bool = False,
+    enrich_with_llm: bool = True,
+    llm_limit: int = 10,
 ) -> dict[str, Any]:
-    """Collect recent repositories and return GitHub response metadata."""
+    """Collect recent repositories and return GitHub response metadata.
+
+    Flow:
+    1. Fetch up to 2x the requested limit from GitHub Search API
+    2. Fetch README for items without description
+    3. Compute completeness score for each project (0-100, base 0)
+    4. Filter out low-quality / cold projects
+    5. Enrich remaining top N with LLM translation (if enabled)
+    6. Return the final candidates sorted by score
+    """
+    # Step 1: Fetch a larger pool from GitHub so we have room to filter
+    fetch_limit = min(max(limit * 2, 20), 100)
     params = {
         "q": f"created:>={created_after(time_window)} stars:>10 archived:false",
         "sort": "stars",
         "order": "desc",
-        "per_page": min(limit, 100),
+        "per_page": fetch_limit,
     }
     cache_key = _cache_key(time_window, limit, params)
     cached = _read_cache(cache_key)
@@ -76,41 +90,128 @@ async def collect_candidates_with_meta(
         data = response.json()
         rate_limit = _rate_limit_label(response.headers)
 
-        candidates = []
-        for index, item in enumerate(data.get("items", [])[:limit], start=1):
-            owner = item.get("owner") or {}
+        # Step 2: Parallel fetch README for items missing description
+        raw_items = data.get("items", [])
+
+        async def _fetch_one(item: dict[str, Any]) -> dict[str, Any]:
             description = item.get("description") or ""
-            readme_excerpt = "" if description else await _fetch_readme_excerpt(client, headers, item)
-            enriched = {**item, "readme_excerpt": readme_excerpt}
-            description_source = "github_description" if description else ("readme" if readme_excerpt else "missing")
-            candidates.append({
-                "rank": index,
-                "full_name": item.get("full_name", ""),
-                "name": item.get("name", ""),
-                "owner": owner.get("login", ""),
-                "description": description,
-                "description_zh": _localized_description(enriched),
-                "description_source": description_source,
-                "repo_description_missing": not bool(description),
-                "readme_excerpt": readme_excerpt,
-                "stars": item.get("stargazers_count", 0),
-                "daily_growth": _estimated_daily_growth(item),
-                "growth_note": ESTIMATED_GROWTH_NOTE,
-                "forks": item.get("forks_count", 0),
-                "issues": item.get("open_issues_count", 0),
-                "language": item.get("language") or "",
-                "topics": item.get("topics") or [],
-                "repo_url": item.get("html_url", ""),
-                "homepage": item.get("homepage") or "",
-                "created_at": item.get("created_at", ""),
-                "updated_at": item.get("updated_at", ""),
-                "score": _content_score(enriched),
-                "recommendation": _recommendation_reason(enriched),
-                "risk": _risk_note(enriched),
-                "audience": _audience(enriched),
-                "visual_potential": _visual_potential(enriched),
-            })
-    result = {"items": candidates, "rate_limit": rate_limit, "cache_status": "fresh"}
+            readme = "" if description else await _fetch_readme_excerpt(client, headers, item)
+            return {**item, "readme_excerpt": readme}
+
+        enriched_items = await asyncio.gather(*[_fetch_one(item) for item in raw_items])
+
+    # Step 3: Compute scores + filter
+    scored = []
+    for item in enriched_items:
+        score = _content_score(item)
+        is_ok, status_label = _candidate_status(item)
+        scored.append({"item": item, "score": score, "is_ok": is_ok, "status": status_label})
+
+    # Filter: keep only eligible items, then sort by score desc
+    eligible = [s for s in scored if s["is_ok"]]
+    eligible.sort(key=lambda s: s["score"], reverse=True)
+
+    # If everything got filtered (shouldn't normally happen), fall back to highest-scored items
+    if not eligible:
+        fallback = sorted(scored, key=lambda s: s["score"], reverse=True)[:limit]
+        eligible = fallback
+
+    # Step 5: Enrich top N projects with LLM (if enabled and available)
+    top_candidates = eligible[:limit]
+    enriched_results = []
+    llm_success = 0
+    llm_total = 0
+
+    for entry in top_candidates:
+        item = entry["item"]
+        score = entry["score"]
+        owner = item.get("owner") or {}
+        description = item.get("description") or ""
+        readme_excerpt = item.get("readme_excerpt") or ""
+        name = item.get("name", "")
+        language = item.get("language") or ""
+        topics = item.get("topics") or []
+        homepage = item.get("homepage") or ""
+
+        # --- LLM enrichment (optional) ---
+        description_zh = ""
+        enrichment_source = "keyword"
+        enriched = False
+
+        if enrich_with_llm and score >= 30:
+            # Only enrich projects that already pass the basic quality bar
+            try:
+                from src.utils.llm_translate import enrich_description
+                llm_total += 1
+                result = await enrich_description(
+                    name=name,
+                    description=description,
+                    readme_excerpt=readme_excerpt,
+                    language=language,
+                    topics=topics,
+                    task="candidate_analysis",
+                )
+                description_zh = result.get("description_zh", "")
+                enrichment_source = result.get("source", "keyword")
+                if result.get("enriched"):
+                    enriched = True
+                    llm_success += 1
+            except Exception:
+                pass
+
+        # Fallback: use keyword-based description (was already sufficient for display)
+        if not description_zh:
+            description_zh = _localized_description(item)
+            enrichment_source = "keyword"
+
+        description_source = (
+            "description_zh" if enrichment_source == "description_zh"
+            else "llm" if enriched
+            else "github_description" if description
+            else "readme" if readme_excerpt
+            else "missing"
+        )
+
+        enriched_results.append({
+            "rank": len(enriched_results) + 1,
+            "full_name": item.get("full_name", ""),
+            "name": name,
+            "owner": owner.get("login", ""),
+            "description": description,
+            "description_zh": description_zh,
+            "description_source": description_source,
+            "enrichment_source": enrichment_source,
+            "repo_description_missing": not bool(description),
+            "readme_excerpt": readme_excerpt,
+            "stars": item.get("stargazers_count", 0),
+            "daily_growth": _estimated_daily_growth(item),
+            "growth_note": ESTIMATED_GROWTH_NOTE,
+            "forks": item.get("forks_count", 0),
+            "issues": item.get("open_issues_count", 0),
+            "language": language,
+            "topics": topics,
+            "homepage": homepage,
+            "created_at": item.get("created_at", ""),
+            "updated_at": item.get("updated_at", ""),
+            "repo_url": item.get("html_url", ""),
+            "score": score,
+            "selected": score >= 30,
+            "recommendation": _recommendation_reason(item),
+            "risk": _risk_note(item),
+            "audience": _audience(item),
+            "visual_potential": _visual_potential(item),
+        })
+
+    result = {
+        "items": enriched_results,
+        "rate_limit": rate_limit,
+        "cache_status": "fresh",
+        "total_fetched": len(raw_items),
+        "total_eligible": len(eligible),
+        "llm_called": enrich_with_llm,
+        "llm_total": llm_total,
+        "llm_success": llm_success,
+    }
     _write_cache(cache_key, result)
     return result
 
@@ -238,24 +339,61 @@ def _github_error_message(response: httpx.Response) -> str:
 
 
 def _content_score(item: dict[str, Any]) -> int:
-    score = 40
-    stars = int(item.get("stargazers_count") or 0)
-    topics = item.get("topics") or []
-    if stars >= 1000:
-        score += 25
-    elif stars >= 300:
-        score += 18
-    elif stars >= 100:
-        score += 10
-    if item.get("homepage"):
-        score += 10
-    if item.get("language"):
-        score += 8
-    if topics:
-        score += min(12, len(topics) * 3)
-    if _has_any_keyword(_project_text(item), ("ai", "agent", "llm", "video")):
-        score += 10
-    return min(score, 100)
+    """Compute project completeness score using shared logic.
+
+    Uses llm_translate.compute_completeness_score (base 0, weighted).
+    """
+    try:
+        from src.utils.llm_translate import compute_completeness_score
+    except Exception:
+        # Fallback: basic scoring
+        score = 0
+        stars = int(item.get("stargazers_count") or 0)
+        if stars >= 1000:
+            score += 35
+        elif stars >= 500:
+            score += 25
+        elif stars >= 200:
+            score += 18
+        elif stars >= 100:
+            score += 12
+        if item.get("description"):
+            score += 25
+        if item.get("language"):
+            score += 8
+        topics = item.get("topics") or []
+        if topics:
+            score += min(12, len(topics) * 3)
+        if item.get("homepage"):
+            score += 8
+        return min(score, 100)
+    return compute_completeness_score(
+        stars=int(item.get("stargazers_count") or 0),
+        description=item.get("description") or "",
+        readme_excerpt=item.get("readme_excerpt") or "",
+        language=item.get("language") or "",
+        topics=item.get("topics") or [],
+        homepage=item.get("homepage") or "",
+    )
+
+
+def _candidate_status(item: dict[str, Any]) -> tuple[bool, str]:
+    """Check if a project passes the minimum quality bar.
+
+    Hard elimination: very few stars AND no textual info.
+    """
+    try:
+        from src.utils.llm_translate import is_eligible_candidate
+    except Exception:
+        return True, "候选"
+    return is_eligible_candidate(
+        stars=int(item.get("stargazers_count") or 0),
+        description=item.get("description") or "",
+        readme_excerpt=item.get("readme_excerpt") or "",
+        language=item.get("language") or "",
+        topics=item.get("topics") or [],
+        homepage=item.get("homepage") or "",
+    )
 
 
 def _recommendation_reason(item: dict[str, Any]) -> str:

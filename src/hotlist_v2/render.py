@@ -31,7 +31,7 @@ async def render_hotlist_v2(
     output_path: Path | None = None,
     time_window: str = "weekly",
     token: str = "",
-    limit: int = 9,
+    limit: int = 10,
     durations: dict[str, int] | None = None,
     style: str = DEFAULT_STYLE,
 ) -> Path:
@@ -49,7 +49,7 @@ async def render_hotlist_v2(
     """
     console.print("[bold cyan]Step 1/5:[/] Fetching GitHub trending data...")
     data = await fetch_trending(time_window, token=token, limit=limit)
-    return await render_hotlist_v2_from_data(data, output_path=output_path, durations=durations, style=style)
+    return await render_hotlist_v2_from_data(data, output_path=output_path, durations=durations, style=style, limit=limit)
 
 
 async def render_hotlist_v2_from_projects(
@@ -59,6 +59,7 @@ async def render_hotlist_v2_from_projects(
     style: str = DEFAULT_STYLE,
     narration_segments: list[dict] | None = None,
     stage_callback: Callable[[str, str], None] | None = None,
+    limit: int = 10,
 ) -> Path:
     """Render a hotlist v2 video from already selected console project data."""
     data = _data_from_projects(projects)
@@ -69,6 +70,7 @@ async def render_hotlist_v2_from_projects(
         style=style,
         narration_segments=narration_segments,
         stage_callback=stage_callback,
+        limit=limit,
     )
 
 
@@ -77,11 +79,12 @@ def render_hotlist_v2_previews_from_projects(
     output_dir: Path,
     durations: dict[str, int] | None = None,
     style: str = DEFAULT_STYLE,
+    limit: int = 10,
 ) -> list[Path]:
     """Render static preview frames from the HyperFrames HTML template."""
     output_dir.mkdir(parents=True, exist_ok=True)
     data = _data_from_projects(projects)
-    timeline = _timeline_context(data, durations)
+    timeline = _timeline_context(data, durations, limit=limit)
     render_data = {**data, **timeline}
     html_dir = output_dir.parent / "hyperframes_preview_html"
     html_dir.mkdir(parents=True, exist_ok=True)
@@ -107,12 +110,13 @@ async def render_hotlist_v2_from_data(
     style: str = DEFAULT_STYLE,
     narration_segments: list[dict] | None = None,
     stage_callback: Callable[[str, str], None] | None = None,
+    limit: int = 10,
 ) -> Path:
     """Render a hotlist v2 video from normalized template data."""
     out = output_path or OUTPUT_DIR / "final.mp4"
     work_dir = out.parent
     work_dir.mkdir(parents=True, exist_ok=True)
-    timeline = _timeline_context(data, durations, narration_segments)
+    timeline = _timeline_context(data, durations, narration_segments, limit=limit)
     console.print(f"  ✓ Found {data['total_projects']} projects, {data['total_languages']} languages")
 
     # Step 2: Generate TTS narration first so the visual timeline can follow real speech length.
@@ -124,7 +128,7 @@ async def render_hotlist_v2_from_data(
     await generate_all_audio(script, work_dir)
     audio_dir = work_dir / "audio"
     segment_durations = _audio_segment_durations(script, audio_dir)
-    timeline = _timeline_context(data, durations, narration_segments, segment_durations=segment_durations)
+    timeline = _timeline_context(data, durations, narration_segments, segment_durations=segment_durations, limit=limit)
     script = _build_script_from_timeline(timeline)
     script_path.write_text(json.dumps(script.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
     console.print(f"  ✓ TTS audio: {audio_dir}")
@@ -265,12 +269,15 @@ def _project_description(item: dict) -> str:
     raw_description_zh = " ".join(str(item.get("description_zh") or "").split()).strip()
     description_zh = _clean_viewer_text(raw_description_zh)
     description = _clean_viewer_text(str(item.get("description") or ""))
+    # Clean up legacy prefix from older pipelines
     if not description_zh and raw_description_zh.startswith("README 显示："):
         description_zh = raw_description_zh.removeprefix("README 显示：").strip(" 。")
+    if not description_zh and raw_description_zh.startswith("项目说明："):
+        description_zh = raw_description_zh.removeprefix("项目说明：").strip(" 。")
     readme_intro = _readme_intro(str(item.get("readme") or item.get("readme_excerpt") or ""))
     if not description_zh and not description and readme_intro:
         return _ensure_sentence(readme_intro)
-    return description_zh or description or "项目描述较少，需要打开仓库确认具体用途。"
+    return description_zh or description or "简介待补充"
 
 
 def _project_purpose(item: dict, description: str) -> str:
@@ -837,6 +844,7 @@ def _timeline_context(
     durations: dict[str, int] | None = None,
     narration_segments: list[dict] | None = None,
     segment_durations: dict[str, float] | None = None,
+    limit: int = 10,
 ) -> dict:
     """Build one shared timeline for the HTML composition and TTS script."""
     projects = data.get("projects") or []
@@ -909,7 +917,7 @@ def _timeline_context(
         "detail_screens": detail_screens,
         "hook_screen": hook_screen,
         "total_duration": round(cursor, 1),
-        "top_projects": projects[: min(9, len(projects))],
+        "top_projects": projects[: min(limit, len(projects))],
         "intro_duration": intro_duration,
         "list_duration": list_duration,
         "detail_duration": detail_base or 0,
