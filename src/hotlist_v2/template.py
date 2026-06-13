@@ -64,7 +64,7 @@ STYLE_PROFILES: dict[str, dict[str, str]] = {
         "metric_card_border": "1px solid rgba(255,255,255,0.1)",
         "metric_card_radius": "18px",
         "reason_border_radius": "18px",
-        "hook_card_bg": "rgba(13, 23, 40, 0.95)",
+        "hook_card_bg": "rgba(20, 35, 60, 0.85)",
         "hook_card_border": "1px solid rgba(255,255,255,0.1)",
         "hook_card_radius": "18px",
     },

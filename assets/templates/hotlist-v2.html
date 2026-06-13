@@ -564,12 +564,20 @@ body {
 .hook-title .em { color: var(--accent-cyan); }
 .hook-subtitle { font-size: 24px; color: var(--text-primary); line-height: 1.45; opacity: 0.8; }
 
-.hook-body { display: flex; flex-direction: column; gap: 14px; }
+.hook-body { display: flex; flex-direction: column; gap: 18px; }
+.hook-body.medium { gap: 14px; }
+.hook-body.dense { gap: 10px; }
 .hook-highlight-card {
-  background: rgba(255,255,255,0.04); border: var(--s-hook-card-border);
-  border-radius: var(--s-hook-card-radius); padding: 22px 24px; display: flex;
-  align-items: center; gap: 20px; min-height: 108px;
+  background: var(--s-hook-card-bg); border: var(--s-hook-card-border);
+  border-radius: var(--s-hook-card-radius); padding: 28px 30px; display: flex;
+  align-items: center; gap: 24px; min-height: 136px;
   animation: fadeInUp 0.5s ease both;
+}
+.hook-body.medium .hook-highlight-card {
+  padding: 20px 24px; min-height: 100px; gap: 18px;
+}
+.hook-body.dense .hook-highlight-card {
+  padding: 14px 18px; min-height: 78px; gap: 14px;
 }
 .hook-highlight-card:nth-child(1) { animation-delay: 0.1s; }
 .hook-highlight-card:nth-child(2) { animation-delay: 0.2s; }
@@ -578,9 +586,9 @@ body {
   border-color: rgba(var(--accent-cyan-rgb), 0.3);
 }
 .hook-rank-chip {
-  width: 64px; height: 64px; border-radius: 16px;
+  width: 72px; height: 72px; border-radius: 18px;
   display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display); font-size: 22px; font-weight: 700; flex-shrink: 0;
+  font-family: var(--font-display); font-size: 26px; font-weight: 700; flex-shrink: 0;
   background: rgba(113,132,167,0.12); color: #9fb1cf; border: 1px solid rgba(159,177,207,0.24);
 }
 .hook-rank-chip.r1 { background: rgba(var(--accent-cyan-rgb), 0.12); color: var(--accent-cyan); border: 1px solid rgba(var(--accent-cyan-rgb), 0.3); }
@@ -588,12 +596,12 @@ body {
 .hook-rank-chip.r3 { background: rgba(var(--accent-amber-rgb), 0.1); color: var(--accent-amber); border: 1px solid rgba(var(--accent-amber-rgb), 0.25); }
 .hook-card-content { flex: 1; min-width: 0; }
 .hook-card-name {
-  font-family: var(--font-mono); font-size: 26px; font-weight: 700;
+  font-family: var(--font-mono); font-size: 30px; font-weight: 700;
   color: var(--text-primary); margin-bottom: 6px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.hook-card-stat { font-family: var(--font-mono); font-size: 18px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.75; }
-.hook-star { font-family: var(--font-mono); font-size: 22px; color: var(--accent-amber); white-space: nowrap; margin-left: auto; flex-shrink: 0; font-weight: 700; }
+.hook-card-stat { font-family: var(--font-mono); font-size: 20px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.75; }
+.hook-star { font-family: var(--font-mono); font-size: 24px; color: var(--accent-amber); white-space: nowrap; margin-left: auto; flex-shrink: 0; font-weight: 700; }
 
 .hook-divider {
   display: flex; align-items: center; gap: 14px; margin: 10px 0;
@@ -618,6 +626,16 @@ body {
   width: 100%; padding: 20px 24px; font-size: 20px;
 }
 .hook-btn-icon { font-size: 28px; }
+
+/* hook medium/dense overrides */
+.hook-body.medium .hook-rank-chip { width: 56px; height: 56px; font-size: 19px; }
+.hook-body.medium .hook-card-name { font-size: 24px; }
+.hook-body.medium .hook-card-stat { font-size: 16px; }
+.hook-body.medium .hook-star { font-size: 20px; }
+.hook-body.dense .hook-rank-chip { width: 48px; height: 48px; font-size: 16px; border-radius: 12px; }
+.hook-body.dense .hook-card-name { font-size: 20px; margin-bottom: 3px; }
+.hook-body.dense .hook-card-stat { font-size: 14px; }
+.hook-body.dense .hook-star { font-size: 17px; }
 
 /* ================================================================
    STYLE-SPECIFIC OVERRIDES — deep restoration per visual style
@@ -1035,7 +1053,7 @@ body {
       <p class="hook-subtitle">点赞关注，每周更新不错过</p>
     </div>
 
-    <div class="hook-body">
+    <div class="hook-body {% if top_projects|length >= 8 %}dense{% elif top_projects|length >= 6 %}medium{% endif %}">
       {% for p in top_projects %}
       <div class="hook-highlight-card {% if p.rank == 1 %}featured{% endif %}">
         <div class="hook-rank-chip {% if p.rank <= 3 %}r{{ p.rank }}{% endif %}">{{ "%02d" | format(p.rank) }}</div>
