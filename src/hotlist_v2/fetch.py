@@ -146,7 +146,7 @@ def _localized_tagline(description: str, topics: list[str]) -> str:
 def _recommendation_reason(item: dict[str, Any]) -> str:
     stars = item.get("stargazers_count", 0)
     desc = item.get("description") or ""
-    lang = item.get("language") or "多语言"
+    lang = item.get("language") or "其他"
     topics = item.get("topics") or []
     text = f"{desc} {' '.join(topics)}".lower()
 
@@ -158,7 +158,7 @@ def _recommendation_reason(item: dict[str, Any]) -> str:
         return f"核心框架类项目，{lang} 生态重要补充"
     if stars > 5000:
         return f"高星标项目，{lang} 实现，估算热度明显上升"
-    return f"近期进入候选列表的 {lang} 项目，有实际使用价值"
+    return f"近期候选项目，{lang} 实现，有实际使用价值"
 
 
 async def fetch_trending(

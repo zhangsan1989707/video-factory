@@ -341,7 +341,7 @@ def _project_hook(item: dict, name: str) -> str:
         return "数据处理更直接"
     if _has_keyword(combined, ("ai", "agent", "llm", "model", "rag")):
         return "AI 工作流提速"
-    return "值得试的新项目"
+    return "值得关注的新项目"
 
 
 def _specific_ai_outcome(item: dict, description: str) -> str:
@@ -382,10 +382,10 @@ def _project_fact_card(
     risk_note = _first_clean(str(item.get("risk") or ""))
     if not risk_note and item.get("repo_description_missing"):
         if item.get("readme") or item.get("readme_excerpt"):
-            risk_note = "GitHub 简介字段未填写，用途来自 README，生成口播前建议人工确认。"
+            risk_note = "简介未填写，用途来自项目说明，建议先确认用途"
         else:
-            risk_note = "GitHub 简介字段缺失，生成口播前需要人工确认用途。"
-    risk_note = risk_note or "只按仓库公开信息判断，具体效果建议实测后再展开。"
+            risk_note = "简介未填写，建议先确认用途"
+    risk_note = risk_note or "效果建议实测后再判断"
     one_line_hook = _first_clean(hook, core_problem) or _short_text(name, 15)
     visual_label, visual_source = _visual_asset(item)
     detail_reason = _detail_reason(core_action, viewer_benefit, proof_point)
@@ -456,7 +456,7 @@ def _fallback_core_action(item: dict, name: str) -> str:
     description = _clean_viewer_text(str(item.get("description") or ""))
     if description:
         return f"{name} 的仓库描述指向：{description}"
-    return f"{name} 需要先补 README 或官网证据，再生成详细口播"
+    return f"{name} 需要补充项目说明"
 
 
 def _fallback_viewer_benefit(item: dict) -> str:
@@ -502,7 +502,7 @@ def _proof_point(item: dict, stars: int, growth_num: int) -> str:
         parts.append("标签：" + " / ".join(topics[:3]))
     if item.get("homepage"):
         parts.append("有官网或演示页可核对")
-    return "；".join(parts) or "公开信息不足，建议补 README 摘要后再入榜"
+    return "；".join(parts) or "信息待补充"
 
 
 def _visual_asset(item: dict) -> tuple[str, str]:
@@ -512,11 +512,11 @@ def _visual_asset(item: dict) -> tuple[str, str]:
     for key in ("readme_image_url", "image_url", "screenshot_url"):
         source = str(item.get(key) or "").strip()
         if source:
-            return "README 视觉证据", source
+            return "项目截图", source
     repo_url = str(item.get("repo_url") or item.get("html_url") or "").strip()
     if repo_url:
-        return "GitHub 仓库页", repo_url
-    return "待补充真实截图", ""
+        return "项目主页", repo_url
+    return "截图待补充", ""
 
 
 def _detail_reason(core_action: str, viewer_benefit: str, proof_point: str) -> str:

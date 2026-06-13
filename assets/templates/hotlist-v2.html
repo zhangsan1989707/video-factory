@@ -902,8 +902,8 @@ body {
         <div class="rank-num">{{ "%02d" | format(p.rank) }}</div>
         <div class="rank-content">
           <div class="rank-repo">{{ p.name }}</div>
-          <div class="rank-owner">{{ p.owner or "未知作者" }} · {{ p.hook or "开源热点" }}</div>
-          <div class="rank-desc">{{ p.proof_point or "暂无更多证据信息" }}</div>
+          <div class="rank-owner">{{ p.owner or "作者未知" }} · {{ p.hook or "热门项目" }}</div>
+          <div class="rank-desc">{{ p.proof_point or "更多信息待补充" }}</div>
           <div class="rank-footer">
             <div class="rank-lang"><div class="rank-lang-dot" style="background:{{ p.language_color }}"></div>{{ p.language }}</div>
             <div class="rank-stars">★ {{ p.stars_display }}</div>
@@ -952,20 +952,20 @@ body {
         <div class="detail-hook">⭐ {{ top1.hook }}</div>
         <div class="detail-owner-row">
           <div class="owner-avatar">{{ top1.owner_initial }}</div>
-          <span class="detail-owner">{{ top1.owner }}{% if top1.license and top1.license != "开源协议待确认" %} · {{ top1.license }}{% endif %}</span>
+          <span class="detail-owner">{{ top1.owner }}{% if top1.license %} · {{ top1.license }}{% endif %}</span>
           {% if top1.preview_url %}
           <span class="detail-preview">🌐 预览</span>
           {% endif %}
         </div>
         <p class="hero-desc">
-          {{ top1.description or "项目描述较少，建议打开仓库确认具体用途。" }}
+          {{ top1.description or "简介待补充" }}
         </p>
       </section>
 
       <div class="purpose-box">
         <div class="purpose-label">事实卡 / 具体用途</div>
-        <div class="purpose-text">{{ top1.core_action or "用途待补充，建议查看仓库 README。" }}</div>
-        <div class="purpose-outcome">{{ top1.viewer_benefit or "实际效果待验证。" }}</div>
+        <div class="purpose-text">{{ top1.core_action or "用途待补充" }}</div>
+        <div class="purpose-outcome">{{ top1.viewer_benefit or "效果待体验" }}</div>
       </div>
 
       <div class="metrics-grid">
@@ -985,14 +985,14 @@ body {
         </div>
         <div class="metric-card">
           <span class="metric-icon">⌘</span>
-          <span class="metric-val">{{ top1.language or "Skills" }}</span>
+          <span class="metric-val">{{ top1.language or "其他" }}</span>
           <span class="metric-lbl">主要语言</span>
         </div>
       </div>
 
       <div class="reason-box">
         <div class="reason-label">上榜理由</div>
-        <div class="reason-text">{{ top1.reason or "近期热度上升，值得持续关注。" }}</div>
+        <div class="reason-text">{{ top1.reason or "值得关注" }}</div>
       </div>
 
       <div>
@@ -1001,7 +1001,7 @@ body {
           {% for tag in top1.tech_tags %}
           <div class="tech-tag {% if 'TypeScript' in tag %}ts{% elif 'Python' in tag %}py{% elif 'Rust' in tag %}rs{% elif 'Go' in tag %}go{% elif 'AI' in tag or '智能' in tag or '大模型' in tag %}ai{% else %}default{% endif %}">{{ tag }}</div>
           {% else %}
-          <div class="tech-tag default">暂无标签</div>
+          <div class="tech-tag default">暂无分类</div>
           {% endfor %}
         </div>
       </div>
@@ -1012,7 +1012,7 @@ body {
           {% for tag in top1.audience_tags %}
           <div class="audience-tag">{{ tag }}</div>
           {% else %}
-          <div class="audience-tag">#开源爱好者</div>
+          <div class="audience-tag">开源用户</div>
           {% endfor %}
         </div>
       </div>
@@ -1059,7 +1059,7 @@ body {
         <div class="hook-rank-chip {% if p.rank <= 3 %}r{{ p.rank }}{% endif %}">{{ "%02d" | format(p.rank) }}</div>
         <div class="hook-card-content">
           <div class="hook-card-name">{{ p.name }}</div>
-          <div class="hook-card-stat">{{ p.language or "Skills" }} · {{ p.tagline or "开源热点" }}</div>
+          <div class="hook-card-stat">{{ p.language or "其他" }} · {{ p.tagline or "热门项目" }}</div>
         </div>
         <div class="hook-star">★ {{ p.stars_display }}</div>
       </div>

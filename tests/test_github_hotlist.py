@@ -137,10 +137,10 @@ class GithubHotlistTest(unittest.TestCase):
         self.assertEqual(item["description"], "")
         self.assertEqual(item["description_source"], "readme")
         self.assertEqual(item["repo_description_missing"], True)
-        self.assertIn("README 显示", item["description_zh"])
+        self.assertIn("项目说明显示", item["description_zh"])
         self.assertIn("AI-native React components", item["description_zh"])
         self.assertNotIn("GitHub 简介字段", item["description_zh"])
-        self.assertIn("GitHub 简介字段未填写", item["risk"])
+        self.assertIn("简介未填写", item["risk"])
         self.assertNotIn("建议跳过", item["description_zh"])
 
 

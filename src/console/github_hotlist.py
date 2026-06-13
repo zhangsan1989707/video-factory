@@ -259,23 +259,21 @@ def _content_score(item: dict[str, Any]) -> int:
 
 
 def _recommendation_reason(item: dict[str, Any]) -> str:
-    stars = int(item.get("stargazers_count") or 0)
-    language = item.get("language") or "多语言"
+    language = item.get("language") or "其他"
     tags = _topic_label(item)
     value = _localized_description(item)
-    star_text = f"{stars:,}"
-    return f"{language} 项目，当前 {star_text} 个星标。{tags}，用途判断：{value}"
+    return f"{language} 项目。{tags}，{value}"
 
 
 def _risk_note(item: dict[str, Any]) -> str:
     description = item.get("description") or ""
     if not description:
         if item.get("readme_excerpt"):
-            return "GitHub 简介字段未填写，用途来自 README，生成口播前建议人工确认。"
-        return "GitHub 简介字段缺失，生成口播前需要人工确认用途。"
+            return "简介未填写，用途来自项目说明，建议先确认用途"
+        return "简介未填写，建议先确认用途"
     if int(item.get("stargazers_count") or 0) < 50:
-        return "热度偏低，建议确认是否真的适合入榜。"
-    return "暂无明显风险，仍需避免夸大项目能力。"
+        return "热度偏低，建议确认是否真的适合入榜"
+    return "暂无明显风险，仍需避免夸大项目能力"
 
 
 def _audience(item: dict[str, Any]) -> str:
@@ -297,11 +295,11 @@ def _audience(item: dict[str, Any]) -> str:
 
 def _visual_potential(item: dict[str, Any]) -> str:
     if item.get("homepage"):
-        return "高：有主页或演示页面可截图。"
+        return "高：有主页或演示页面可截图"
     topics = item.get("topics") or []
     if topics:
-        return "中：可用 README、标签和仓库页做信息卡片。"
-    return "低：目前主要依赖仓库页信息。"
+        return "中：可用标签和仓库页做信息卡片"
+    return "低：目前主要依赖仓库页信息"
 
 
 def _has_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
@@ -331,27 +329,27 @@ def _localized_description(item: dict[str, Any]) -> str:
     if not description:
         intro = _readme_intro(str(item.get("readme_excerpt") or ""))
         if intro:
-            return f"README 显示：{_short_text(intro, 54)}。"
-        return "GitHub 简介字段缺失，建议先打开 README 或官网确认用途。"
+            return f"项目说明显示：{_short_text(intro, 54)}"
+        return "简介未填写，建议先打开项目说明或官网确认用途"
     if _has_any_keyword(text, ("ppt", "powerpoint", "presentation", "slide", "slides")):
-        return "用来生成或整理 PPT，把主题、结构和页面初稿更快搭出来。"
+        return "用来生成或整理 PPT，把主题、结构和页面初稿更快搭出来"
     if _has_any_keyword(text, ("figma", "design", "designer", "ui", "interface", "prototype")):
-        return "用来做界面设计或设计稿生成，把自然语言想法转成更可编辑的页面结构。"
+        return "用于界面设计或设计稿生成，将自然语言想法转成可编辑的页面结构"
     if _has_any_keyword(text, ("claude", "agent-skill", "agent-skills")):
-        return "给 Claude 或 Agent 扩展技能，把常用任务封装成可复用工作流。"
+        return "给 Claude 或 Agent 扩展技能，把常用任务封装成可复用工作流"
     if _has_any_keyword(text, ("aircraft", "flight", "projector", "raspberry", "hardware", "sdr")):
-        return "偏硬件、实时数据或空间展示，重点是把复杂设备或数据流变成可操作场景。"
+        return "偏硬件、实时数据或空间展示，将复杂设备或数据流变成可操作场景"
     if _has_any_keyword(text, ("video", "image", "audio", "visual", "3d")):
-        return "用于多媒体生成、处理或可视化，重点是把内容产出变成可复用流程。"
+        return "用于多媒体生成、处理或可视化，将内容产出变成可复用流程"
     if _has_any_keyword(text, ("ai", "agent", "llm", "model", "rag")):
-        return "把 AI 能力接到一个明确任务里，减少只靠聊天反复试提示词。"
+        return "将 AI 能力接入具体任务，减少反复调试提示词的成本"
     if _has_any_keyword(text, ("react", "vue", "frontend", "ui", "css")):
-        return "偏前端或界面工具，重点是更快搭出可见界面和交互效果。"
+        return "偏前端或界面工具，快速搭建可见界面和交互效果"
     if _has_any_keyword(text, ("data", "database", "analytics", "sql")):
-        return "偏数据处理或分析工具，重点是降低整理、查询或分析数据的成本。"
+        return "偏数据处理或分析工具，降低数据整理和查询成本"
     if _has_any_keyword(text, ("cli", "terminal", "shell", "developer")):
-        return "偏开发者工具，重点是把重复命令或工程流程收拢成更短路径。"
-    return f"仓库自述为“{_short_text(description, 54)}”，需要补充 README 或官网证据后再生成口播。"
+        return "偏开发者工具，将重复命令和工程流程简化"
+    return f"仓库描述为“{_short_text(description, 54)}”，建议补充项目说明或官网证据"
 
 
 def _readme_intro(readme: str) -> str:
@@ -384,7 +382,7 @@ def _short_text(text: str, limit: int) -> str:
 def _topic_label(item: dict[str, Any]) -> str:
     topics = item.get("topics") or []
     if topics:
-        return "标签信息较完整"
+        return "标签完善"
     if item.get("homepage"):
-        return "有主页或演示页面"
-    return "需要结合 README 进一步判断"
+        return "有演示页面"
+    return "信息待补充"
