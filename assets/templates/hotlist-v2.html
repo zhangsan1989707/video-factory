@@ -664,25 +664,123 @@ body {
 {% endif %}
 
 {% if style_key == "claude_warm" %}
-/* === Claude Warm: warm shadows, orange accents, soft cards === */
-.stat-chip, .lang-tag, .intro-cta, .metric-card, .hook-highlight-card, .rank-item {
-  box-shadow: 0 1px 3px rgba(120,80,20,0.06);
-}
-.rank-item.top-1 { box-shadow: 0 2px 8px rgba(217,119,6,0.08); }
+/* === Claude Warm: deep brown dark theme, gold accents === */
 .intro-screen {
-  background: linear-gradient(170deg, #fef9f4 0%, #faf7f2 30%, #fdfbf7 60%, #fef9f4 100%);
+  background: linear-gradient(170deg, #1a1208 0%, #1f1810 30%, #1a1208 60%, #201810 100%);
+  padding-top: 180px;  /* reduced from 240px to balance layout */
 }
-.list-screen, .detail-screen, .hook-screen { background: #fef9f4; }
+.list-screen, .detail-screen, .hook-screen { background: #1a1208; }
 .detail-hero-card {
-  background: linear-gradient(135deg, rgba(var(--accent-cyan-rgb), 0.03), #ffffff 60%);
-  border: 1px solid rgba(217,119,6,0.15);
+  background: linear-gradient(135deg, rgba(var(--accent-cyan-rgb), 0.08), rgba(42,34,24,0.92) 60%);
+  border: 1px solid rgba(var(--accent-cyan-rgb), 0.2);
+  box-shadow: inset 6px 0 0 rgba(var(--accent-cyan-rgb), 0.72);
 }
 .hook-btn.primary {
-  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
-  border: none; color: #ffffff; box-shadow: 0 4px 14px rgba(217,119,6,0.3);
+  background: linear-gradient(135deg, rgba(var(--accent-cyan-rgb), 0.35), rgba(var(--accent-blue-rgb), 0.25));
+  border: 1.5px solid rgba(var(--accent-cyan-rgb), 0.45);
+  color: var(--accent-cyan);
+  box-shadow: 0 4px 20px rgba(var(--accent-cyan-rgb), 0.15);
+}
+.hook-btn.secondary {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text-secondary);
 }
 .intro-badge {
-  background: rgba(var(--accent-cyan-rgb), 0.08); border: 1px solid rgba(var(--accent-cyan-rgb), 0.15);
+  background: rgba(var(--accent-cyan-rgb), 0.1);
+  border: 1px solid rgba(var(--accent-cyan-rgb), 0.25);
+  color: var(--accent-cyan);
+}
+.intro-eyebrow {
+  color: #c0a070;
+}
+.intro-date {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.1);
+}
+.rank-item {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.rank-item.top-1 {
+  box-shadow: 0 2px 12px rgba(var(--accent-cyan-rgb), 0.12);
+  border-color: rgba(var(--accent-cyan-rgb), 0.35);
+  background: linear-gradient(135deg, rgba(var(--accent-cyan-rgb), 0.1) 0%, var(--bg-card) 50%);
+}
+.rank-item.top-2 {
+  box-shadow: 0 2px 8px rgba(var(--accent-purple-rgb), 0.08);
+  border-color: rgba(var(--accent-purple-rgb), 0.3);
+  background: linear-gradient(135deg, rgba(var(--accent-purple-rgb), 0.08) 0%, var(--bg-card) 50%);
+}
+.rank-item.top-3 {
+  box-shadow: 0 2px 8px rgba(var(--accent-amber-rgb), 0.08);
+  border-color: rgba(var(--accent-amber-rgb), 0.25);
+  background: linear-gradient(135deg, rgba(var(--accent-amber-rgb), 0.06) 0%, var(--bg-card) 50%);
+}
+/* heat-based left borders for rank 4+ / all items */
+.rank-item.heat-hot::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+  background: var(--accent-amber); border-radius: 17px 0 0 17px;
+}
+.rank-item.heat-warm::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+  background: var(--accent-blue); border-radius: 17px 0 0 17px;
+}
+.rank-item.heat-steady::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 5px;
+  background: #3b82f6; border-radius: 17px 0 0 17px;
+}
+/* --- intro CTA card --- */
+.intro-cta {
+  margin-top: 40px;  /* bring up from bottom */
+  background: linear-gradient(135deg, rgba(var(--accent-cyan-rgb), 0.12), rgba(var(--accent-purple-rgb), 0.1));
+  border-color: rgba(var(--accent-cyan-rgb), 0.4);
+}
+.cta-text-title { color: var(--accent-cyan); }
+.cta-icon {
+  background: rgba(var(--accent-cyan-rgb), 0.12);
+  border-color: rgba(var(--accent-cyan-rgb), 0.25);
+}
+/* --- lang distribution bar --- */
+.lang-distribution {
+  display: flex; height: 10px; border-radius: 6px; overflow: hidden;
+  width: 100%; max-width: 910px; margin-bottom: 20px;
+}
+.lang-dist-segment { flex: 1; min-width: 12px; }
+/* --- lang tag adjustments for dark bg --- */
+.lang-tag {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.1);
+}
+/* --- metric cards on dark --- */
+.metric-card { border-color: rgba(255,255,255,0.08); }
+.metric-card.hot { border-color: rgba(var(--accent-cyan-rgb), 0.25); }
+/* --- hook highlight cards on dark --- */
+.hook-highlight-card { border-color: rgba(255,255,255,0.08); }
+.hook-highlight-card.featured { border-color: rgba(var(--accent-cyan-rgb), 0.25); }
+/* --- rank item border overrides --- */
+.rank-item.top-1::before { background: var(--accent-cyan); }
+.rank-item.top-2::before { background: var(--accent-purple); }
+.rank-item.top-3::before { background: var(--accent-amber); }
+/* --- rank tags on dark --- */
+.rank-tag {
+  color: var(--text-secondary);
+  border-color: rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+}
+.rank-new.steady {
+  color: #8fa6c9;
+  background: rgba(59,130,246,0.08);
+  border-color: rgba(59,130,246,0.2);
+}
+/* --- detail screen purpose box --- */
+.purpose-box {
+  background: linear-gradient(135deg, rgba(var(--accent-cyan-rgb), 0.1), rgba(var(--accent-green-rgb), 0.05));
+  border-color: rgba(var(--accent-cyan-rgb), 0.25);
+}
+/* --- header badge on dark --- */
+.header-badge {
+  background: rgba(var(--accent-green-rgb), 0.1);
+  border-color: rgba(var(--accent-green-rgb), 0.3);
 }
 {% endif %}
 
@@ -858,7 +956,14 @@ body {
       </div>
       {% endfor %}
     </div>
-    <div class="intro-date">{{ date }} · 第 {{ issue }} 期</div>
+    {% if languages %}
+    <div class="lang-distribution">
+      {% for lang in languages %}
+      <div class="lang-dist-segment" style="background:{{ lang.color }}"></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if false %}<div class="intro-date">{{ date }} · 第 {{ issue }} 期</div>{% endif %}
     <div class="intro-cta">
       <div class="cta-icon">⚡</div>
       <div>
@@ -887,7 +992,7 @@ body {
         <div class="header-badge">● 估算热度</div>
       </div>
       <div class="list-meta">
-        <span class="list-date-chip">{{ date }} · 本周</span>
+        {% if false %}<span class="list-date-chip">{{ date }} · 本周</span>{% endif %}
         <div class="filter-pills">
           <div class="filter-pill active">全部</div>
           <div class="filter-pill inactive">AI</div>
@@ -898,7 +1003,7 @@ body {
 
     <div class="rank-list {% if top_projects|length >= 8 %}dense{% elif top_projects|length >= 6 %}medium{% endif %}">
       {% for p in top_projects %}
-      <div class="rank-item {% if p.rank == 1 %}top-1{% elif p.rank == 2 %}top-2{% elif p.rank == 3 %}top-3{% endif %}">
+      <div class="rank-item {% if p.rank == 1 %}top-1{% elif p.rank == 2 %}top-2{% elif p.rank == 3 %}top-3{% else %}heat-{{ p.trend_heat }}{% endif %}">
         <div class="rank-num">{{ "%02d" | format(p.rank) }}</div>
         <div class="rank-content">
           <div class="rank-repo">{{ p.name }}</div>
@@ -1048,7 +1153,7 @@ body {
 
   <div class="hook-screen">
     <div class="hook-header">
-      <div class="hook-ep-badge">⚡ 周报速递 · 第 {{ issue }} 期</div>
+      {% if false %}<div class="hook-ep-badge">⚡ 周报速递 · 第 {{ issue }} 期</div>{% endif %}
       <h2 class="hook-title">本周<br><span class="em">TOP {{ total_projects }}</span><br>速览收尾</h2>
       <p class="hook-subtitle">点赞关注，每周更新不错过</p>
     </div>
