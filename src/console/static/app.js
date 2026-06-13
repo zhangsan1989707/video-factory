@@ -7,6 +7,7 @@ const state = {
   config: null,
   pollTimer: null,
   templateStyles: [],
+  _refreshInFlight: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -552,24 +553,29 @@ async function runNextAction() {
 }
 
 async function refreshCurrentJob() {
-  if (!state.currentJobId) return;
-  const wasPolling = Boolean(state.pollTimer);
-  const detail = await api(`/api/jobs/${state.currentJobId}`);
-  syncDetailState(detail);
-  renderJob(detail.job);
-  renderCandidates();
-  renderScript();
-  renderQualityReport();
-  renderLogs(detail.logs || "");
-  renderStageTimeline(detail.stage_history || []);
-  renderDiagnostics(detail);
-  renderArtifactSummary(detail);
-  renderPublishActions(detail);
-  renderArtifacts(detail.artifacts || {});
-  if (detail.job && !hasBackgroundWork(detail.job)) {
-    const nextTab = wasPolling ? autoTabForCompletedBackground(detail.job) : "";
-    stopPollingCurrentJob();
-    if (nextTab) switchTab(nextTab);
+  if (!state.currentJobId || state._refreshInFlight) return;
+  state._refreshInFlight = true;
+  try {
+    const wasPolling = Boolean(state.pollTimer);
+    const detail = await api(`/api/jobs/${state.currentJobId}`);
+    syncDetailState(detail);
+    renderJob(detail.job);
+    renderCandidates();
+    renderScript();
+    renderQualityReport();
+    renderLogs(detail.logs || "");
+    renderStageTimeline(detail.stage_history || []);
+    renderDiagnostics(detail);
+    renderArtifactSummary(detail);
+    renderPublishActions(detail);
+    renderArtifacts(detail.artifacts || {});
+    if (detail.job && !hasBackgroundWork(detail.job)) {
+      const nextTab = wasPolling ? autoTabForCompletedBackground(detail.job) : "";
+      stopPollingCurrentJob();
+      if (nextTab) switchTab(nextTab);
+    }
+  } finally {
+    state._refreshInFlight = false;
   }
 }
 
@@ -874,6 +880,8 @@ function renderCandidates() {
     body.innerHTML = `<tr><td colspan="8" class="empty">${escapeHtml(candidateEmptyMessage())}</td></tr>`;
     return;
   }
+  const prevChecked = _snapshotCheckboxState();
+  const prevOrders = _snapshotOrderState();
   body.innerHTML = state.candidates.map((item, index) => `
     <tr>
       <td><input type="checkbox" data-index="${index}" ${candidateChecked(item, index) ? "checked" : ""}></td>
@@ -890,11 +898,53 @@ function renderCandidates() {
       <td>${escapeHtml(item.risk || "")}</td>
     </tr>
   `).join("");
+  _restoreCheckboxState(prevChecked);
+  _restoreOrderState(prevOrders);
   body.querySelectorAll("input[type='checkbox'], .order-input").forEach((input) => {
     input.addEventListener("input", updateSelectionState);
     input.addEventListener("change", updateSelectionState);
   });
   updateSelectionState();
+}
+
+
+function _snapshotCheckboxState() {
+  const map = {};
+  document.querySelectorAll("#candidateRows input[type='checkbox']").forEach((input) => {
+    const key = _candidateRowKey(Number(input.dataset.index));
+    if (key) map[key] = input.checked;
+  });
+  return map;
+}
+
+function _snapshotOrderState() {
+  const map = {};
+  document.querySelectorAll("#candidateRows .order-input").forEach((input) => {
+    const key = _candidateRowKey(Number(input.dataset.orderIndex));
+    if (key) map[key] = input.value;
+  });
+  return map;
+}
+
+function _restoreCheckboxState(snapshot) {
+  if (!snapshot || !Object.keys(snapshot).length) return;
+  document.querySelectorAll("#candidateRows input[type='checkbox']").forEach((input) => {
+    const key = _candidateRowKey(Number(input.dataset.index));
+    if (key && key in snapshot) input.checked = snapshot[key];
+  });
+}
+
+function _restoreOrderState(snapshot) {
+  if (!snapshot || !Object.keys(snapshot).length) return;
+  document.querySelectorAll("#candidateRows .order-input").forEach((input) => {
+    const key = _candidateRowKey(Number(input.dataset.orderIndex));
+    if (key && key in snapshot) input.value = snapshot[key];
+  });
+}
+
+function _candidateRowKey(index) {
+  const item = state.candidates[index];
+  return item ? (item.full_name || item.name || item.repo_url || "") : "";
 }
 
 function candidateEmptyMessage() {
