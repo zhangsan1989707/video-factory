@@ -374,6 +374,31 @@ class HotlistV2RenderTest(unittest.TestCase):
         # Browser must be closed regardless of the error
         fake_browser.close.assert_called_once()
 
+    def test_date_and_issue_fields_are_hidden(self) -> None:
+        """日期和期号字段应被 {% if false %} 隐藏，不在渲染输出中。"""
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "适合做成中文短视频切入点。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+        render_data = {**data, **_timeline_context(data)}
+
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "test.html"
+            render_composition(render_data, output)
+            html = output.read_text(encoding="utf-8")
+
+            # 日期和期号 HTML 元素不应出现在渲染输出中
+            # (CSS 定义使用 .intro-date 不带 class= 前缀，因此
+            #  class="intro-date" 只会在 HTML 元素中出现)
+            self.assertNotIn('class="intro-date"', html)
+            self.assertNotIn('class="list-date-chip"', html)
+            self.assertNotIn('class="hook-ep-badge"', html)
+
 
 if __name__ == "__main__":
     unittest.main()

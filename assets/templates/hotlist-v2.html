@@ -963,7 +963,7 @@ body {
       {% endfor %}
     </div>
     {% endif %}
-    <div class="intro-date">{{ date }} · 第 {{ issue }} 期</div>
+    {% if false %}<div class="intro-date">{{ date }} · 第 {{ issue }} 期</div>{% endif %}
     <div class="intro-cta">
       <div class="cta-icon">⚡</div>
       <div>
@@ -992,7 +992,7 @@ body {
         <div class="header-badge">● 估算热度</div>
       </div>
       <div class="list-meta">
-        <span class="list-date-chip">{{ date }} · 本周</span>
+        {% if false %}<span class="list-date-chip">{{ date }} · 本周</span>{% endif %}
         <div class="filter-pills">
           <div class="filter-pill active">全部</div>
           <div class="filter-pill inactive">AI</div>
@@ -1153,7 +1153,7 @@ body {
 
   <div class="hook-screen">
     <div class="hook-header">
-      <div class="hook-ep-badge">⚡ 周报速递 · 第 {{ issue }} 期</div>
+      {% if false %}<div class="hook-ep-badge">⚡ 周报速递 · 第 {{ issue }} 期</div>{% endif %}
       <h2 class="hook-title">本周<br><span class="em">TOP {{ total_projects }}</span><br>速览收尾</h2>
       <p class="hook-subtitle">点赞关注，每周更新不错过</p>
     </div>
