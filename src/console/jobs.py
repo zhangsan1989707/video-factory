@@ -72,24 +72,23 @@ from src.console.shared import (
 README_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
 def create_hotlist_job(payload: dict[str, Any]) -> dict[str, Any]:
-    last_error: ValueError | None = None
-    for _attempt in range(5):
-        job_id = next_job_id("GH-HOTLIST")
-        try:
-            return create_job(job_id, payload)
-        except ValueError as exc:
-            if "任务目录已存在" not in str(exc):
-                raise
-            last_error = exc
-    raise last_error or ValueError("无法创建任务")
+    return _create_job_with_retry("GH-HOTLIST", payload)
 
 def create_single_project_vertical_job(payload: dict[str, Any]) -> dict[str, Any]:
+    return _create_job_with_retry("GH-SINGLE", {**payload, "type": "single_project_vertical"})
+
+def create_desktop_review_job(payload: dict[str, Any]) -> dict[str, Any]:
+    return _create_job_with_retry("GH-DESKTOP", {**payload, "type": "desktop_review"})
+
+def create_from_plan_render_job(payload: dict[str, Any]) -> dict[str, Any]:
+    return _create_job_with_retry("GH-PLAN", {**payload, "type": "from_plan_render"})
+
+def _create_job_with_retry(prefix: str, payload: dict[str, Any]) -> dict[str, Any]:
     last_error: ValueError | None = None
-    item = {**payload, "type": "single_project_vertical"}
     for _attempt in range(5):
-        job_id = next_job_id("GH-SINGLE")
+        job_id = next_job_id(prefix)
         try:
-            return create_job(job_id, item)
+            return create_job(job_id, payload)
         except ValueError as exc:
             if "任务目录已存在" not in str(exc):
                 raise
@@ -232,6 +231,8 @@ def save_script(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
+    if _job_type(job) in {"single_project_vertical", "desktop_review", "from_plan_render"}:
+        return _save_pipeline_job_script(job_id, job, payload)
     _require_stage(job, {"awaiting_script_confirmation", "preparing_plan"}, "当前阶段不能确认口播")
     selected = read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items") or []
     if not selected:
@@ -273,6 +274,46 @@ def save_script(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "publish_pack": publish_pack,
     }
 
+def _save_pipeline_job_script(job_id: str, job: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    _require_stage(job, {"awaiting_script_confirmation", "preparing_plan"}, "当前阶段不能确认口播")
+    segments = payload.get("segments") or []
+    if not segments:
+        raise ValueError("口播脚本不能为空")
+    projects = _pipeline_job_projects(job_id, job)
+    _validate_pipeline_script_segments(segments)
+    update_job(job_id, status="running", stage="awaiting_script_confirmation", error="")
+    write_json(JOBS_DIR / job_id / "narration.json", {"segments": segments})
+    _write_script_from_console_segments(job_id, segments)
+    append_log(job_id, "口播脚本已确认。")
+    _quality_check_script(job_id, segments, projects)
+    quality = read_json(JOBS_DIR / job_id / "quality_report.json", {})
+    ignored = bool(payload.get("ignore_quality_risk"))
+    if _quality_blocks_render(quality) and not ignored:
+        publish_pack = _write_pipeline_publish_pack(job_id, job, projects, segments)
+        update_job(
+            job_id,
+            status="awaiting_input",
+            stage="awaiting_script_confirmation",
+            error="脚本质检未通过，请复核风险项或手动忽略后继续。",
+            plan_validation={"status": "not_run", "error": ""},
+        )
+        return {
+            "job": read_job(job_id),
+            "segments": segments,
+            "quality_report": quality,
+            "publish_pack": publish_pack,
+        }
+    if ignored and _quality_blocks_render(quality):
+        quality = _apply_quality_override(job_id, quality)
+    publish_pack = _write_pipeline_publish_pack(job_id, job, projects, segments)
+    update_job(job_id, status="awaiting_validation", stage="preparing_plan", error="", plan_validation={"status": "not_run", "error": ""})
+    return {
+        "job": read_job(job_id),
+        "segments": segments,
+        "quality_report": read_json(JOBS_DIR / job_id / "quality_report.json", {}),
+        "publish_pack": publish_pack,
+    }
+
 def _require_stage(job: dict[str, Any], allowed: set[str], message: str) -> None:
     if str(job.get("stage") or "") not in allowed:
         raise ValueError(f"{message}: {job.get('stage') or 'unknown'}")
@@ -283,6 +324,62 @@ def _validate_script_segments(projects: list[dict[str, Any]], segments: list[dic
     missing = [segment_id for segment_id in expected if not str((by_id.get(segment_id) or {}).get("text") or "").strip()]
     if missing:
         raise ValueError(f"口播脚本缺少段落: {', '.join(missing)}")
+
+def _validate_pipeline_script_segments(segments: list[dict[str, Any]]) -> None:
+    missing = [
+        str(segment.get("id") or f"segment-{index}")
+        for index, segment in enumerate(segments, start=1)
+        if not str((segment or {}).get("text") or "").strip()
+    ]
+    if missing:
+        raise ValueError(f"口播脚本缺少段落: {', '.join(missing)}")
+
+def _console_segments_from_script(job_dir: Path) -> list[dict[str, str]]:
+    script = read_json(job_dir / "script.json", {})
+    raw_segments = script.get("segments", []) if isinstance(script.get("segments"), list) else []
+    segments = []
+    total = len(raw_segments)
+    for index, segment in enumerate(raw_segments, start=1):
+        if not isinstance(segment, dict):
+            continue
+        if index == 1:
+            segment_id = "intro"
+            label = "开场"
+        elif index == total:
+            segment_id = "outro"
+            label = "结尾"
+        else:
+            segment_id = f"project-{index - 1}"
+            label = f"段落 {index - 1}"
+        segments.append({
+            "id": segment_id,
+            "label": label,
+            "text": str(segment.get("narration") or ""),
+        })
+    return segments
+
+def _write_script_from_console_segments(job_id: str, console_segments: list[dict[str, Any]]) -> None:
+    script_path = JOBS_DIR / job_id / "script.json"
+    script = read_json(script_path, {})
+    raw_segments = script.get("segments", []) if isinstance(script.get("segments"), list) else []
+    by_id = {str(segment.get("id") or ""): str(segment.get("text") or "") for segment in console_segments if isinstance(segment, dict)}
+    patched = []
+    total = len(raw_segments)
+    for index, segment in enumerate(raw_segments, start=1):
+        if not isinstance(segment, dict):
+            continue
+        if index == 1:
+            segment_id = "intro"
+        elif index == total:
+            segment_id = "outro"
+        else:
+            segment_id = f"project-{index - 1}"
+        item = dict(segment)
+        if segment_id in by_id:
+            item["narration"] = by_id[segment_id]
+        patched.append(item)
+    script["segments"] = patched
+    write_json(script_path, script)
 
 def _selected_from_candidate_snapshot(job_id: str, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     candidates = read_json(JOBS_DIR / job_id / "candidates.json", {}).get("items") or []
@@ -343,6 +440,13 @@ def _clear_plan_artifacts(job_id: str) -> None:
         shutil.rmtree(preview_dir)
     update_job(job_id, official_video="")
 
+def _clear_desktop_plan_artifacts(job_id: str) -> None:
+    job_dir = JOBS_DIR / job_id
+    for name in ("desktop_review_plan.json",):
+        path = job_dir / name
+        if path.exists() and path.is_file():
+            path.unlink()
+
 def _clear_script_metadata(job_id: str) -> None:
     job_dir = JOBS_DIR / job_id
     for name in ("quality_report.json", "publish_pack.json", "narration_source.json"):
@@ -362,8 +466,10 @@ def prepare_plan(job_id: str) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
-    if _job_type(job) == "single_project_vertical":
+    if _job_type(job) in {"single_project_vertical", "desktop_review"}:
         return _prepare_single_project_plan(job_id, job)
+    if _job_type(job) == "from_plan_render":
+        return _prepare_from_plan_render(job_id, job)
     _require_stage(job, {"preparing_plan"}, "当前阶段不能生成计划文件")
     if str(job.get("status") or "") not in {"awaiting_render", "awaiting_validation", "ready_to_render", "failed"}:
         raise ValueError(f"当前状态不能生成计划文件: {job.get('status') or 'unknown'}")
@@ -423,10 +529,14 @@ def _prepare_single_project_plan(job_id: str, job: dict[str, Any]) -> dict[str, 
     repo_url = str(job.get("repo_url") or "").strip()
     if not repo_url:
         raise ValueError("单项目任务缺少 GitHub 仓库地址")
+    pipeline_style = _pipeline_style_for_job(job)
+    is_desktop = _job_type(job) == "desktop_review"
 
     _clear_plan_artifacts(job_id)
+    if is_desktop:
+        _clear_desktop_plan_artifacts(job_id)
     update_job(job_id, status="running", stage="preparing_plan", failed_stage="", error="")
-    append_log(job_id, f"开始生成单项目竖屏计划文件: {repo_url}。")
+    append_log(job_id, f"开始生成{_job_type_label(job)}计划文件: {repo_url}。")
 
     job_dir = JOBS_DIR / job_id
     try:
@@ -435,21 +545,20 @@ def _prepare_single_project_plan(job_id: str, job: dict[str, Any]) -> dict[str, 
         asyncio.run(run_pipeline(
             url=repo_url,
             output=str(job_dir / "final.mp4"),
-            orientation="vertical",
-            style="single-review",
+            orientation="vertical" if not is_desktop else "horizontal",
+            style=pipeline_style,
             dry_run=True,
         ))
-        manifest = _asset_manifest_from_dict(read_json(job_dir / "asset_manifest.json", {}))
-        shot_plan = shot_plan_from_dict(read_json(job_dir / "shot_plan.json", {}))
-        script = _video_script_from_dict(read_json(job_dir / "script.json", {}))
-        previews = render_vertical_previews(script, shot_plan, manifest, job_dir / "preview_frames")
+        previews = _preview_existing_plan(job_dir)
         cover = _write_cover_frame(job_id, previews)
-        readiness = _write_single_project_readiness_report(job_id, repo_url, len(previews), bool(cover.get("path")))
-        append_log(job_id, f"单项目计划文件已生成，并输出 {len(previews)} 张静态预览帧。")
+        console_segments = _console_segments_from_script(job_dir)
+        write_json(job_dir / "narration.json", {"segments": console_segments})
+        readiness = _write_pipeline_job_readiness_report(job_id, repo_url, len(previews), bool(cover.get("path")))
+        append_log(job_id, f"{_job_type_label(job)}计划文件已生成，并输出 {len(previews)} 张静态预览帧。")
         update_job(
             job_id,
-            status="awaiting_validation",
-            stage="preparing_plan",
+            status="awaiting_input",
+            stage="awaiting_script_confirmation",
             plan_validation={"status": "not_run", "error": ""},
         )
         return {
@@ -458,22 +567,73 @@ def _prepare_single_project_plan(job_id: str, job: dict[str, Any]) -> dict[str, 
             "plan_validation": {"status": "not_run", "error": ""},
             "cover_frame": cover,
             "readiness_report": readiness,
-            "render_command": f".venv/bin/python -m src.cli {repo_url} -o {job_dir / 'final.mp4'} --vertical --style single-review",
+            "segments": console_segments,
+            "render_command": _render_command_for_job(job, job_dir),
         }
     except Exception as exc:
-        append_log(job_id, f"单项目计划文件生成失败: {exc}")
+        append_log(job_id, f"{_job_type_label(job)}计划文件生成失败: {exc}")
         _clear_plan_artifacts(job_id)
+        update_job(job_id, status="failed", stage="preparing_plan", failed_stage="preparing_plan", error=str(exc))
+        raise
+
+def _prepare_from_plan_render(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+    _require_stage(job, {"preparing_plan"}, "当前阶段不能生成计划文件")
+    if str(job.get("status") or "") not in {"awaiting_render", "awaiting_validation", "ready_to_render", "failed"}:
+        raise ValueError(f"当前状态不能生成计划文件: {job.get('status') or 'unknown'}")
+    plan_path = Path(str(job.get("plan_path") or "")).expanduser()
+    if not plan_path.exists():
+        raise ValueError(f"计划文件目录不存在: {plan_path}")
+    source_dir = plan_path if plan_path.is_dir() else plan_path.parent
+    if not (source_dir / "shot_plan.json").exists() and not (source_dir / "desktop_review_plan.json").exists():
+        raise ValueError("计划文件目录需要包含 shot_plan.json 或 desktop_review_plan.json")
+
+    _clear_plan_artifacts(job_id)
+    _clear_desktop_plan_artifacts(job_id)
+    update_job(job_id, status="running", stage="preparing_plan", failed_stage="", error="")
+    append_log(job_id, f"开始导入计划文件目录: {source_dir}。")
+
+    job_dir = JOBS_DIR / job_id
+    try:
+        _copy_plan_snapshot(source_dir, job_dir)
+        previews = _preview_existing_plan(job_dir)
+        cover = _write_cover_frame(job_id, previews)
+        console_segments = _console_segments_from_script(job_dir)
+        write_json(job_dir / "narration.json", {"segments": console_segments})
+        readiness = _write_pipeline_job_readiness_report(job_id, str(source_dir), len(previews), bool(cover.get("path")))
+        append_log(job_id, f"计划文件已导入，并输出 {len(previews)} 张静态预览帧。")
+        update_job(
+            job_id,
+            status="awaiting_input",
+            stage="awaiting_script_confirmation",
+            plan_validation={"status": "not_run", "error": ""},
+        )
+        return {
+            "job": read_job(job_id),
+            "artifacts": job_artifacts(job_id),
+            "plan_validation": {"status": "not_run", "error": ""},
+            "cover_frame": cover,
+            "readiness_report": readiness,
+            "segments": console_segments,
+            "render_command": f".venv/bin/python -m src.cli --from-plan {job_dir} -o {job_dir / 'final.mp4'}",
+        }
+    except Exception as exc:
+        append_log(job_id, f"计划文件导入失败: {exc}")
+        _clear_plan_artifacts(job_id)
+        _clear_desktop_plan_artifacts(job_id)
         update_job(job_id, status="failed", stage="preparing_plan", failed_stage="preparing_plan", error=str(exc))
         raise
 
 async def _validate_single_project_plan(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
     _require_stage(job, {"preparing_plan"}, "当前阶段不能校验计划文件")
     job_dir = JOBS_DIR / job_id
-    if not (job_dir / "shot_plan.json").exists():
+    if not _has_pipeline_plan(job_dir):
         import asyncio
 
-        await asyncio.to_thread(_prepare_single_project_plan, job_id, job)
-    append_log(job_id, "开始校验单项目 --from-plan dry run。")
+        if _job_type(job) == "from_plan_render":
+            await asyncio.to_thread(_prepare_from_plan_render, job_id, job)
+        else:
+            await asyncio.to_thread(_prepare_single_project_plan, job_id, job)
+    append_log(job_id, f"开始校验{_job_type_label(job)} --from-plan dry run。")
     update_job(
         job_id,
         status="running",
@@ -488,16 +648,16 @@ async def _validate_single_project_plan(job_id: str, job: dict[str, Any]) -> dic
             output=str(job_dir / "final.mp4"),
             orientation="vertical",
             from_plan=str(job_dir),
-            style="single-review",
+            style=_pipeline_style_for_job(job),
             dry_run=True,
         )
         details = _plan_validation_details(job_dir)
-        append_log(job_id, "单项目计划文件校验通过，可进入最终渲染。")
+        append_log(job_id, f"{_job_type_label(job)}计划文件校验通过，可进入最终渲染。")
         validation = {"status": "passed", "error": "", "details": details}
         update_job(job_id, status="ready_to_render", stage="preparing_plan", plan_validation=validation)
         return {"job": read_job(job_id), "plan_validation": validation, "artifacts": job_artifacts(job_id)}
     except Exception as exc:
-        append_log(job_id, f"单项目计划文件校验失败: {exc}")
+        append_log(job_id, f"{_job_type_label(job)}计划文件校验失败: {exc}")
         validation = {"status": "failed", "error": str(exc)}
         update_job(
             job_id,
@@ -513,7 +673,7 @@ async def validate_plan(job_id: str) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
-    if _job_type(job) == "single_project_vertical":
+    if _job_type(job) in {"single_project_vertical", "desktop_review", "from_plan_render"}:
         return await _validate_single_project_plan(job_id, job)
     _require_stage(job, {"preparing_plan"}, "当前阶段不能校验计划文件")
 
@@ -562,7 +722,7 @@ async def render_video(job_id: str) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
-    if _job_type(job) == "single_project_vertical":
+    if _job_type(job) in {"single_project_vertical", "desktop_review", "from_plan_render"}:
         return await _render_single_project_video(job_id, job)
     _require_stage(
         job,
@@ -665,10 +825,13 @@ async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict
     job_dir = JOBS_DIR / job_id
     try:
         raise_if_cancelled(job_id)
-        if not (job_dir / "shot_plan.json").exists():
+        if not _has_pipeline_plan(job_dir):
             import asyncio
 
-            await asyncio.to_thread(_prepare_single_project_plan, job_id, job)
+            if _job_type(job) == "from_plan_render":
+                await asyncio.to_thread(_prepare_from_plan_render, job_id, job)
+            else:
+                await asyncio.to_thread(_prepare_single_project_plan, job_id, job)
             job = read_job(job_id)
         raise_if_cancelled(job_id)
         if (job.get("plan_validation") or {}).get("status") != "passed":
@@ -676,7 +839,7 @@ async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict
             job = read_job(job_id)
         raise_if_cancelled(job_id)
 
-        append_log(job_id, "开始生成单项目最终视频。这个阶段会采集素材、生成语音并合成 mp4。")
+        append_log(job_id, f"开始生成{_job_type_label(job)}最终视频。这个阶段会采集素材、生成语音并合成 mp4。")
         update_job(job_id, status="running", failed_stage="", error="", cancel_requested=False)
 
         def on_pipeline_stage(stage: str, message: str) -> None:
@@ -689,15 +852,15 @@ async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict
             output=str(job_dir / "final.mp4"),
             orientation="vertical",
             from_plan=str(job_dir),
-            style="single-review",
+            style=_pipeline_style_for_job(job),
             no_bgm=_no_bgm(job),
             bgm_path=_bgm_path(job),
             stage_callback=on_pipeline_stage,
         )
         raise_if_cancelled(job_id)
         update_job(job_id, status="running", stage="post_processing")
-        append_log(job_id, f"单项目视频合成完成: {job_dir / 'final.mp4'}")
-        return finalize_numbered_output(job_id, str(job.get("title") or "单项目竖屏视频"))
+        append_log(job_id, f"{_job_type_label(job)}视频合成完成: {job_dir / 'final.mp4'}")
+        return finalize_numbered_output(job_id, str(job.get("title") or _job_type_label(job)))
     except JobCancelled as exc:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
         append_log(job_id, str(exc))
@@ -708,7 +871,7 @@ async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict
         raise
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
-        append_log(job_id, f"单项目视频生成失败: {exc}")
+        append_log(job_id, f"{_job_type_label(job)}视频生成失败: {exc}")
         _clear_video_outputs(job_id)
         if _video_versions(job_id):
             append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
@@ -1019,6 +1182,80 @@ def _render_engine(job: dict[str, Any]) -> str:
         return engine
     return render_engine_for_style(_visual_style(job))
 
+def _pipeline_style_for_job(job: dict[str, Any]) -> str:
+    job_type = _job_type(job)
+    if job_type == "desktop_review":
+        return "desktop-review"
+    if job_type == "from_plan_render":
+        return "default"
+    return "single-review"
+
+def _job_type_label(job: dict[str, Any]) -> str:
+    return {
+        "single_project_vertical": "单项目竖屏",
+        "desktop_review": "桌面审阅",
+        "from_plan_render": "计划文件",
+    }.get(_job_type(job), "任务")
+
+def _render_command_for_job(job: dict[str, Any], job_dir: Path) -> str:
+    job_type = _job_type(job)
+    repo_url = str(job.get("repo_url") or "")
+    if job_type == "desktop_review":
+        return f".venv/bin/python -m src.cli {repo_url} -o {job_dir / 'final.mp4'} --style desktop-review"
+    if job_type == "from_plan_render":
+        return f".venv/bin/python -m src.cli --from-plan {job_dir} -o {job_dir / 'final.mp4'}"
+    return f".venv/bin/python -m src.cli {repo_url} -o {job_dir / 'final.mp4'} --vertical --style single-review"
+
+def _has_pipeline_plan(job_dir: Path) -> bool:
+    return (job_dir / "shot_plan.json").exists() or (job_dir / "desktop_review_plan.json").exists()
+
+def _copy_plan_snapshot(source_dir: Path, target_dir: Path) -> None:
+    allowed_files = {
+        "asset_manifest.json",
+        "shot_plan.json",
+        "desktop_review_plan.json",
+        "script.json",
+        "info.json",
+    }
+    copied = False
+    for name in allowed_files:
+        source = source_dir / name
+        if source.exists() and source.is_file() and not source.is_symlink():
+            shutil.copy2(source, target_dir / name)
+            copied = True
+    for dirname in ("assets", "audio", "desktop_frames"):
+        source = source_dir / dirname
+        target = target_dir / dirname
+        if source.exists() and source.is_dir() and not source.is_symlink():
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(source, target, symlinks=False)
+    if not copied or not _has_pipeline_plan(target_dir):
+        raise ValueError("计划文件目录需要包含可用计划文件")
+
+def _preview_existing_plan(job_dir: Path) -> list[Path]:
+    if (job_dir / "desktop_review_plan.json").exists():
+        return _desktop_preview_placeholders(job_dir)
+    manifest = _asset_manifest_from_dict(read_json(job_dir / "asset_manifest.json", {}))
+    shot_plan = shot_plan_from_dict(read_json(job_dir / "shot_plan.json", {}))
+    script = _video_script_from_dict(read_json(job_dir / "script.json", {}))
+    return render_vertical_previews(script, shot_plan, manifest, job_dir / "preview_frames")
+
+def _desktop_preview_placeholders(job_dir: Path) -> list[Path]:
+    from PIL import Image, ImageDraw
+
+    preview_dir = job_dir / "preview_frames"
+    preview_dir.mkdir(parents=True, exist_ok=True)
+    target = preview_dir / "desktop-review-plan.png"
+    image = Image.new("RGB", (960, 540), (21, 24, 31))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((72, 72, 888, 468), outline=(100, 116, 139), width=3)
+    draw.rectangle((72, 72, 888, 116), fill=(34, 40, 49))
+    draw.text((108, 86), "desktop-review plan", fill=(235, 238, 243))
+    draw.text((108, 170), "Preview frames are captured during final render.", fill=(180, 190, 205))
+    image.save(target)
+    return [target]
+
 def _merge_candidate_analysis(candidate: dict[str, Any], patch: dict[str, Any]) -> None:
     for key in ("description_zh", "recommendation", "project_highlight", "viewer_benefit", "risk", "audience", "visual_potential"):
         if patch.get(key):
@@ -1283,6 +1520,75 @@ def _write_publish_pack(
     append_log(job_id, "发布辅助包已生成。")
     return pack
 
+def _pipeline_job_projects(job_id: str, job: dict[str, Any]) -> list[dict[str, Any]]:
+    info = read_json(JOBS_DIR / job_id / "info.json", {})
+    if isinstance(info.get("projects"), list):
+        raw = info["projects"]
+    else:
+        raw = [info]
+    projects = []
+    for index, item in enumerate(raw, start=1):
+        if not isinstance(item, dict):
+            continue
+        full_name = str(item.get("full_name") or "").strip()
+        if not full_name and item.get("owner") and item.get("name"):
+            full_name = f"{item.get('owner')}/{item.get('name')}"
+        repo_url = str(item.get("repo_url") or job.get("repo_url") or job.get("plan_path") or "").strip()
+        name = str(item.get("name") or full_name or f"project-{index}")
+        projects.append({
+            **item,
+            "name": name,
+            "full_name": full_name or name,
+            "repo_url": repo_url,
+            "description": str(item.get("description") or ""),
+            "description_zh": str(item.get("description_zh") or item.get("description") or ""),
+            "stars": item.get("stars") or 0,
+            "language": item.get("language") or "",
+            "daily_growth": item.get("daily_growth") or "",
+            "growth_note": item.get("growth_note") or "",
+        })
+    if projects:
+        return projects
+    source = str(job.get("repo_url") or job.get("plan_path") or job_id)
+    return [{
+        "name": Path(source).name or job_id,
+        "full_name": Path(source).name or job_id,
+        "repo_url": source,
+        "description": str(job.get("title") or ""),
+        "description_zh": str(job.get("title") or ""),
+        "stars": 0,
+        "language": "",
+    }]
+
+def _write_pipeline_publish_pack(
+    job_id: str,
+    job: dict[str, Any],
+    projects: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    title = _short_text(str(read_job(job_id).get("title") or _job_type_label(job)), 40)
+    source_names = [str(project.get("full_name") or project.get("name") or "") for project in projects if project]
+    narration = "\n".join(str(segment.get("text") or "") for segment in segments if segment.get("text"))
+    description = _clip_multiline("\n".join([
+        title,
+        "",
+        _short_text(narration, 520),
+        "",
+        "来源：",
+        *[f"- {name}" for name in source_names],
+    ]), 900)
+    pack = {
+        "title": title,
+        "description": description,
+        "hashtags": _hashtags(projects),
+        "cover_text": {"headline": title, "subhead": _short_text(source_names[0] if source_names else title, 48)},
+        "source_projects": source_names,
+        "data_note": "单项目或计划文件任务使用本地计划快照与仓库元数据，不使用热榜增长估算。",
+    }
+    write_json(JOBS_DIR / job_id / "publish_pack.json", pack)
+    append_log(job_id, "发布辅助包已生成。")
+    return pack
+
 def _hashtags(projects: list[dict[str, Any]]) -> list[str]:
     tags = ["GitHub", "开源项目", "开发者工具"]
     text = _project_text({"topics": [], "description": " ".join(_project_text(project) for project in projects)})
@@ -1387,34 +1693,44 @@ def _write_readiness_report(
     append_log(job_id, f"发布准备度评分: {score} / 100，状态 {status}。")
     return report
 
-def _write_single_project_readiness_report(
+def _write_pipeline_job_readiness_report(
     job_id: str,
-    repo_url: str,
+    source_label: str,
     preview_count: int,
     has_cover: bool,
 ) -> dict[str, Any]:
     job_dir = JOBS_DIR / job_id
     script = read_json(job_dir / "script.json", {})
     segments = script.get("segments", []) if isinstance(script.get("segments"), list) else []
+    has_desktop_plan = (job_dir / "desktop_review_plan.json").exists()
     checks = [
-        _readiness_check("repo_url", bool(repo_url), f"已设置仓库地址: {repo_url}", "缺少仓库地址"),
-        _readiness_check("asset_manifest", (job_dir / "asset_manifest.json").exists(), "已生成素材清单", "缺少素材清单"),
-        _readiness_check("shot_plan", (job_dir / "shot_plan.json").exists(), "已生成分镜计划", "缺少分镜计划"),
-        _readiness_check("script", bool(segments), "已生成单项目口播脚本", "缺少口播脚本"),
+        _readiness_check("source", bool(source_label), f"已设置来源: {source_label}", "缺少任务来源"),
+        _readiness_check("plan", _has_pipeline_plan(job_dir), "已生成分镜计划", "缺少分镜计划"),
+        _readiness_check("script", bool(segments), "已生成口播脚本", "缺少口播脚本"),
         _readiness_check("preview_frames", preview_count > 0, f"已生成 {preview_count} 张预览帧", "缺少预览帧"),
         _readiness_check("cover_frame", has_cover, "已生成封面帧", "缺少封面帧"),
     ]
+    if not has_desktop_plan:
+        checks.insert(2, _readiness_check("asset_manifest", (job_dir / "asset_manifest.json").exists(), "已生成素材清单", "缺少素材清单"))
     score = int(sum(item["score"] for item in checks) / max(1, len(checks)))
     status = "ready" if all(item["passed"] for item in checks) else "review"
     report = {
         "status": status,
         "score": score,
         "checks": checks,
-        "summary": "单项目计划可进入最终渲染。" if status == "ready" else "进入最终渲染前建议复核未通过项。",
+        "summary": "计划可进入最终渲染。" if status == "ready" else "进入最终渲染前建议复核未通过项。",
     }
     write_json(job_dir / "readiness_report.json", report)
-    append_log(job_id, f"单项目准备度评分: {score} / 100，状态 {status}。")
+    append_log(job_id, f"发布准备度评分: {score} / 100，状态 {status}。")
     return report
+
+def _write_single_project_readiness_report(
+    job_id: str,
+    repo_url: str,
+    preview_count: int,
+    has_cover: bool,
+) -> dict[str, Any]:
+    return _write_pipeline_job_readiness_report(job_id, repo_url, preview_count, has_cover)
 
 def _readiness_check(check_id: str, passed: bool, ok: str, fail: str) -> dict[str, Any]:
     return {

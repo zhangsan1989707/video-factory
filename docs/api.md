@@ -19,8 +19,8 @@
 **响应示例**:
 ```json
 {
-  "status": "ok",
-  "version": "0.1.0"
+  "ok": true,
+  "service": "video-factory-console"
 }
 ```
 
@@ -33,14 +33,35 @@
 **响应示例**:
 ```json
 {
-  "ok": true,
+  "status": "ready",
+  "summary": "本机渲染依赖和 smoke 均可用。",
+  "blocking_count": 0,
+  "warning_count": 1,
   "checks": [
-    {"name": "python_modules", "ok": true, "message": "所有 Python 模块已安装"},
-    {"name": "ffmpeg", "ok": true, "message": "ffmpeg 版本 6.0"},
-    {"name": "playwright", "ok": true, "message": "Playwright 浏览器已安装"},
-    {"name": "github_token", "ok": true, "message": "GitHub Token 有效"},
-    {"name": "model_provider", "ok": true, "message": "小米/mimo-v2.5-pro 连接成功"}
-  ]
+    {"id": "ffmpeg", "label": "Command: ffmpeg", "status": "ok", "severity": "blocking", "message": "/usr/local/bin/ffmpeg"},
+    {"id": "smoke.ffmpeg_ffprobe", "label": "ffmpeg/ffprobe smoke", "status": "ok", "severity": "blocking", "message": "短视频 smoke 通过，样例时长 0.2s。"}
+  ],
+  "latest_real_smoke": {
+    "status": "passed",
+    "summary": "低成本真实 smoke 通过：ffmpeg 生成短样例，ffprobe 可读取音视频流。"
+  }
+}
+```
+
+### POST /api/preflight/smoke
+
+手动运行一次低成本真实 smoke。这个接口会生成一个极短音视频样例并用 `ffprobe` 检查音视频流；它不会自动访问 GitHub、TTS 或长视频渲染。
+
+**响应示例**:
+```json
+{
+  "status": "passed",
+  "started_at": "2026-06-13T10:00:00+00:00",
+  "completed_at": "2026-06-13T10:00:01+00:00",
+  "summary": "低成本真实 smoke 通过：ffmpeg 生成短样例，ffprobe 可读取音视频流。",
+  "duration_seconds": 0.5,
+  "size": 1234,
+  "error": ""
 }
 ```
 
@@ -307,23 +328,44 @@
 
 ### POST /api/jobs
 
-创建热榜任务。
+创建任务。支持的 `type`：
+
+- `github_hotlist`
+- `single_project_vertical`
+- `desktop_review`
+- `from_plan_render`
 
 **请求体**:
 ```json
 {
-  "frequency": "daily",
+  "type": "github_hotlist",
+  "time_window": "daily",
   "project_count": 5,
-  "style": "tech_hotspot"
+  "template_params": {
+    "style": "tech_hotspot",
+    "render_engine": "hyperframes"
+  }
 }
 ```
 
 **响应示例**:
 ```json
 {
-  "ok": true,
-  "job_id": "GH-HOTLIST-20260610-003"
+  "job": {
+    "id": "GH-HOTLIST-20260610-003",
+    "type": "github_hotlist",
+    "status": "draft_pending",
+    "stage": "draft_pending"
+  }
 }
+```
+
+创建非热榜任务时：
+
+```json
+{"type": "single_project_vertical", "repo_url": "https://github.com/owner/repo"}
+{"type": "desktop_review", "repo_url": "https://github.com/owner/repo"}
+{"type": "from_plan_render", "plan_path": "/Users/me/project/output/jobs/GH-..."}
 ```
 
 ### POST /api/jobs/:id/candidates

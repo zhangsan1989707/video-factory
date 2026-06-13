@@ -24,6 +24,8 @@
             <select id="jobType">
               <option value="github_hotlist" selected>GitHub 热榜</option>
               <option value="single_project_vertical">单项目竖屏</option>
+              <option value="desktop_review">桌面审阅</option>
+              <option value="from_plan_render">计划文件继续渲染</option>
             </select>
           </label>
           <label>
@@ -49,6 +51,10 @@
             <span>仓库 URL</span>
             <input id="repoUrl" placeholder="https://github.com/owner/repo">
           </label>
+          <label id="planPathField" hidden>
+            <span>计划目录</span>
+            <input id="planPath" placeholder="/Users/me/project/output/jobs/GH-...">
+          </label>
           <button id="nextActionBtn" class="primary" data-action="create">创建任务</button>
           <button id="newJobBtn" class="ghost">新建任务</button>
           <button id="openSettingsBtn" class="ghost">配置</button>
@@ -63,6 +69,7 @@
             <div id="currentStage">等待创建任务</div>
             <div id="currentModelCall" class="job-meta">model: -</div>
             <div id="currentError" class="job-error" hidden></div>
+            <div id="recoveryHint" class="job-recovery" hidden></div>
             <pre id="currentDiagnostics" class="job-diagnostics" hidden></pre>
             <div class="regen-actions">
               <button id="refreshCandidatesBtn" class="tiny" disabled title="跳过缓存，从 GitHub API 重新拉取最新候选数据">跳过缓存</button>
@@ -97,6 +104,11 @@
             <span>渲染环境</span>
             <strong id="preflightStatus">检测中</strong>
           </div>
+          <div class="kv">
+            <span>真实 smoke</span>
+            <strong id="realSmokeStatus">未运行</strong>
+          </div>
+          <button id="runRealSmokeBtn" class="tiny" type="button">运行真实 smoke</button>
           <div class="kv">
             <span>模板</span>
             <strong>github_hotlist_vertical_v1</strong>
@@ -234,6 +246,7 @@
         </section>
         <section>
           <div class="section-title">历史任务</div>
+          <div id="scheduleQueue" class="history-list empty">暂无定时待办。</div>
           <div id="historyList" class="history-list empty">暂无历史任务。</div>
         </section>
       </aside>

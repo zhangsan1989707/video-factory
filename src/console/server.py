@@ -12,9 +12,11 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from src.console.background import is_active, request_cancel, start_async_job
 from src.console.model_router import test_provider
-from src.console.preflight import preflight_snapshot
+from src.console.preflight import preflight_snapshot, run_real_smoke_check
 from src.console.scheduler import run_due_scheduled_draft, start_scheduler_loop
 from src.console.jobs import (
+    create_desktop_review_job,
+    create_from_plan_render_job,
     create_hotlist_job,
     create_single_project_vertical_job,
     finalize_numbered_output,
@@ -170,9 +172,20 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 name = parse_qs(parsed.query).get("name", [""])[0]
                 self._json(update_config(name, payload) if name else update_configs(payload))
                 return
+            if parsed.path == "/api/preflight/smoke":
+                self._json(run_real_smoke_check())
+                return
             if parsed.path == "/api/jobs":
                 job_type = str(payload.get("type") or "github_hotlist")
-                creator = create_single_project_vertical_job if job_type == "single_project_vertical" else create_hotlist_job
+                creators = {
+                    "github_hotlist": create_hotlist_job,
+                    "single_project_vertical": create_single_project_vertical_job,
+                    "desktop_review": create_desktop_review_job,
+                    "from_plan_render": create_from_plan_render_job,
+                }
+                creator = creators.get(job_type)
+                if creator is None:
+                    raise ValueError(f"未知任务类型: {job_type}")
                 self._json({"job": creator(payload)})
                 return
             if parsed.path == "/api/scheduler/run-due":

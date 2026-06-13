@@ -47,6 +47,8 @@ class ConsoleSchedulerTest(unittest.TestCase):
                 second = run_due_scheduled_draft(datetime(2099, 1, 2, 10, 0))
 
             self.assertTrue(first["started"])
+            self.assertTrue(first["job"]["scheduled"])
+            self.assertEqual(first["job"]["schedule_mode"], "candidates_only")
             self.assertEqual(first["job"]["time_window"], "weekly")
             self.assertEqual(first["job"]["project_count"], 5)
             self.assertEqual(first["job"]["template_params"]["bgm"], "none")

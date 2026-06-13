@@ -1,11 +1,12 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduler, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, recoveryHintForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleQueueLabel, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
   await testJsonError();
   await testTextError();
   testRenderDiagnosticsIncludesLatestModelCall();
+  testRecoveryHintMapsFailedStageToNextStep();
   testFailedJobsExposeRetryActions();
   testPlanStagesExposeSeparateActions();
   testDraftJobsExposeSeparateCreateAndCollectActions();
@@ -18,6 +19,7 @@ async function run() {
   testRenderArtifactsShowsPreviewAndOfficialVideo();
   testRenderArtifactSummaryShowsPublishMetadata();
   testRenderHistoryJobsShowsOpenAndDeleteActions();
+  testRenderScheduleQueueShowsPendingAndFailedScheduledJobs();
   testRenderStageTimelineShowsRecentHistory();
   testAppendLogLineUsesRealNewlines();
   testRenderJobRefreshesEmbeddedStageHistory();
@@ -101,6 +103,18 @@ function testRenderDiagnosticsIncludesLatestModelCall() {
   assert.match(nodes.currentDiagnostics.textContent, /model_call: narration_generation · Anthropic \/ claude-test · failed/);
   assert.match(nodes.currentDiagnostics.textContent, /model_error: model overloaded/);
   assert.match(nodes.currentDiagnostics.textContent, /last_logs:\nlast line/);
+}
+
+function testRecoveryHintMapsFailedStageToNextStep() {
+  assert.match(
+    recoveryHintForJob({ status: "failed", failed_stage: "rendering_hyperframes" }),
+    /HyperFrames 渲染失败/,
+  );
+  assert.match(
+    recoveryHintForJob({ status: "failed", failed_stage: "preparing_plan" }),
+    /重新生成计划文件/,
+  );
+  assert.equal(recoveryHintForJob({ status: "completed", stage: "completed" }), "");
 }
 
 function testFailedJobsExposeRetryActions() {
@@ -400,7 +414,7 @@ async function testCreateSingleProjectDraftUsesRepoUrl() {
 function testSingleProjectCandidateEmptyMessage() {
   state.currentJobId = "GH-SINGLE-20990101-DRAFT";
   state.currentJob = { type: "single_project_vertical" };
-  assert.equal(candidateEmptyMessage(), "单项目竖屏任务不需要候选列表。点击“生成计划文件”准备分镜和脚本。");
+  assert.equal(candidateEmptyMessage(), "单项目竖屏任务不需要候选列表。生成计划文件后会进入口播确认。");
 }
 
 function testSyncJobTypeFieldsTogglesInputs() {
@@ -628,6 +642,38 @@ function testRenderHistoryJobsShowsOpenAndDeleteActions() {
   assert.match(nodes.historyList.innerHTML, /data-job="GH-HOTLIST-20990101-001"/);
   assert.match(nodes.historyList.innerHTML, /data-delete-job="GH-HOTLIST-20990101-001"/);
   assert.match(nodes.historyList.innerHTML, /删除/);
+}
+
+function testRenderScheduleQueueShowsPendingAndFailedScheduledJobs() {
+  const nodes = {
+    scheduleQueue: {
+      className: "",
+      innerHTML: "",
+      textContent: "",
+      querySelectorAll() {
+        return [];
+      },
+    },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  assert.equal(scheduleQueueLabel({ status: "awaiting_input", stage: "awaiting_script_confirmation" }), "待确认口播");
+  assert.equal(scheduleQueueLabel({ status: "failed", error: "GitHub API 失败" }), "失败：GitHub API 失败");
+
+  renderScheduleQueue([
+    { id: "GH-HOTLIST-20990101-001", scheduled: true, status: "awaiting_input", stage: "awaiting_project_confirmation" },
+    { id: "GH-HOTLIST-20990101-002", scheduled: true, status: "failed", stage: "collecting_candidates", error: "GitHub API 失败" },
+    { id: "GH-HOTLIST-20990101-003", scheduled: false, status: "awaiting_input", stage: "awaiting_project_confirmation" },
+  ]);
+
+  assert.equal(nodes.scheduleQueue.className, "history-list");
+  assert.match(nodes.scheduleQueue.innerHTML, /待确认项目/);
+  assert.match(nodes.scheduleQueue.innerHTML, /失败：GitHub API 失败/);
+  assert.doesNotMatch(nodes.scheduleQueue.innerHTML, /GH-HOTLIST-20990101-003/);
 }
 
 function testRenderStageTimelineShowsRecentHistory() {

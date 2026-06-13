@@ -158,6 +158,37 @@ class ConsoleJobsTest(unittest.TestCase):
 
             self.assertFalse((jobs_dir / "GH-SINGLE-20990101-BAD").exists())
 
+    def test_create_desktop_review_job_records_repo_and_plan_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with patch("src.console.store.JOBS_DIR", jobs_dir), patch("src.console.jobs.JOBS_DIR", jobs_dir):
+                job = console_jobs.create_desktop_review_job({
+                    "repo_url": "https://github.com/demo/alpha",
+                })
+
+            self.assertTrue(job["id"].startswith("GH-DESKTOP-"))
+            self.assertEqual(job["type"], "desktop_review")
+            self.assertEqual(job["repo_url"], "https://github.com/demo/alpha")
+            self.assertEqual(job["stage"], "preparing_plan")
+            self.assertEqual(job["status"], "awaiting_render")
+
+    def test_create_from_plan_render_job_requires_existing_plan_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            plan_dir = Path(tmp) / "plan"
+            plan_dir.mkdir()
+            write_json(plan_dir / "shot_plan.json", {"title": "Plan", "shots": []})
+            with patch("src.console.store.JOBS_DIR", jobs_dir), patch("src.console.jobs.JOBS_DIR", jobs_dir):
+                job = console_jobs.create_from_plan_render_job({
+                    "plan_path": str(plan_dir),
+                })
+                with self.assertRaisesRegex(ValueError, "计划文件目录不存在"):
+                    console_jobs.create_from_plan_render_job({"plan_path": str(Path(tmp) / "missing")})
+
+            self.assertTrue(job["id"].startswith("GH-PLAN-"))
+            self.assertEqual(job["type"], "from_plan_render")
+            self.assertEqual(job["plan_path"], str(plan_dir.resolve()))
+
     def test_prepare_single_project_vertical_plan_uses_existing_pipeline(self) -> None:
         async def fake_run_pipeline(**kwargs):
             calls.append(kwargs)
@@ -197,9 +228,120 @@ class ConsoleJobsTest(unittest.TestCase):
             self.assertEqual(calls[0]["orientation"], "vertical")
             self.assertEqual(calls[0]["style"], "single-review")
             self.assertTrue(calls[0]["dry_run"])
-            self.assertEqual(result["job"]["status"], "awaiting_validation")
+            self.assertEqual(result["job"]["status"], "awaiting_input")
+            self.assertEqual(result["job"]["stage"], "awaiting_script_confirmation")
+            self.assertEqual(result["segments"][0]["id"], "intro")
             self.assertEqual(result["readiness_report"]["status"], "ready")
             self.assertTrue((jobs_dir / job["id"] / "cover_frame.png").exists())
+
+    def test_prepare_desktop_review_plan_uses_desktop_pipeline(self) -> None:
+        async def fake_run_pipeline(**kwargs):
+            calls.append(kwargs)
+            job_dir = Path(kwargs["output"]).parent
+            write_json(job_dir / "desktop_review_plan.json", {"title": "Alpha", "shots": []})
+            write_json(job_dir / "script.json", {
+                "title": "Alpha",
+                "total_duration": 4,
+                "segments": [{"timestamp": 0, "duration": 4, "narration": "Alpha", "action": "desktop_review", "target": ""}],
+            })
+            write_json(job_dir / "info.json", {"name": "alpha"})
+            return job_dir
+
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.run_pipeline", side_effect=fake_run_pipeline),
+            ):
+                job = console_jobs.create_desktop_review_job({"repo_url": "https://github.com/demo/alpha"})
+                result = prepare_plan(job["id"])
+
+            self.assertEqual(calls[0]["url"], "https://github.com/demo/alpha")
+            self.assertEqual(calls[0]["style"], "desktop-review")
+            self.assertTrue(calls[0]["dry_run"])
+            self.assertEqual(result["job"]["status"], "awaiting_input")
+            self.assertEqual(result["job"]["stage"], "awaiting_script_confirmation")
+            self.assertTrue((jobs_dir / job["id"] / "desktop_review_plan.json").exists())
+            self.assertTrue((jobs_dir / job["id"] / "cover_frame.png").exists())
+
+    def test_prepare_from_plan_render_copies_plan_snapshot(self) -> None:
+        def fake_vertical_previews(_script, _shot_plan, _manifest, preview_dir: Path):
+            preview_dir.mkdir(parents=True, exist_ok=True)
+            preview = preview_dir / "shot-01.png"
+            preview.write_bytes(b"preview")
+            return [preview]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            jobs_dir = root / "jobs"
+            plan_dir = root / "source-plan"
+            plan_dir.mkdir()
+            write_json(plan_dir / "asset_manifest.json", {"assets": []})
+            write_json(plan_dir / "shot_plan.json", {
+                "title": "Plan",
+                "shots": [{"start": 0, "duration": 4, "visual_asset": "", "visual_treatment": "single_hook", "narration_intent": "hook", "subtitle": "Plan"}],
+            })
+            write_json(plan_dir / "script.json", {
+                "title": "Plan",
+                "total_duration": 4,
+                "segments": [{"timestamp": 0, "duration": 4, "narration": "Plan", "action": "show", "target": ""}],
+            })
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.render_vertical_previews", side_effect=fake_vertical_previews),
+            ):
+                job = console_jobs.create_from_plan_render_job({"plan_path": str(plan_dir)})
+                result = prepare_plan(job["id"])
+
+            job_dir = jobs_dir / job["id"]
+            self.assertEqual(result["job"]["status"], "awaiting_input")
+            self.assertEqual(result["job"]["stage"], "awaiting_script_confirmation")
+            self.assertTrue((job_dir / "shot_plan.json").exists())
+            self.assertTrue((job_dir / "script.json").exists())
+            self.assertTrue((job_dir / "cover_frame.png").exists())
+
+    def test_save_single_project_script_runs_quality_and_publish_pack_without_deleting_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.quality.store.JOBS_DIR", jobs_dir),
+            ):
+                job = console_jobs.create_single_project_vertical_job({
+                    "repo_url": "https://github.com/demo/alpha",
+                    "title": "Alpha Review",
+                })
+                job_dir = jobs_dir / job["id"]
+                write_json(job_dir / "asset_manifest.json", {"assets": []})
+                write_json(job_dir / "shot_plan.json", {"title": "Alpha", "shots": []})
+                write_json(job_dir / "script.json", {
+                    "title": "Alpha",
+                    "total_duration": 8,
+                    "segments": [
+                        {"timestamp": 0, "duration": 4, "narration": "旧开场", "action": "show", "target": ""},
+                        {"timestamp": 4, "duration": 4, "narration": "旧结尾", "action": "show", "target": ""},
+                    ],
+                })
+                write_json(job_dir / "info.json", {"name": "alpha", "owner": "demo", "repo_url": "https://github.com/demo/alpha", "description": "AI workflow"})
+                update_job(job["id"], status="awaiting_input", stage="awaiting_script_confirmation")
+
+                result = save_script(job["id"], {
+                    "segments": [
+                        {"id": "intro", "label": "开场", "text": "新开场"},
+                        {"id": "outro", "label": "结尾", "text": "新结尾"},
+                    ],
+                })
+
+            saved_script = read_json(jobs_dir / job["id"] / "script.json", {})
+            self.assertEqual(result["job"]["status"], "awaiting_validation")
+            self.assertTrue((jobs_dir / job["id"] / "shot_plan.json").exists())
+            self.assertTrue((jobs_dir / job["id"] / "quality_report.json").exists())
+            self.assertTrue((jobs_dir / job["id"] / "publish_pack.json").exists())
+            self.assertEqual(saved_script["segments"][0]["narration"], "新开场")
 
     def test_render_single_project_vertical_uses_from_plan_and_finalizes_output(self) -> None:
         async def fake_run_pipeline(**kwargs):

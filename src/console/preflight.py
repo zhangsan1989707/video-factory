@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from src.console.store import config_snapshot
+from src.console.store import CONFIG_DIR, config_snapshot, read_json, write_json
 from src.utils.config import ROOT_DIR
 
 
@@ -39,6 +41,107 @@ def preflight_snapshot() -> dict[str, Any]:
         "blocking_count": len(blocking),
         "warning_count": len(warnings),
         "checks": checks,
+        "latest_real_smoke": latest_real_smoke(),
+    }
+
+
+def latest_real_smoke() -> dict[str, Any]:
+    return read_json(CONFIG_DIR / "real-smoke.json", {})
+
+
+def run_real_smoke_check() -> dict[str, Any]:
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    result = {
+        "status": "running",
+        "started_at": started_at,
+        "completed_at": "",
+        "summary": "真实 smoke 运行中。",
+        "output": "",
+        "duration_seconds": None,
+        "size": 0,
+        "error": "",
+    }
+    write_json(CONFIG_DIR / "real-smoke.json", result)
+    try:
+        with tempfile.TemporaryDirectory(prefix="github-video-real-smoke-") as tmp:
+            output = Path(tmp) / "final.mp4"
+            _run_tiny_media_smoke(output)
+            probe = _probe_media(output)
+            result.update({
+                "status": "passed",
+                "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "summary": "低成本真实 smoke 通过：ffmpeg 生成短样例，ffprobe 可读取音视频流。",
+                "output": str(output),
+                "duration_seconds": probe["duration_seconds"],
+                "size": probe["size"],
+            })
+    except Exception as exc:
+        result.update({
+            "status": "failed",
+            "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "summary": "低成本真实 smoke 失败，请查看错误并运行完整 E2E 清单。",
+            "error": _short_error(exc),
+        })
+    write_json(CONFIG_DIR / "real-smoke.json", result)
+    return result
+
+
+def _run_tiny_media_smoke(output: Path) -> None:
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise RuntimeError("缺少 ffmpeg 或 ffprobe")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=64x64:d=0.5",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-shortest",
+            "-y",
+            str(output),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=8,
+    )
+
+
+def _probe_media(output: Path) -> dict[str, Any]:
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration,size",
+            "-show_streams",
+            "-of",
+            "json",
+            str(output),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    data = json.loads(probe.stdout or "{}")
+    streams = data.get("streams", [])
+    if not any(stream.get("codec_type") == "video" for stream in streams):
+        raise RuntimeError("smoke 输出缺少 video stream")
+    if not any(stream.get("codec_type") == "audio" for stream in streams):
+        raise RuntimeError("smoke 输出缺少 audio stream")
+    return {
+        "duration_seconds": round(float(data.get("format", {}).get("duration") or 0), 2),
+        "size": int(data.get("format", {}).get("size") or output.stat().st_size),
     }
 
 

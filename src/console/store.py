@@ -299,7 +299,7 @@ def provider_connection_matches_saved(provider_id: str, provider_config: dict[st
 
 def next_job_id(prefix: str = "GH-HOTLIST") -> str:
     ensure_storage()
-    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = datetime.now().strftime("%Y%m%d")
     existing = sorted(JOBS_DIR.glob(f"{prefix}-{today}-*"))
     numbers = []
     for path in existing:
@@ -315,7 +315,8 @@ def next_job_id(prefix: str = "GH-HOTLIST") -> str:
 def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     _validate_job_id(job_id)
     job_type = _normalize_job_type(payload.get("type"))
-    repo_url = _normalize_repo_url(payload.get("repo_url")) if job_type == "single_project_vertical" else ""
+    repo_url = _normalize_repo_url(payload.get("repo_url")) if job_type in {"single_project_vertical", "desktop_review"} else ""
+    plan_path = _normalize_plan_path(payload.get("plan_path")) if job_type == "from_plan_render" else ""
     job_dir = JOBS_DIR / job_id
     if job_dir.exists():
         raise ValueError(f"任务目录已存在: {job_id}")
@@ -344,10 +345,16 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             {"stage": "draft_pending", "status": "draft_pending", "at": now}
         ],
     }
-    if job_type == "single_project_vertical":
+    if job_type in {"single_project_vertical", "desktop_review", "from_plan_render"}:
+        title = {
+            "single_project_vertical": "单项目竖屏视频",
+            "desktop_review": "桌面审阅视频",
+            "from_plan_render": "计划文件继续渲染",
+        }[job_type]
         job.update({
-            "title": payload.get("title") or "单项目竖屏视频",
+            "title": payload.get("title") or title,
             "repo_url": repo_url,
+            "plan_path": plan_path,
             "status": "awaiting_render",
             "stage": "preparing_plan",
             "project_count": 1,
@@ -358,6 +365,10 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     write_json(job_dir / "task.json", job)
     if job_type == "single_project_vertical":
         append_log(job_id, f"单项目竖屏任务已创建: {job['repo_url']}。")
+    elif job_type == "desktop_review":
+        append_log(job_id, f"桌面审阅任务已创建: {job['repo_url']}。")
+    elif job_type == "from_plan_render":
+        append_log(job_id, f"计划文件继续渲染任务已创建: {job['plan_path']}。")
     else:
         append_log(job_id, "任务已创建，等待生成候选草稿。")
     return job
@@ -365,7 +376,7 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_job_type(value: Any) -> str:
     job_type = str(value or "github_hotlist").strip()
-    if job_type not in {"github_hotlist", "single_project_vertical"}:
+    if job_type not in {"github_hotlist", "single_project_vertical", "desktop_review", "from_plan_render"}:
         raise ValueError(f"未知任务类型: {job_type}")
     return job_type
 
@@ -377,6 +388,18 @@ def _normalize_repo_url(value: Any) -> str:
     if not re.match(r"^https://github\.com/[^/\s]+/[^/\s]+/?$", repo_url):
         raise ValueError("GitHub 仓库地址格式应为 https://github.com/owner/repo")
     return repo_url.rstrip("/")
+
+
+def _normalize_plan_path(value: Any) -> str:
+    plan_path = Path(str(value or "").strip()).expanduser()
+    if not str(plan_path):
+        raise ValueError("请输入计划文件目录")
+    if not plan_path.exists():
+        raise ValueError(f"计划文件目录不存在: {plan_path}")
+    plan_dir = plan_path if plan_path.is_dir() else plan_path.parent
+    if not (plan_dir / "shot_plan.json").exists() and not (plan_dir / "desktop_review_plan.json").exists():
+        raise ValueError("计划文件目录需要包含 shot_plan.json 或 desktop_review_plan.json")
+    return str(plan_dir.resolve())
 
 
 def _normalize_job_template(template_name: str, params: Any) -> dict[str, Any]:

@@ -33,6 +33,8 @@ def run_due_scheduled_draft(now: datetime | None = None) -> dict[str, Any]:
     try:
         payload = {
             "title": "GitHub 定时热榜草稿",
+            "scheduled": True,
+            "schedule_mode": schedule.get("mode") or "candidates_only",
             "time_window": schedule.get("time_window") or "daily",
             "project_count": normalize_project_count(schedule.get("project_count")),
             "template": _active_template_name(),
@@ -44,7 +46,10 @@ def run_due_scheduled_draft(now: datetime | None = None) -> dict[str, Any]:
             if schedule.get("mode") == "auto_script":
                 result = _generate_scheduled_script(job["id"], result, normalize_project_count(schedule.get("project_count")))
         _mark_schedule_run(run_key)
-        return {"started": True, "reason": "due", "job": {**job, **(result.get("job") or {})}}
+        merged_job = {**job, **(result.get("job") or {})}
+        merged_job["scheduled"] = True
+        merged_job["schedule_mode"] = schedule.get("mode") or "candidates_only"
+        return {"started": True, "reason": "due", "job": merged_job}
     finally:
         with _LOCK:
             _RUNNING_KEYS.discard(run_key)

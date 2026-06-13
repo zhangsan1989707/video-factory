@@ -17,6 +17,41 @@ from src.console.store import create_job, read_json, update_job, write_json
 
 
 class ConsoleServerSmokeTest(unittest.TestCase):
+    def test_health_response_matches_documented_shape(self) -> None:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        base_url = f"http://127.0.0.1:{server.server_port}"
+        try:
+            health = _get(base_url, "/api/health")
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=1)
+
+        self.assertEqual(health, {"ok": True, "service": "video-factory-console"})
+
+    def test_create_job_rejects_unknown_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+            ):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                try:
+                    status = _post_status(base_url, "/api/jobs", {"type": "desktop-but-typo"})
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+        self.assertEqual(status, 400)
+
     def test_static_endpoint_rejects_symlinked_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             static_dir = Path(tmp) / "static"

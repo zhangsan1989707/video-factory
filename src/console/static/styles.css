@@ -328,6 +328,16 @@ section + section {
   line-height: 1.45;
 }
 
+.job-recovery {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-strong);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .job-meta {
   overflow: hidden;
   color: var(--muted);

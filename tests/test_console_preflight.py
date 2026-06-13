@@ -9,7 +9,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from src.console.preflight import preflight_snapshot
+from src.console.preflight import preflight_snapshot, run_real_smoke_check
 from src.console.server import ConsoleHandler
 
 
@@ -19,6 +19,7 @@ class ConsolePreflightTest(unittest.TestCase):
 
         self.assertIn(report["status"], {"ready", "blocked"})
         self.assertIn("checks", report)
+        self.assertIn("latest_real_smoke", report)
         check_ids = {item["id"] for item in report["checks"]}
         self.assertIn("ffmpeg", check_ids)
         self.assertIn("ffprobe", check_ids)
@@ -152,6 +153,53 @@ class ConsolePreflightTest(unittest.TestCase):
 
         self.assertIn(report["status"], {"ready", "blocked"})
         self.assertTrue(report["checks"])
+
+    def test_run_real_smoke_check_persists_latest_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.preflight.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.preflight._run_tiny_media_smoke", return_value=None),
+                patch("src.console.preflight._probe_media", return_value={"duration_seconds": 0.5, "size": 1234}),
+            ):
+                result = run_real_smoke_check()
+                report = preflight_snapshot()
+
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(report["latest_real_smoke"]["status"], "passed")
+
+    def test_preflight_smoke_endpoint_runs_real_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.preflight.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+                patch("src.console.server.run_real_smoke_check", return_value={"status": "passed", "summary": "ok"}),
+            ):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    request = urllib.request.Request(
+                        f"http://127.0.0.1:{server.server_port}/api/preflight/smoke",
+                        data=b"{}",
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(request, timeout=10) as response:
+                        result = json.loads(response.read().decode("utf-8"))
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+        self.assertEqual(result["status"], "passed")
 
 
 if __name__ == "__main__":

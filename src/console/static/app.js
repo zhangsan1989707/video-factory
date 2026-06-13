@@ -72,6 +72,7 @@ function bindEvents() {
   $("saveSettingsBtn").addEventListener("click", saveSettings);
   $("providerEditor").addEventListener("click", testProviderFromButton);
   $("openJobFolderBtn").addEventListener("click", openJobFolder);
+  $("runRealSmokeBtn").addEventListener("click", runRealSmoke);
   $("jobType").addEventListener("change", syncJobTypeFields);
   $("visualStyle").addEventListener("change", syncRenderEngineForStyle);
   $("renderEngine").addEventListener("change", syncStyleForRenderEngine);
@@ -115,10 +116,47 @@ async function loadPreflight() {
       : `阻塞 ${report.blocking_count || 0} · 警告 ${warningCount}`;
     $("preflightStatus").textContent = label;
     $("preflightStatus").title = report.summary || "";
+    renderRealSmokeStatus(report.latest_real_smoke || {});
   } catch (error) {
     $("preflightStatus").textContent = "检测失败";
     $("preflightStatus").title = error.message;
+    renderRealSmokeStatus({});
   }
+}
+
+async function runRealSmoke() {
+  const button = $("runRealSmokeBtn");
+  button.disabled = true;
+  $("realSmokeStatus").textContent = "运行中";
+  try {
+    const result = await post("/api/preflight/smoke", {});
+    renderRealSmokeStatus(result);
+    await loadPreflight();
+  } catch (error) {
+    $("realSmokeStatus").textContent = "失败";
+    $("realSmokeStatus").title = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderRealSmokeStatus(result) {
+  const node = $("realSmokeStatus");
+  if (!node) return;
+  const status = result.status || "";
+  if (!status) {
+    node.textContent = "未运行";
+    node.title = "尚未手动运行低成本真实 smoke。";
+    return;
+  }
+  const time = formatStageTime(result.completed_at || result.started_at || "");
+  const labels = {
+    passed: "通过",
+    failed: "失败",
+    running: "运行中",
+  };
+  node.textContent = `${labels[status] || status}${time && time !== "-" ? ` · ${time}` : ""}`;
+  node.title = result.summary || result.error || "";
 }
 
 async function loadJobs() {
@@ -130,9 +168,43 @@ async function loadJobs() {
   if (!data.jobs.length) {
     list.className = "history-list empty";
     list.textContent = "暂无历史任务。";
+    renderScheduleQueue([]);
     return;
   }
+  renderScheduleQueue(data.jobs);
   renderHistoryJobs(data.jobs);
+}
+
+function renderScheduleQueue(jobs) {
+  const box = $("scheduleQueue");
+  if (!box) return;
+  const items = (jobs || []).filter((job) => job.scheduled && ["awaiting_input", "failed"].includes(job.status));
+  if (!items.length) {
+    box.className = "history-list empty";
+    box.textContent = "暂无定时待办。";
+    return;
+  }
+  box.className = "history-list";
+  box.innerHTML = items.slice(0, 5).map((job) => `
+    <div class="history-item scheduled">
+      <button class="history-open" data-schedule-job="${escapeAttr(job.id || "")}">
+        <code>${escapeHtml(job.id || "")}</code>
+        <span class="status ${escapeAttr(job.status || "")}">${escapeHtml(scheduleQueueLabel(job))}</span>
+      </button>
+    </div>
+  `).join("");
+  box.querySelectorAll("[data-schedule-job]").forEach((item) => {
+    item.addEventListener("click", () => loadJob(item.dataset.scheduleJob));
+  });
+}
+
+function scheduleQueueLabel(job) {
+  if (job.status === "failed") {
+    return `失败：${_shortUiText(job.error || job.failed_stage || "待查看", 36)}`;
+  }
+  if (job.stage === "awaiting_script_confirmation") return "待确认口播";
+  if (job.stage === "awaiting_project_confirmation") return "待确认项目";
+  return stageLabel(job.stage || "");
 }
 
 function renderHistoryJobs(jobs) {
@@ -176,13 +248,19 @@ async function createDraft() {
     const type = currentJobType();
     const repoNode = $("repoUrl");
     const repoUrl = repoNode ? repoNode.value.trim() : "";
-    if (type === "single_project_vertical" && !repoUrl) {
+    const planNode = $("planPath");
+    const planPath = planNode ? planNode.value.trim() : "";
+    if (jobTypeNeedsRepo(type) && !repoUrl) {
       throw new Error("请输入 GitHub 仓库 URL");
+    }
+    if (type === "from_plan_render" && !planPath) {
+      throw new Error("请输入计划文件目录");
     }
     const created = await post("/api/jobs", {
       type,
-      title: type === "single_project_vertical" ? "单项目竖屏视频" : "GitHub 热榜视频",
+      title: defaultJobTitle(type),
       repo_url: repoUrl,
+      plan_path: planPath,
       time_window: $("timeWindow").value,
       project_count: Number($("projectCount").value),
       template: "github_hotlist_vertical_v1",
@@ -196,9 +274,7 @@ async function createDraft() {
     renderCandidates();
     renderScript();
     renderQualityReport();
-    renderLogs(type === "single_project_vertical"
-      ? "单项目竖屏任务已创建。点击“生成计划文件”准备分镜和脚本。\n"
-      : "任务已按当前时间维度和项目数创建。点击“生成候选草稿”拉取候选项目。\n");
+    renderLogs(createdJobMessage(type));
     await loadJobs();
   } catch (error) {
     alert(error.message);
@@ -214,8 +290,12 @@ function startNewJob() {
   syncJobTypeFields();
   renderLogs(currentJobType() === "single_project_vertical"
     ? "已准备单项目任务。请输入仓库 URL，然后点击“创建任务”。\n"
+    : currentJobType() === "desktop_review"
+      ? "已准备桌面审阅任务。请输入仓库 URL，然后点击“创建任务”。\n"
+      : currentJobType() === "from_plan_render"
+        ? "已准备计划文件继续渲染任务。请输入计划目录，然后点击“创建任务”。\n"
     : "已准备新任务。请选择时间维度和项目数，然后点击“创建任务”。\n");
-  const focusTarget = currentJobType() === "single_project_vertical" ? $("repoUrl") : $("timeWindow");
+  const focusTarget = jobTypeNeedsRepo(currentJobType()) ? $("repoUrl") : currentJobType() === "from_plan_render" ? $("planPath") : $("timeWindow");
   if (focusTarget && typeof focusTarget.focus === "function") focusTarget.focus();
 }
 
@@ -611,6 +691,7 @@ function renderJob(job) {
   $("currentStage").textContent = job.stage || "未知阶段";
   if (job.type && $("jobType")) $("jobType").value = String(job.type);
   if (job.repo_url && $("repoUrl")) $("repoUrl").value = String(job.repo_url);
+  if (job.plan_path && $("planPath")) $("planPath").value = String(job.plan_path);
   if (job.time_window) $("timeWindow").value = String(job.time_window);
   if (job.project_count) $("projectCount").value = String(job.project_count);
   syncJobTypeFields();
@@ -619,6 +700,7 @@ function renderJob(job) {
   renderCandidateSourceSummary(job.candidate_source || {});
   renderNarrationSourceSummary(job.narration_source || {});
   renderJobError(job.error || "");
+  renderRecoveryHint(job);
   if (job.status !== "failed") renderDiagnostics({});
   if (Array.isArray(job.stage_history)) renderStageTimeline(job.stage_history);
   applyTemplateParams(job.template_params || {});
@@ -679,6 +761,34 @@ function renderJobError(message) {
   const text = String(message || "").trim();
   errorBox.hidden = !text;
   errorBox.textContent = text ? _shortUiText(text, 180) : "";
+}
+
+function renderRecoveryHint(job) {
+  const box = $("recoveryHint");
+  if (!box) return;
+  const hint = recoveryHintForJob(job || {});
+  box.hidden = !hint;
+  box.textContent = hint;
+}
+
+function recoveryHintForJob(job) {
+  if (!job || job.status !== "failed") return "";
+  const stage = job.failed_stage || job.stage || "";
+  const labels = {
+    collecting_candidates: "候选拉取失败。建议检查 GitHub Token/网络后点击“重试：拉取候选”。",
+    analyzing_candidates: "候选分析失败。可以直接重试候选生成；模型不可用时会回退到启发式结果。",
+    generating_script: "口播生成失败。建议回到候选项目，重新确认项目生成口播。",
+    awaiting_script_confirmation: "口播确认失败。请检查质检风险或缩短异常段落后再次确认。",
+    preparing_plan: "计划生成或校验失败。建议先重新生成计划文件；如果是计划目录任务，请确认目录含有效 JSON。",
+    capturing_assets: "素材采集失败。建议检查 Playwright/网络后点击“重试：采集素材”。",
+    generating_tts: "语音生成失败。建议检查 Edge TTS 网络后点击“重试：生成语音”。",
+    composing_video: "视频合成失败。建议检查 ffmpeg、BGM 路径和磁盘空间后重试渲染。",
+    composing_html: "HTML 画面生成失败。建议检查 Node/HyperFrames 后重试渲染。",
+    rendering_hyperframes: "HyperFrames 渲染失败。建议运行真实 smoke 或 npm install 后重试渲染。",
+    mixing_audio: "音频混合失败。建议检查 ffmpeg 和 BGM 设置后重试渲染。",
+    post_processing: "后处理失败。建议检查 ffmpeg、BGM 路径和输出目录权限后重试渲染。",
+  };
+  return labels[stage] || "任务失败。请查看 last_logs，并从当前主按钮或重生成按钮继续。";
 }
 
 function renderDiagnostics(detail) {
@@ -804,7 +914,7 @@ function updateRegenerateActions(job) {
   const type = job.type || "github_hotlist";
   const hasJob = Boolean(job.id);
   const isRunning = hasBackgroundWork(job);
-  if (type === "single_project_vertical") {
+  if (type !== "github_hotlist") {
     candidatesButton.disabled = true;
     scriptButton.disabled = true;
     videoButton.disabled = !hasJob || isRunning || !["ready_to_render", "completed", "failed"].includes(status);
@@ -951,8 +1061,15 @@ function _candidateRowKey(index) {
 }
 
 function candidateEmptyMessage() {
-  if (state.currentJob && state.currentJob.type === "single_project_vertical") {
-    return "单项目竖屏任务不需要候选列表。点击“生成计划文件”准备分镜和脚本。";
+  const type = state.currentJob && state.currentJob.type;
+  if (type === "single_project_vertical") {
+    return "单项目竖屏任务不需要候选列表。生成计划文件后会进入口播确认。";
+  }
+  if (type === "desktop_review") {
+    return "桌面审阅任务不需要候选列表。点击“生成计划文件”准备桌面分镜。";
+  }
+  if (type === "from_plan_render") {
+    return "计划文件继续渲染任务不需要候选列表。点击“生成计划文件”导入计划快照。";
   }
   return state.currentJobId
     ? "任务已创建。点击“生成候选草稿”拉取候选项目。"
@@ -964,14 +1081,37 @@ function currentJobType() {
   return node && node.value ? node.value : "github_hotlist";
 }
 
+function jobTypeNeedsRepo(type) {
+  return type === "single_project_vertical" || type === "desktop_review";
+}
+
+function defaultJobTitle(type) {
+  const titles = {
+    single_project_vertical: "单项目竖屏视频",
+    desktop_review: "桌面审阅视频",
+    from_plan_render: "计划文件继续渲染",
+  };
+  return titles[type] || "GitHub 热榜视频";
+}
+
+function createdJobMessage(type) {
+  if (type === "single_project_vertical") return "单项目竖屏任务已创建。点击“生成计划文件”准备分镜和脚本。\n";
+  if (type === "desktop_review") return "桌面审阅任务已创建。点击“生成计划文件”准备桌面分镜。\n";
+  if (type === "from_plan_render") return "计划文件继续渲染任务已创建。点击“生成计划文件”导入计划快照。\n";
+  return "任务已按当前时间维度和项目数创建。点击“生成候选草稿”拉取候选项目。\n";
+}
+
 function syncJobTypeFields() {
   const type = currentJobType();
   const repoField = $("repoUrlField");
+  const planField = $("planPathField");
   const timeField = $("timeWindow") && $("timeWindow").parentElement;
   const countField = $("projectCount") && $("projectCount").parentElement;
-  if (repoField) repoField.hidden = type !== "single_project_vertical";
-  if (timeField) timeField.hidden = type === "single_project_vertical";
-  if (countField) countField.hidden = type === "single_project_vertical";
+  const isDirectPlanTask = type !== "github_hotlist";
+  if (repoField) repoField.hidden = !jobTypeNeedsRepo(type);
+  if (planField) planField.hidden = type !== "from_plan_render";
+  if (timeField) timeField.hidden = isDirectPlanTask;
+  if (countField) countField.hidden = isDirectPlanTask;
 }
 
 function candidateAutoLimit() {
@@ -1628,5 +1768,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduler, renderStageTimeline, renderTemplateStyles, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, recoveryHintForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleQueueLabel, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }
