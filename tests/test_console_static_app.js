@@ -397,7 +397,7 @@ async function testCreateDraftDoesNotCollectCandidates() {
       return values[id];
     },
     querySelectorAll(selector) {
-      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleFromSettingsBtn)");
+      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleSideBtn):not(#openScheduleFromSettingsBtn)");
       return buttons;
     },
   };
@@ -516,7 +516,7 @@ async function testCreateSingleProjectDraftUsesRepoUrl() {
       return values[id];
     },
     querySelectorAll(selector) {
-      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleFromSettingsBtn)");
+      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleSideBtn):not(#openScheduleFromSettingsBtn)");
       return buttons;
     },
   };
@@ -948,7 +948,7 @@ function testBusyRestoreKeepsLatestJobActionState() {
       return values[id];
     },
     querySelectorAll(selector) {
-      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleFromSettingsBtn)");
+      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleSideBtn):not(#openScheduleFromSettingsBtn)");
       return buttons;
     },
   };

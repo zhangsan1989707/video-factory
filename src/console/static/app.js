@@ -69,6 +69,7 @@ function bindEvents() {
   $("regenerateVideoBtn").addEventListener("click", regenerateVideo);
   $("cancelJobBtn").addEventListener("click", cancelCurrentJob);
   $("openScheduleBtn").addEventListener("click", openScheduleView);
+  $("openScheduleSideBtn").addEventListener("click", openScheduleView);
   $("closeScheduleBtn").addEventListener("click", closeScheduleView);
   $("saveScheduleBtn").addEventListener("click", saveSchedule);
   $("runScheduleNowBtn").addEventListener("click", runScheduleNow);
@@ -1926,7 +1927,7 @@ function selectionButtonState(selectedCount, limit, canConfirm) {
 }
 
 function setBusy(isBusy) {
-  document.querySelectorAll("button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleFromSettingsBtn)").forEach((button) => {
+  document.querySelectorAll("button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleSideBtn):not(#openScheduleFromSettingsBtn)").forEach((button) => {
     if (isBusy) {
       button.dataset.wasDisabled = button.disabled ? "1" : "0";
       button.disabled = true;
