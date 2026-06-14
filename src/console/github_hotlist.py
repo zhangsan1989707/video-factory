@@ -397,9 +397,8 @@ def _candidate_status(item: dict[str, Any]) -> tuple[bool, str]:
 
 def _recommendation_reason(item: dict[str, Any]) -> str:
     language = item.get("language") or "其他"
-    tags = _topic_label(item)
     value = _localized_description(item)
-    return f"{language} 项目。{tags}，{value}"
+    return f"{language} 项目。{value}"
 
 
 def _risk_note(item: dict[str, Any]) -> str:
@@ -435,7 +434,7 @@ def _visual_potential(item: dict[str, Any]) -> str:
         return "高：有主页或演示页面可截图"
     topics = item.get("topics") or []
     if topics:
-        return "中：可用标签和仓库页做信息卡片"
+        return "中：可用仓库页做信息卡片"
     return "低：目前主要依赖仓库页信息"
 
 
@@ -514,12 +513,3 @@ def _readme_intro(readme: str) -> str:
 def _short_text(text: str, limit: int) -> str:
     text = " ".join(text.split()).strip()
     return text if len(text) <= limit else text[:limit].rstrip()
-
-
-def _topic_label(item: dict[str, Any]) -> str:
-    topics = item.get("topics") or []
-    if topics:
-        return "标签完善"
-    if item.get("homepage"):
-        return "有演示页面"
-    return "信息待补充"

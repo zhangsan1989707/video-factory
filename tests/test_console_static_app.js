@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -30,6 +30,7 @@ async function run() {
   testSyncDetailStateStripsSelectedField();
   testSelectionButtonStateShowsLimit();
   testCandidateDefaultsUseProjectCount();
+  testPublicCandidateTextHidesInternalTagQuality();
   testFormatHelpersForArtifactWorkbench();
   testCandidateSourceLabelShowsSummary();
   testNarrationSourceLabelShowsFallbackReason();
@@ -621,6 +622,7 @@ function testRegenerateButtonsFollowStage() {
 }
 
 function testUnverifiedQualityDoesNotHardBlockRender() {
+  assert.equal(qualityBlocksRender({}), false);
   assert.equal(qualityBlocksRender({ status: "unverified", passed: false }), false);
   assert.equal(qualityBlocksRender({ status: "invalid_json", passed: false }), true);
 }
@@ -1042,6 +1044,17 @@ function testCandidateDefaultsUseProjectCount() {
   assert.equal(candidateOrder({}, 0), 1);
   assert.equal(candidateOrder({}, 5), "");
   assert.equal(candidateChecked({ selected: false }, 0), false);
+}
+
+function testPublicCandidateTextHidesInternalTagQuality() {
+  assert.equal(
+    publicCandidateText("Python 项目。标签完善，将 AI 能力接入具体任务"),
+    "Python 项目。将 AI 能力接入具体任务",
+  );
+  assert.equal(
+    publicCandidateText("中：可用标签和仓库页做信息卡片"),
+    "中：可用仓库页做信息卡片",
+  );
 }
 
 function testFormatHelpersForArtifactWorkbench() {

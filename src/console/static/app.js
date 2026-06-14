@@ -1133,7 +1133,7 @@ function renderCandidates() {
       <td class="score">${item.score}</td>
       <td>${Number(item.stars || 0).toLocaleString()}<small class="source-desc">${escapeHtml(item.daily_growth || "估算日均 star 暂无")}</small></td>
       <td>${escapeHtml(item.language || "-")}</td>
-      <td>${escapeHtml(item.recommendation || "")}<small>${escapeHtml(item.ranking_reason || item.visual_potential || "")}</small></td>
+      <td>${escapeHtml(publicCandidateText(item.recommendation || ""))}<small>${escapeHtml(publicCandidateText(item.ranking_reason || item.visual_potential || ""))}</small></td>
       <td>${escapeHtml(item.risk || "")}</td>
     </tr>
   `).join("");
@@ -1144,6 +1144,14 @@ function renderCandidates() {
     input.addEventListener("change", updateSelectionState);
   });
   updateSelectionState();
+}
+
+function publicCandidateText(value) {
+  return String(value || "")
+    .replace(/标签完善[，,、。；;]?\s*/g, "")
+    .replace(/信息待补充[，,、。；;]?\s*/g, "")
+    .replace(/可用标签和/g, "可用")
+    .trim();
 }
 
 
@@ -1357,6 +1365,7 @@ function focusScriptSegment(segmentId) {
 
 function qualityBlocksRender(report) {
   if (!report) return false;
+  if (!report.status) return false;
   if (report.manual_override || report.passed === true) return false;
   return !["pass", "skipped", "unverified"].includes(report.status || "");
 }
@@ -1987,5 +1996,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

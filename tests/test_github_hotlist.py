@@ -121,6 +121,19 @@ class GithubHotlistTest(unittest.TestCase):
         self.assertNotIn("围绕 AI 工具或模型工作流", ppt)
         self.assertNotIn("围绕 AI 工具或模型工作流", design)
 
+    def test_recommendation_hides_internal_tag_quality_label(self) -> None:
+        recommendation = github_hotlist._recommendation_reason({
+            "full_name": "demo/alpha",
+            "name": "alpha",
+            "description": "AI agent workflow",
+            "language": "Python",
+            "topics": ["ai", "agent"],
+        })
+
+        self.assertIn("Python 项目", recommendation)
+        self.assertNotIn("标签完善", recommendation)
+        self.assertNotIn("信息待补充", recommendation)
+
     def test_missing_repo_description_uses_readme_context(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path.endswith("/repos/demo/alpha/readme"):
