@@ -1,0 +1,127 @@
+
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'SF Pro Display', var(--font-sans); }
+  .tag-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--color-background-secondary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: 20px; padding: 4px 12px;
+    font-size: 11px; font-weight: 500;
+    color: var(--color-text-secondary);
+    letter-spacing: 0.02em;
+  }
+  .tag-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #378ADD; }
+  .hero-num { font-size: 52px; font-weight: 700; color: #378ADD; line-height: 1; letter-spacing: -2px; }
+  .hero-title { font-size: 36px; font-weight: 700; color: var(--color-text-primary); letter-spacing: -1px; line-height: 1.1; }
+  .hero-sub { font-size: 13px; color: var(--color-text-secondary); line-height: 1.6; }
+  .stat-card {
+    background: var(--color-background-secondary);
+    border-radius: 14px;
+    padding: 14px 16px;
+    flex: 1;
+  }
+  .stat-num { font-size: 26px; font-weight: 700; color: #378ADD; letter-spacing: -0.5px; }
+  .stat-label { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
+  .lang-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .date-badge {
+    background: var(--color-background-secondary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: 20px; padding: 6px 16px;
+    font-size: 12px; color: var(--color-text-tertiary);
+    font-weight: 500;
+  }
+  .featured-card {
+    background: linear-gradient(135deg, #EEF4FF 0%, #F0EDFE 100%);
+    border: 0.5px solid #B5D4F4;
+    border-radius: 18px;
+    padding: 16px;
+    display: flex; align-items: flex-start; gap: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .featured-card {
+      background: linear-gradient(135deg, rgba(55,138,221,0.12) 0%, rgba(83,74,183,0.12) 100%);
+      border-color: rgba(55,138,221,0.3);
+    }
+  }
+  .featured-icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: linear-gradient(135deg, #378ADD, #534AB7);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    font-size: 22px;
+  }
+  .featured-title { font-size: 14px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 3px; }
+  .featured-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .ftag {
+    font-size: 11px; color: #185FA5;
+    background: rgba(55,138,221,0.1);
+    border-radius: 6px; padding: 2px 8px;
+  }
+  @media (prefers-color-scheme: dark) { .ftag { color: #85B7EB; background: rgba(55,138,221,0.18); } }
+  .divider { height: 0.5px; background: var(--color-border-tertiary); margin: 20px 0; }
+</style>
+
+<div style="padding: 28px 20px 24px; max-width: 420px; margin: 0 auto;">
+
+  <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+    <div class="tag-pill"><span class="dot"></span>GitHub 热榜速递</div>
+  </div>
+
+  <p style="text-align:center; font-size:12px; color:var(--color-text-tertiary); letter-spacing:0.05em; margin-bottom:10px;">每周精选 · 开源风向标</p>
+
+  <div style="text-align:center; margin-bottom: 8px;">
+    <div class="hero-num">TOP 5</div>
+    <div class="hero-title">热榜速报</div>
+  </div>
+
+  <p class="hero-sub" style="text-align:center; margin-bottom:22px;">
+    精选本周 GitHub 热度上升的开源项目<br>热度趋势基于估算日均 star，仅作选题参考
+  </p>
+
+  <div style="display:flex; gap:10px; margin-bottom:20px;">
+    <div class="stat-card" style="text-align:center;">
+      <div class="stat-num">5</div>
+      <div class="stat-label">精选项目</div>
+    </div>
+    <div class="stat-card" style="text-align:center;">
+      <div class="stat-num">5</div>
+      <div class="stat-label">编程语言</div>
+    </div>
+    <div class="stat-card" style="text-align:center;">
+      <div class="stat-num">1.7k</div>
+      <div class="stat-label">估算日均 star</div>
+    </div>
+  </div>
+
+  <div style="display:flex; justify-content:center; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:20px;">
+    <span style="font-size:12px; color:var(--color-text-secondary); display:flex; align-items:center; gap:5px;"><span class="lang-dot" style="background:#F7C73A;"></span>JavaScript</span>
+    <span style="font-size:12px; color:var(--color-text-secondary); display:flex; align-items:center; gap:5px;"><span class="lang-dot" style="background:#3776AB;"></span>Python</span>
+    <span style="font-size:12px; color:var(--color-text-secondary); display:flex; align-items:center; gap:5px;"><span class="lang-dot" style="background:#7F52FF;"></span>Kotlin</span>
+    <span style="font-size:12px; color:var(--color-text-secondary); display:flex; align-items:center; gap:5px;"><span class="lang-dot" style="background:#E44D26;"></span>HTML</span>
+    <span style="font-size:12px; color:var(--color-text-secondary); display:flex; align-items:center; gap:5px;"><span class="lang-dot" style="background:#512BD4;"></span>C#</span>
+  </div>
+
+  <div style="display:flex; justify-content:center; margin-bottom:24px;">
+    <div class="date-badge">2026 年 6 月 13 日 · 第 24 期</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <p style="font-size:10px; color:var(--color-text-tertiary); text-align:center; letter-spacing:0.06em; margin-bottom:12px;">本期重磅</p>
+
+  <div class="featured-card">
+    <div class="featured-icon">⚡</div>
+    <div style="flex:1; min-width:0;">
+      <div class="featured-title">AI 开源工具</div>
+      <div style="font-size:12px; color:var(--color-text-secondary);">本周最受关注项目</div>
+      <div class="featured-tags">
+        <span class="ftag">JavaScript</span>
+        <span class="ftag">agent-skills</span>
+        <span class="ftag">ai-agents</span>
+        <span class="ftag">claude</span>
+      </div>
+    </div>
+  </div>
+
+</div>

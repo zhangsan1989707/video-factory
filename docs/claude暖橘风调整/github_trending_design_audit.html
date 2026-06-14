@@ -1,0 +1,202 @@
+
+<h2 class="sr-only">GitHub 热榜速报设计审查与优化建议</h2>
+
+<style>
+  .section { margin-bottom: 2rem; }
+  .section-title { font-size: 14px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; }
+  .card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; }
+  .issue-list { display: flex; flex-direction: column; gap: 10px; }
+  .issue-item { display: grid; grid-template-columns: 28px 1fr auto; align-items: start; gap: 10px; padding: 12px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); }
+  .issue-num { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; flex-shrink: 0; }
+  .issue-num.high { background: #FCEBEB; color: #A32D2D; }
+  .issue-num.med { background: #FAEEDA; color: #854F0B; }
+  .issue-num.low { background: #EAF3DE; color: #3B6D11; }
+  .issue-title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); margin-bottom: 2px; }
+  .issue-desc { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; font-weight: 500; }
+  .badge.high { background: #FCEBEB; color: #A32D2D; }
+  .badge.med { background: #FAEEDA; color: #854F0B; }
+  .badge.low { background: #EAF3DE; color: #3B6D11; }
+
+  .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .compare-card { border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); overflow: hidden; }
+  .compare-header { padding: 8px 12px; font-size: 12px; font-weight: 500; }
+  .before-header { background: #FCEBEB; color: #A32D2D; border-bottom: 0.5px solid #F7C1C1; }
+  .after-header { background: #EAF3DE; color: #3B6D11; border-bottom: 0.5px solid #C0DD97; }
+  .compare-body { padding: 12px; background: var(--color-background-primary); }
+
+  .mock-cover-before { background: #f5f0e8; border-radius: 8px; padding: 20px; text-align: center; }
+  .mock-cover-after { background: #1a1208; border-radius: 8px; padding: 20px; text-align: center; }
+
+  .mock-title-before { font-size: 22px; font-weight: 700; color: #c8860a; letter-spacing: -0.5px; margin-bottom: 4px; }
+  .mock-title-after { font-size: 22px; font-weight: 700; color: #f0a830; letter-spacing: -0.5px; margin-bottom: 4px; }
+
+  .mock-sub-before { font-size: 11px; color: #888; margin-bottom: 12px; }
+  .mock-sub-after { font-size: 11px; color: #c0aa80; margin-bottom: 12px; letter-spacing: 0.08em; }
+
+  .mock-stats-before { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+  .mock-stats-after { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+
+  .stat-box-before { background: #fff; border-radius: 6px; padding: 8px; text-align: center; }
+  .stat-box-after { background: rgba(255,255,255,0.08); border-radius: 6px; padding: 8px; text-align: center; border: 0.5px solid rgba(255,255,255,0.15); }
+
+  .stat-num-before { font-size: 18px; font-weight: 700; color: #c8860a; }
+  .stat-num-after { font-size: 18px; font-weight: 700; color: #f0a830; }
+
+  .stat-label-before { font-size: 9px; color: #aaa; }
+  .stat-label-after { font-size: 9px; color: #a08060; }
+
+  .mock-lang-before { font-size: 9px; color: #888; }
+  .mock-lang-after { font-size: 9px; color: #c0a070; display: flex; justify-content: center; gap: 8px; }
+
+  .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; vertical-align: middle; margin-right: 2px; }
+
+  .mock-banner-before { margin-top: 10px; background: #ede8e0; border-radius: 6px; padding: 8px 10px; text-align: left; }
+  .mock-banner-after { margin-top: 10px; background: linear-gradient(135deg, rgba(200,134,10,0.15), rgba(150,100,200,0.15)); border-radius: 6px; padding: 8px 10px; text-align: left; border: 0.5px solid rgba(200,134,10,0.3); }
+
+  .banner-title-before { font-size: 11px; font-weight: 500; color: #555; }
+  .banner-title-after { font-size: 11px; font-weight: 500; color: #f0c060; }
+  .banner-sub { font-size: 9px; color: #888; margin-top: 2px; }
+  .banner-sub-after { font-size: 9px; color: #a08060; margin-top: 2px; }
+
+  .problem-note { font-size: 10px; color: #A32D2D; margin-top: 6px; padding: 4px 6px; background: #FCEBEB; border-radius: 4px; }
+  .fix-note { font-size: 10px; color: #3B6D11; margin-top: 6px; padding: 4px 6px; background: #EAF3DE; border-radius: 4px; }
+
+  .page-tag { font-size: 11px; color: var(--color-text-secondary); background: var(--color-background-secondary); padding: 2px 10px; border-radius: 20px; border: 0.5px solid var(--color-border-tertiary); display: inline-block; margin-bottom: 12px; }
+</style>
+
+<div class="section">
+  <div class="section-title">设计问题总览</div>
+  <div class="issue-list">
+
+    <div class="issue-item">
+      <div class="issue-num high">1</div>
+      <div>
+        <div class="issue-title">封面页对比度严重不足（图1）</div>
+        <div class="issue-desc">浅米色背景 + 浅灰色文字，正文和说明文字几乎不可读。底部"本期重磅"卡片的副标题标签颜色过淡，在米色背景上几乎消失。</div>
+      </div>
+      <div class="badge high">高优先</div>
+    </div>
+
+    <div class="issue-item">
+      <div class="issue-num high">2</div>
+      <div>
+        <div class="issue-title">封面页留白过多，信息密度失衡（图1）</div>
+        <div class="issue-desc">标题区之后有大量空白区域，像是内容未加载完成，视觉重心全部集中在上半部分，底部卡片孤立感强。</div>
+      </div>
+      <div class="badge high">高优先</div>
+    </div>
+
+    <div class="issue-item">
+      <div class="issue-num med">3</div>
+      <div>
+        <div class="issue-title">底部"本期重磅"卡片与背景融合（图1）</div>
+        <div class="issue-desc">卡片背景色与页面背景过于接近，边界感弱。标签文字（JavaScript · agent-skills…）颜色太淡，读不清楚。</div>
+      </div>
+      <div class="badge med">中优先</div>
+    </div>
+
+    <div class="issue-item">
+      <div class="issue-num med">4</div>
+      <div>
+        <div class="issue-title">列表页项目卡片层级不清晰（图2）</div>
+        <div class="issue-desc">第04、05条目缺乏火焰热度标识，视觉上比前三名"弱"，但缺乏设计意图说明。各卡片边框细节不一致（部分有彩色左边框，部分没有）。</div>
+      </div>
+      <div class="badge med">中优先</div>
+    </div>
+
+    <div class="issue-item">
+      <div class="issue-num low">5</div>
+      <div>
+        <div class="issue-title">详情页数据卡片排版可改善（图3）</div>
+        <div class="issue-desc">Star数和热度并排的两列卡片留白略显局促，Fork数和主语言的卡片对比价值不高。热度趋势色块大小不统一，视觉上不整齐。</div>
+      </div>
+      <div class="badge low">低优先</div>
+    </div>
+
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">封面页对比（图1 核心问题）</div>
+  <div class="compare-grid">
+    <div class="compare-card">
+      <div class="compare-header before-header">现状 · 对比度不足</div>
+      <div class="compare-body">
+        <div class="mock-cover-before">
+          <div style="font-size:9px; color:#bbb; margin-bottom:8px;">· GitHub 热榜速递 ·</div>
+          <div class="mock-title-before">TOP 5<br>热榜速报</div>
+          <div class="mock-sub-before" style="color:#ccc;">精选本周 GitHub 热度上升的开源项目</div>
+          <div class="mock-stats-before">
+            <div class="stat-box-before"><div class="stat-num-before">5</div><div class="stat-label-before">精选项目</div></div>
+            <div class="stat-box-before"><div class="stat-num-before">4</div><div class="stat-label-before">编程语言</div></div>
+            <div class="stat-box-before"><div class="stat-num-before">1.5k</div><div class="stat-label-before">估算日均star</div></div>
+          </div>
+          <div class="mock-lang-before" style="color:#ccc;">● JS &nbsp; ● HTML &nbsp; ● Python &nbsp; ● C#</div>
+          <div style="height:40px;"></div>
+          <div class="mock-banner-before">
+            <div class="banner-title-before" style="color:#aaa;">⚡ 本期重磅：AI 开源工具</div>
+            <div class="banner-sub" style="color:#ccc;">JavaScript · agent-skills · ai-agents · claude</div>
+          </div>
+          <div class="problem-note">⚠ 副标题、标签文字灰色在米色背景上几乎不可见</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="compare-card">
+      <div class="compare-header after-header">优化方案 · 深色背景提升对比</div>
+      <div class="compare-body">
+        <div class="mock-cover-after">
+          <div style="font-size:9px; color:#c0a070; margin-bottom:8px; letter-spacing:0.1em;">· GitHub 热榜速递 ·</div>
+          <div class="mock-title-after">TOP 5<br>热榜速报</div>
+          <div class="mock-sub-after">精选本周 GitHub 热度上升的开源项目</div>
+          <div class="mock-stats-after">
+            <div class="stat-box-after"><div class="stat-num-after">5</div><div class="stat-label-after">精选项目</div></div>
+            <div class="stat-box-after"><div class="stat-num-after">4</div><div class="stat-label-after">编程语言</div></div>
+            <div class="stat-box-after"><div class="stat-num-after">1.5k</div><div class="stat-label-after">估算日均star</div></div>
+          </div>
+          <div class="mock-lang-after">
+            <span><span class="dot" style="background:#f5c842;"></span>JS</span>
+            <span><span class="dot" style="background:#e34c26;"></span>HTML</span>
+            <span><span class="dot" style="background:#3572a5;"></span>Python</span>
+            <span><span class="dot" style="background:#178600;"></span>C#</span>
+          </div>
+          <div style="height: 16px;"></div>
+          <div class="mock-banner-after">
+            <div class="banner-title-after">⚡ 本期重磅：AI 开源工具</div>
+            <div class="banner-sub-after">JavaScript · agent-skills · ai-agents · claude</div>
+          </div>
+          <div class="fix-note">✓ 深色背景使金色文字、标签均清晰可读</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">优化方向汇总</div>
+  <div class="card">
+    <div style="display:flex; flex-direction:column; gap:10px; font-size:13px;">
+      <div style="display:flex; gap:10px; align-items:start;">
+        <span style="color:#3B6D11; font-size:16px; flex-shrink:0;">①</span>
+        <div><span style="font-weight:500;">封面改深色背景</span> — 用深棕/深灰替换米色，金色标题对比度从约2:1提升至7:1以上，副标题、标签全部可读</div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:start;">
+        <span style="color:#3B6D11; font-size:16px; flex-shrink:0;">②</span>
+        <div><span style="font-weight:500;">消除封面大面积空白</span> — 将底部"本期重磅"卡片上移，或增加一个"本期亮点"横向滑动预览区</div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:start;">
+        <span style="color:#3B6D11; font-size:16px; flex-shrink:0;">③</span>
+        <div><span style="font-weight:500;">重磅卡片加强边界</span> — 卡片背景加深，或加金色左边框，让它从背景中"浮"出来</div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:start;">
+        <span style="color:#3B6D11; font-size:16px; flex-shrink:0;">④</span>
+        <div><span style="font-weight:500;">列表页统一卡片规则</span> — 明确热度等级与左边框颜色的映射关系，04/05如果是"稳步上升"可用蓝色边框区别于"爆发"的橙色</div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:start;">
+        <span style="color:#3B6D11; font-size:16px; flex-shrink:0;">⑤</span>
+        <div><span style="font-weight:500;">详情页热度趋势规范化</span> — 色块统一高度，最近7天用深色、更早用浅色，形成时间轴感</div>
+      </div>
+    </div>
+  </div>
+</div>
