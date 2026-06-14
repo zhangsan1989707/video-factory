@@ -189,7 +189,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 self._json({"job": creator(payload)})
                 return
             if parsed.path == "/api/scheduler/run-due":
-                self._json(run_due_scheduled_draft())
+                self._json(run_due_scheduled_draft(force=bool(payload.get("force"))))
                 return
             if parsed.path.startswith("/api/providers/"):
                 parts = parsed.path.strip("/").split("/")

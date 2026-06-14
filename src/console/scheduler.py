@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from src.console.background import active_job
-from src.console.jobs import create_hotlist_job, generate_candidates, save_selection
+from src.console.jobs import create_hotlist_job, generate_candidates, prepare_plan, render_video, save_script, save_selection, validate_plan
 from src.console.store import CONFIG_DIR, DEFAULT_SCHEDULER, DEFAULT_TEMPLATES, bool_value, config_snapshot, normalize_project_count, normalize_time_window, read_json, update_scheduler_last_run
 from src.hotlist_v2.template import normalize_style
 
@@ -19,10 +19,10 @@ _LOCK = threading.Lock()
 _RUNNING_KEYS: set[str] = set()
 
 
-def run_due_scheduled_draft(now: datetime | None = None) -> dict[str, Any]:
+def run_due_scheduled_draft(now: datetime | None = None, force: bool = False) -> dict[str, Any]:
     now = now or datetime.now()
     schedule = _normalized_schedule(read_json(CONFIG_DIR / "scheduler.json", DEFAULT_SCHEDULER))
-    if not _is_due(schedule, now):
+    if not force and not _is_due(schedule, now):
         return {"started": False, "reason": "not_due", "job": None}
     run_key = _run_key(schedule, now)
     with _LOCK:
@@ -32,7 +32,7 @@ def run_due_scheduled_draft(now: datetime | None = None) -> dict[str, Any]:
 
     try:
         payload = {
-            "title": "GitHub 定时热榜草稿",
+            "title": "GitHub 定时热榜视频" if schedule.get("mode") == "auto_video" else "GitHub 定时热榜草稿",
             "scheduled": True,
             "schedule_mode": schedule.get("mode") or "candidates_only",
             "time_window": schedule.get("time_window") or "daily",
@@ -43,8 +43,10 @@ def run_due_scheduled_draft(now: datetime | None = None) -> dict[str, Any]:
         job = create_hotlist_job(payload)
         with active_job(job["id"]):
             result = asyncio.run(generate_candidates(job["id"]))
-            if schedule.get("mode") == "auto_script":
+            if schedule.get("mode") in {"auto_script", "auto_video"}:
                 result = _generate_scheduled_script(job["id"], result, normalize_project_count(schedule.get("project_count")))
+            if schedule.get("mode") == "auto_video":
+                result = _generate_scheduled_video(job["id"], result)
         _mark_schedule_run(run_key)
         merged_job = {**job, **(result.get("job") or {})}
         merged_job["scheduled"] = True
@@ -101,7 +103,7 @@ def _run_key(schedule: dict[str, Any], now: datetime) -> str:
 def _normalized_schedule(schedule: dict[str, Any]) -> dict[str, Any]:
     data = dict(schedule)
     data["enabled"] = bool_value(data.get("enabled"))
-    if data.get("mode") not in {"candidates_only", "auto_script"}:
+    if data.get("mode") not in {"candidates_only", "auto_script", "auto_video"}:
         data["mode"] = DEFAULT_SCHEDULER["mode"]
     if data.get("frequency") not in {"daily", "weekly"}:
         data["frequency"] = DEFAULT_SCHEDULER["frequency"]
@@ -125,6 +127,18 @@ def _generate_scheduled_script(job_id: str, result: dict[str, Any], project_coun
     if not selected:
         raise RuntimeError("定时脚本模式没有可用候选项目")
     return save_selection(job_id, {"items": selected})
+
+
+def _generate_scheduled_video(job_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    segments = result.get("segments") or []
+    if not segments:
+        raise RuntimeError("定时出片模式没有可用口播脚本")
+    scripted = save_script(job_id, {"segments": segments})
+    if (scripted.get("job") or {}).get("stage") == "awaiting_script_confirmation":
+        raise RuntimeError((scripted.get("job") or {}).get("error") or "定时出片模式被脚本质检阻断")
+    prepare_plan(job_id)
+    asyncio.run(validate_plan(job_id))
+    return asyncio.run(render_video(job_id))
 
 
 def _mark_schedule_run(run_key: str) -> None:

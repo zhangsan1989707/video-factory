@@ -61,6 +61,7 @@
           </label>
           <button id="nextActionBtn" class="primary" data-action="create">创建任务</button>
           <button id="newJobBtn" class="ghost">新建任务</button>
+          <button id="openScheduleBtn" class="ghost">定时生产</button>
           <button id="openSettingsBtn" class="ghost">配置</button>
         </div>
       </header>
@@ -258,6 +259,149 @@
           <div id="historyList" class="history-list empty">暂无历史任务。</div>
         </section>
       </aside>
+
+      <section id="scheduleView" class="schedule-view" hidden>
+        <div class="schedule-shell">
+          <div class="schedule-head">
+            <div>
+              <div class="subtle-title">scheduled.production</div>
+              <h2>定时生产</h2>
+              <p>配置无人值守的 GitHub 热榜生产计划，到点后按当前参数自动产出正式 mp4。</p>
+            </div>
+            <button id="closeScheduleBtn" class="ghost">返回工作台</button>
+          </div>
+
+          <div class="schedule-grid">
+            <section class="schedule-panel">
+              <div class="section-title">计划状态</div>
+              <label class="check-row">
+                <input id="scheduleEnabled" type="checkbox">
+                <span>启用定时生产</span>
+              </label>
+              <div class="schedule-status-box">
+                <div class="kv">
+                  <span>当前模式</span>
+                  <strong id="scheduleModeLabel">读取中</strong>
+                </div>
+                <div class="kv">
+                  <span>上次运行</span>
+                  <strong id="scheduleLastRun">尚未运行</strong>
+                </div>
+                <div class="kv">
+                  <span>下一次</span>
+                  <strong id="scheduleNextRun">未启用</strong>
+                </div>
+              </div>
+              <p id="scheduleStatus" class="hint">定时任务只生成候选草稿，不会自动确认或渲染。</p>
+            </section>
+
+            <section class="schedule-panel">
+              <div class="section-title">自动化级别</div>
+              <label>
+                <span>模式</span>
+                <select id="scheduleMode">
+                  <option value="candidates_only">只生成候选草稿</option>
+                  <option value="auto_script">自动生成口播草稿</option>
+                  <option value="auto_video">自动生成正式视频</option>
+                </select>
+              </label>
+              <label>
+                <span>频率</span>
+                <select id="scheduleFrequency">
+                  <option value="daily">每日</option>
+                  <option value="weekly">每周一</option>
+                </select>
+              </label>
+              <label>
+                <span>时间</span>
+                <input id="scheduleTime" type="time" value="09:00">
+              </label>
+            </section>
+
+            <section class="schedule-panel">
+              <div class="section-title">内容参数</div>
+              <label>
+                <span>榜单窗口</span>
+                <select id="scheduleWindow">
+                  <option value="daily">日榜</option>
+                  <option value="weekly">周榜</option>
+                  <option value="monthly">月榜</option>
+                </select>
+              </label>
+              <label>
+                <span>项目数</span>
+                <select id="scheduleProjectCount">
+                  <option value="5" selected>5</option>
+                  <option value="6">6</option>
+                  <option value="7">7</option>
+                  <option value="8">8</option>
+                  <option value="9">9</option>
+                  <option value="10">10</option>
+                </select>
+              </label>
+            </section>
+
+            <section class="schedule-panel schedule-panel-wide">
+              <div class="section-title">视频参数</div>
+              <div class="provider-grid">
+                <label>
+                  <span>视觉风格</span>
+                  <select id="scheduleVisualStyle"></select>
+                </label>
+                <label>
+                  <span>渲染引擎</span>
+                  <select id="scheduleRenderEngine">
+                    <option value="hyperframes">HyperFrames</option>
+                    <option value="pil">PIL</option>
+                  </select>
+                </label>
+                <label>
+                  <span>字幕模式</span>
+                  <select id="scheduleSubtitleMode">
+                    <option value="large_hook">大字强钩子</option>
+                    <option value="standard">标准解释型</option>
+                  </select>
+                </label>
+                <label>
+                  <span>口播语气</span>
+                  <select id="scheduleTone">
+                    <option value="professional_review">专业测评</option>
+                    <option value="short_video_hook">爆款短视频</option>
+                    <option value="calm_analysis">冷静解读</option>
+                  </select>
+                </label>
+                <label>
+                  <span>BGM</span>
+                  <select id="scheduleBgmMode">
+                    <option value="default">默认</option>
+                    <option value="none">无</option>
+                    <option value="custom">自定义本地文件</option>
+                  </select>
+                </label>
+                <label>
+                  <span>BGM 音量</span>
+                  <input id="scheduleBgmVolume" type="number" min="0" max="1" step="0.01" value="0.065">
+                </label>
+                <label class="wide">
+                  <span>BGM 路径</span>
+                  <input id="scheduleBgmPath" placeholder="/Users/me/Music/bgm.mp3">
+                </label>
+              </div>
+            </section>
+
+            <section class="schedule-panel schedule-panel-wide">
+              <div class="section-title">最近定时任务</div>
+              <div id="scheduleRecentJobs" class="history-list empty">暂无定时任务。</div>
+            </section>
+          </div>
+
+          <div class="schedule-actions">
+            <button id="saveScheduleBtn" class="primary">保存定时计划</button>
+            <button id="runScheduleNowBtn" class="ghost">立即试跑</button>
+            <span id="scheduleMessage" class="hint"></span>
+          </div>
+        </div>
+      </section>
     </div>
 
     <div id="settingsOverlay" class="settings-overlay" hidden></div>
@@ -290,51 +434,9 @@
       </section>
 
       <section class="settings-section">
-        <div class="section-title">定时草稿</div>
-        <label class="check-row">
-          <input id="scheduleEnabled" type="checkbox">
-          <span>启用定时生成候选草稿</span>
-        </label>
-        <div class="provider-grid">
-          <label>
-            <span>模式</span>
-            <select id="scheduleMode">
-              <option value="candidates_only">只生成候选草稿</option>
-              <option value="auto_script">自动生成口播草稿</option>
-            </select>
-          </label>
-          <label>
-            <span>频率</span>
-            <select id="scheduleFrequency">
-              <option value="daily">每日</option>
-              <option value="weekly">每周一</option>
-            </select>
-          </label>
-          <label>
-            <span>时间</span>
-            <input id="scheduleTime" type="time" value="09:00">
-          </label>
-          <label>
-            <span>榜单窗口</span>
-            <select id="scheduleWindow">
-              <option value="daily">日榜</option>
-              <option value="weekly">周榜</option>
-              <option value="monthly">月榜</option>
-            </select>
-          </label>
-          <label>
-            <span>项目数</span>
-            <select id="scheduleProjectCount">
-              <option value="5" selected>5</option>
-              <option value="6">6</option>
-              <option value="7">7</option>
-              <option value="8">8</option>
-              <option value="9">9</option>
-              <option value="10">10</option>
-            </select>
-          </label>
-        </div>
-        <p id="scheduleStatus" class="hint">定时任务只生成候选草稿，不会自动确认或渲染。</p>
+        <div class="section-title">定时生产</div>
+        <p class="hint">定时参数已移到独立页面，包含自动出正式 mp4、视频模板和最近运行状态。</p>
+        <button id="openScheduleFromSettingsBtn" class="ghost" type="button">打开定时生产</button>
       </section>
 
       <div class="drawer-actions">

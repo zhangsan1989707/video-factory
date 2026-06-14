@@ -110,6 +110,85 @@ class ConsoleSchedulerTest(unittest.TestCase):
             saved = read_json(config_dir / "scheduler.json", {})
             self.assertEqual(saved["last_run_date"], "2099-01-02")
 
+    def test_auto_video_schedule_completes_formal_video(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "mode": "auto_video",
+                "frequency": "daily",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 5,
+                "template_params": {},
+                "last_run_date": "",
+            })
+            calls = []
+
+            async def fake_generate(job_id: str) -> dict:
+                calls.append("generate")
+                return {
+                    "job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_project_confirmation"},
+                    "candidates": [
+                        {"full_name": "demo/one"},
+                        {"full_name": "demo/two"},
+                        {"full_name": "demo/three"},
+                    ],
+                }
+
+            def fake_save_selection(job_id: str, payload: dict) -> dict:
+                calls.append(("selection", [item["full_name"] for item in payload["items"]]))
+                return {
+                    "job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_script_confirmation"},
+                    "segments": [{"id": "intro", "label": "开场", "text": "hello"}],
+                }
+
+            def fake_save_script(job_id: str, payload: dict) -> dict:
+                calls.append(("script", payload["segments"]))
+                return {"job": {"id": job_id, "status": "awaiting_render", "stage": "preparing_plan"}}
+
+            def fake_prepare_plan(job_id: str) -> dict:
+                calls.append("prepare")
+                return {"job": {"id": job_id, "status": "awaiting_validation", "stage": "preparing_plan"}}
+
+            async def fake_validate_plan(job_id: str) -> dict:
+                calls.append("validate")
+                return {"job": {"id": job_id, "status": "ready_to_render", "stage": "preparing_plan"}}
+
+            async def fake_render_video(job_id: str) -> dict:
+                calls.append("render")
+                return {"job": {"id": job_id, "status": "completed", "stage": "completed", "official_video": str(jobs_dir / job_id / "formal.mp4")}}
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+                patch("src.console.scheduler.save_selection", side_effect=fake_save_selection),
+                patch("src.console.scheduler.save_script", side_effect=fake_save_script),
+                patch("src.console.scheduler.prepare_plan", side_effect=fake_prepare_plan),
+                patch("src.console.scheduler.validate_plan", side_effect=fake_validate_plan),
+                patch("src.console.scheduler.render_video", side_effect=fake_render_video),
+            ):
+                result = run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+
+            self.assertTrue(result["started"])
+            self.assertEqual(result["job"]["stage"], "completed")
+            self.assertEqual(result["job"]["status"], "completed")
+            self.assertEqual(result["job"]["schedule_mode"], "auto_video")
+            self.assertEqual(calls, [
+                "generate",
+                ("selection", ["demo/one", "demo/two", "demo/three"]),
+                ("script", [{"id": "intro", "label": "开场", "text": "hello"}]),
+                "prepare",
+                "validate",
+                "render",
+            ])
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "2099-01-02")
+
     def test_due_schedule_does_not_start_duplicate_job_while_running(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp) / "config"
@@ -223,6 +302,36 @@ class ConsoleSchedulerTest(unittest.TestCase):
             self.assertFalse(result["started"])
             self.assertEqual(result["reason"], "not_due")
 
+    def test_force_schedule_runs_before_time(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "frequency": "daily",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 5,
+                "template_params": {},
+                "last_run_date": "",
+            })
+
+            async def fake_generate(job_id: str) -> dict:
+                return {"job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_project_confirmation"}, "candidates": []}
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+            ):
+                result = run_due_scheduled_draft(datetime(2099, 1, 2, 8, 59), force=True)
+
+            self.assertTrue(result["started"])
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "2099-01-02")
+
     def test_legacy_string_false_schedule_is_not_due(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)
@@ -302,6 +411,58 @@ class ConsoleSchedulerTest(unittest.TestCase):
                 patch("src.console.scheduler.save_selection", side_effect=fail_save_selection),
             ):
                 with self.assertRaisesRegex(RuntimeError, "script generation failed"):
+                    run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "")
+
+    def test_failed_auto_video_quality_gate_does_not_mark_day_as_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "mode": "auto_video",
+                "frequency": "daily",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 1,
+                "template_params": {},
+                "last_run_date": "",
+            })
+
+            async def fake_generate(job_id: str) -> dict:
+                return {
+                    "job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_project_confirmation"},
+                    "candidates": [{"full_name": "demo/one"}],
+                }
+
+            def fake_save_selection(job_id: str, payload: dict) -> dict:
+                return {
+                    "job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_script_confirmation"},
+                    "segments": [{"id": "intro", "label": "开场", "text": "hello"}],
+                }
+
+            def fake_save_script(job_id: str, payload: dict) -> dict:
+                return {
+                    "job": {
+                        "id": job_id,
+                        "status": "awaiting_input",
+                        "stage": "awaiting_script_confirmation",
+                        "error": "脚本质检未通过，请复核风险项或手动忽略后继续。",
+                    }
+                }
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+                patch("src.console.scheduler.save_selection", side_effect=fake_save_selection),
+                patch("src.console.scheduler.save_script", side_effect=fake_save_script),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "脚本质检未通过"):
                     run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
 
             saved = read_json(config_dir / "scheduler.json", {})

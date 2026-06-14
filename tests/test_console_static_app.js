@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleQueueLabel, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -36,6 +36,9 @@ async function run() {
   testModelSummaryLabelCombinesLatestCallAndNarrationSource();
   testRenderPublishActionsShowsCopyButtons();
   testRenderSchedulerShowsAutoScriptMode();
+  testRenderSchedulerShowsAutoVideoMode();
+  testSchedulerPayloadUsesScheduleVideoParams();
+  testRenderScheduleRecentJobsIncludesCompletedScheduledJobs();
   testQualityNotesPreferStructuredIssues();
   testFocusScriptSegmentHighlightsTarget();
   testRenderQualityReportShowsLocateAction();
@@ -394,7 +397,7 @@ async function testCreateDraftDoesNotCollectCandidates() {
       return values[id];
     },
     querySelectorAll(selector) {
-      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn)");
+      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleFromSettingsBtn)");
       return buttons;
     },
   };
@@ -513,7 +516,7 @@ async function testCreateSingleProjectDraftUsesRepoUrl() {
       return values[id];
     },
     querySelectorAll(selector) {
-      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn)");
+      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleFromSettingsBtn)");
       return buttons;
     },
   };
@@ -945,7 +948,7 @@ function testBusyRestoreKeepsLatestJobActionState() {
       return values[id];
     },
     querySelectorAll(selector) {
-      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn)");
+      assert.equal(selector, "button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleFromSettingsBtn)");
       return buttons;
     },
   };
@@ -1110,15 +1113,7 @@ function testRenderPublishActionsShowsCopyButtons() {
 }
 
 function testRenderSchedulerShowsAutoScriptMode() {
-  const nodes = {
-    scheduleEnabled: { checked: false },
-    scheduleMode: { value: "" },
-    scheduleFrequency: { value: "" },
-    scheduleTime: { value: "" },
-    scheduleWindow: { value: "" },
-    scheduleProjectCount: { value: "" },
-    scheduleStatus: { textContent: "" },
-  };
+  const nodes = scheduleNodes();
   global.document = {
     getElementById(id) {
       return nodes[id];
@@ -1139,6 +1134,124 @@ function testRenderSchedulerShowsAutoScriptMode() {
   assert.equal(nodes.scheduleMode.value, "auto_script");
   assert.equal(nodes.scheduleStatus.textContent.includes("自动确认前 N 个候选并生成口播草稿"), true);
   assert.equal(nodes.scheduleStatus.textContent.includes("不会自动渲染"), true);
+}
+
+function testRenderSchedulerShowsAutoVideoMode() {
+  const nodes = scheduleNodes();
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+  state.config = { templates: { active_template: "github_hotlist_vertical_v1", github_hotlist_vertical_v1: { style: "tech_hotspot" } } };
+
+  renderScheduler({
+    enabled: true,
+    mode: "auto_video",
+    frequency: "daily",
+    time: "08:15",
+    time_window: "daily",
+    project_count: 5,
+    template_params: { style: "sspai_editorial", render_engine: "hyperframes", bgm: "none" },
+    last_run_date: "2099-01-02",
+  });
+
+  assert.equal(nodes.scheduleModeLabel.textContent, "自动生成正式视频");
+  assert.equal(nodes.scheduleNextRun.textContent, "每天 08:15");
+  assert.equal(nodes.scheduleStatus.textContent.includes("生成正式 mp4"), true);
+  assert.equal(nodes.scheduleStatus.textContent.includes("质检阻断时不会自动忽略"), true);
+  assert.equal(nodes.scheduleVisualStyle.value, "sspai_editorial");
+  assert.equal(nodes.scheduleBgmMode.value, "none");
+}
+
+function testSchedulerPayloadUsesScheduleVideoParams() {
+  const nodes = scheduleNodes();
+  nodes.scheduleEnabled.checked = true;
+  nodes.scheduleMode.value = "auto_video";
+  nodes.scheduleFrequency.value = "daily";
+  nodes.scheduleTime.value = "08:15";
+  nodes.scheduleWindow.value = "weekly";
+  nodes.scheduleProjectCount.value = "6";
+  nodes.scheduleVisualStyle.value = "bytedance_product";
+  nodes.scheduleRenderEngine.value = "hyperframes";
+  nodes.scheduleSubtitleMode.value = "standard";
+  nodes.scheduleTone.value = "calm_analysis";
+  nodes.scheduleBgmMode.value = "custom";
+  nodes.scheduleBgmVolume.value = "0.12";
+  nodes.scheduleBgmPath.value = "/tmp/bgm.mp3";
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  const payload = schedulerPayloadFromForm({ scheduler: { last_run_date: "2099-01-02" } });
+
+  assert.equal(payload.mode, "auto_video");
+  assert.equal(payload.project_count, 6);
+  assert.equal(payload.template_params.style, "bytedance_product");
+  assert.equal(payload.template_params.bgm_volume, 0.12);
+  assert.equal(payload.template_params.bgm_path, "/tmp/bgm.mp3");
+  assert.equal(payload.last_run_date, "2099-01-02");
+}
+
+function testRenderScheduleRecentJobsIncludesCompletedScheduledJobs() {
+  const handlers = [];
+  const box = {
+    className: "",
+    innerHTML: "",
+    textContent: "",
+    querySelectorAll(selector) {
+      assert.equal(selector, "[data-schedule-recent-job]");
+      return [{
+        dataset: { scheduleRecentJob: "GH-HOTLIST-20990101-001" },
+        addEventListener(event, handler) {
+          assert.equal(event, "click");
+          handlers.push(handler);
+        },
+      }];
+    },
+  };
+  global.document = {
+    getElementById(id) {
+      if (id === "scheduleRecentJobs") return box;
+      if (id === "scheduleView") return { hidden: false };
+      if (id === "scheduleMessage") return { textContent: "" };
+      return null;
+    },
+  };
+
+  renderScheduleRecentJobs([
+    { id: "GH-HOTLIST-20990101-001", scheduled: true, status: "completed", stage: "completed" },
+    { id: "GH-HOTLIST-20990101-002", scheduled: false, status: "completed", stage: "completed" },
+  ]);
+
+  assert.equal(box.className, "history-list");
+  assert.match(box.innerHTML, /GH-HOTLIST-20990101-001/);
+  assert.doesNotMatch(box.innerHTML, /GH-HOTLIST-20990101-002/);
+  assert.equal(handlers.length, 1);
+}
+
+function scheduleNodes() {
+  return {
+    scheduleEnabled: { checked: false },
+    scheduleMode: { value: "" },
+    scheduleFrequency: { value: "" },
+    scheduleTime: { value: "" },
+    scheduleWindow: { value: "" },
+    scheduleProjectCount: { value: "" },
+    scheduleStatus: { textContent: "" },
+    scheduleModeLabel: { textContent: "" },
+    scheduleLastRun: { textContent: "" },
+    scheduleNextRun: { textContent: "" },
+    scheduleVisualStyle: { value: "tech_hotspot" },
+    scheduleRenderEngine: { value: "hyperframes" },
+    scheduleSubtitleMode: { value: "large_hook" },
+    scheduleTone: { value: "professional_review" },
+    scheduleBgmMode: { value: "default" },
+    scheduleBgmVolume: { value: "0.065" },
+    scheduleBgmPath: { value: "" },
+  };
 }
 
 async function testCopyTextUsesClipboardWhenAvailable() {

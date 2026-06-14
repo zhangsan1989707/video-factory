@@ -693,7 +693,7 @@ def _normalize_scheduler(data: dict[str, Any], preserve_last_run: bool = True) -
     current = read_json(CONFIG_DIR / "scheduler.json", DEFAULT_SCHEDULER) if preserve_last_run else {}
     item = dict(data)
     item["enabled"] = bool_value(item.get("enabled"))
-    if item.get("mode") not in {"candidates_only", "auto_script"}:
+    if item.get("mode") not in {"candidates_only", "auto_script", "auto_video"}:
         item["mode"] = DEFAULT_SCHEDULER["mode"]
     if item.get("frequency") not in {"daily", "weekly"}:
         item["frequency"] = DEFAULT_SCHEDULER["frequency"]

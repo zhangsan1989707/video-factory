@@ -68,16 +68,26 @@ function bindEvents() {
   $("regenerateScriptBtn").addEventListener("click", regenerateScript);
   $("regenerateVideoBtn").addEventListener("click", regenerateVideo);
   $("cancelJobBtn").addEventListener("click", cancelCurrentJob);
+  $("openScheduleBtn").addEventListener("click", openScheduleView);
+  $("closeScheduleBtn").addEventListener("click", closeScheduleView);
+  $("saveScheduleBtn").addEventListener("click", saveSchedule);
+  $("runScheduleNowBtn").addEventListener("click", runScheduleNow);
   $("openSettingsBtn").addEventListener("click", openSettings);
   $("closeSettingsBtn").addEventListener("click", closeSettings);
   $("settingsOverlay").addEventListener("click", closeSettings);
   $("saveSettingsBtn").addEventListener("click", saveSettings);
+  $("openScheduleFromSettingsBtn").addEventListener("click", () => {
+    closeSettings();
+    openScheduleView();
+  });
   $("providerEditor").addEventListener("click", testProviderFromButton);
   $("openJobFolderBtn").addEventListener("click", openJobFolder);
   $("runRealSmokeBtn").addEventListener("click", runRealSmoke);
   $("jobType").addEventListener("change", syncJobTypeFields);
   $("visualStyle").addEventListener("change", syncRenderEngineForStyle);
   $("renderEngine").addEventListener("change", syncStyleForRenderEngine);
+  $("scheduleVisualStyle").addEventListener("change", syncScheduleRenderEngineForStyle);
+  $("scheduleRenderEngine").addEventListener("change", syncScheduleStyleForRenderEngine);
   $("projectCount").addEventListener("change", () => { if (state.candidates.length) renderCandidates(); });
   syncJobTypeFields();
 }
@@ -171,9 +181,11 @@ async function loadJobs() {
     list.className = "history-list empty";
     list.textContent = "暂无历史任务。";
     renderScheduleQueue([]);
+    renderScheduleRecentJobs([]);
     return;
   }
   renderScheduleQueue(data.jobs);
+  renderScheduleRecentJobs(data.jobs);
   renderHistoryJobs(data.jobs);
 }
 
@@ -207,6 +219,32 @@ function scheduleQueueLabel(job) {
   if (job.stage === "awaiting_script_confirmation") return "待确认口播";
   if (job.stage === "awaiting_project_confirmation") return "待确认项目";
   return stageLabel(job.stage || "");
+}
+
+function renderScheduleRecentJobs(jobs) {
+  const box = $("scheduleRecentJobs");
+  if (!box) return;
+  const items = (jobs || []).filter((job) => job.scheduled);
+  if (!items.length) {
+    box.className = "history-list empty";
+    box.textContent = "暂无定时任务。";
+    return;
+  }
+  box.className = "history-list";
+  box.innerHTML = items.slice(0, 8).map((job) => `
+    <div class="history-item scheduled">
+      <button class="history-open" data-schedule-recent-job="${escapeAttr(job.id || "")}">
+        <code>${escapeHtml(job.id || "")}</code>
+        <span class="status ${escapeAttr(job.status || "")}">${escapeHtml(scheduleQueueLabel(job))}</span>
+      </button>
+    </div>
+  `).join("");
+  box.querySelectorAll("[data-schedule-recent-job]").forEach((item) => {
+    item.addEventListener("click", () => {
+      closeScheduleView();
+      loadJob(item.dataset.scheduleRecentJob);
+    });
+  });
 }
 
 function renderHistoryJobs(jobs) {
@@ -816,46 +854,76 @@ function renderDiagnostics(detail) {
   box.textContent = lines.join("\n");
 }
 
-function currentTemplateParams() {
-  const issueInput = $("issueNumber");
+function templateParamNodes(prefix = "") {
+  if (!prefix) {
+    return {
+      visualStyle: $("visualStyle"),
+      renderEngine: $("renderEngine"),
+      subtitleMode: $("subtitleMode"),
+      tone: $("tone"),
+      bgmMode: $("bgmMode"),
+      bgmVolume: $("bgmVolume"),
+      bgmPath: $("bgmPath"),
+      issueNumber: $("issueNumber"),
+    };
+  }
+  return {
+    visualStyle: $(`${prefix}VisualStyle`),
+    renderEngine: $(`${prefix}RenderEngine`),
+    subtitleMode: $(`${prefix}SubtitleMode`),
+    tone: prefix ? $(`${prefix}Tone`) : $("tone"),
+    bgmMode: $(`${prefix}BgmMode`),
+    bgmVolume: $(`${prefix}BgmVolume`),
+    bgmPath: $(`${prefix}BgmPath`),
+    issueNumber: prefix ? null : $("issueNumber"),
+  };
+}
+
+function currentTemplateParams(prefix = "") {
+  const nodes = templateParamNodes(prefix);
+  const issueInput = nodes.issueNumber;
   const issueVal = issueInput && issueInput.value.trim() ? Number(issueInput.value) : null;
   return {
-    style: $("visualStyle").value,
-    render_engine: $("renderEngine").value,
-    subtitle_mode: $("subtitleMode").value,
-    narration_tone: $("tone").value,
-    bgm: $("bgmMode").value,
-    bgm_volume: normalizedBgmVolume(),
-    bgm_path: $("bgmPath").value.trim(),
+    style: nodes.visualStyle.value,
+    render_engine: nodes.renderEngine.value,
+    subtitle_mode: nodes.subtitleMode.value,
+    narration_tone: nodes.tone.value,
+    bgm: nodes.bgmMode.value,
+    bgm_volume: normalizedBgmVolume(undefined, prefix),
+    bgm_path: nodes.bgmPath.value.trim(),
     issue_number: issueVal,
   };
 }
 
-function normalizedBgmVolume(value) {
-  const node = $("bgmVolume");
+function normalizedBgmVolume(value, prefix = "") {
+  const node = templateParamNodes(prefix).bgmVolume;
   const raw = value != null ? value : (node ? node.value : DEFAULT_BGM_VOLUME);
   const number = Number(raw);
   if (!Number.isFinite(number)) return DEFAULT_BGM_VOLUME;
   return Math.min(1, Math.max(0, number));
 }
 
-function setBgmVolume(value) {
-  const node = $("bgmVolume");
+function setBgmVolume(value, prefix = "") {
+  const node = templateParamNodes(prefix).bgmVolume;
   if (!node) return;
-  node.value = normalizedBgmVolume(value).toFixed(2);
+  node.value = normalizedBgmVolume(value, prefix).toFixed(2);
 }
 
-function applyTemplateParams(params) {
-  if (params.visual_style) $("visualStyle").value = params.visual_style;
-  if (params.style) $("visualStyle").value = params.style;
-  if (params.render_engine) $("renderEngine").value = params.render_engine;
-  if (!params.render_engine) syncRenderEngineForStyle();
-  if (params.subtitle_mode) $("subtitleMode").value = params.subtitle_mode;
-  if (params.narration_tone) $("tone").value = params.narration_tone;
-  if (params.bgm) $("bgmMode").value = params.bgm;
-  setBgmVolume(params.bgm_volume);
-  $("bgmPath").value = params.bgm_path || "";
-  const issueInput = $("issueNumber");
+function applyTemplateParams(params, prefix = "") {
+  const nodes = templateParamNodes(prefix);
+  if (params.visual_style) nodes.visualStyle.value = params.visual_style;
+  if (params.style) nodes.visualStyle.value = params.style;
+  if (params.render_engine) nodes.renderEngine.value = params.render_engine;
+  if (!params.render_engine) {
+    if (prefix) syncScheduleRenderEngineForStyle();
+    else syncRenderEngineForStyle();
+  }
+  if (params.subtitle_mode) nodes.subtitleMode.value = params.subtitle_mode;
+  if (params.narration_tone) nodes.tone.value = params.narration_tone;
+  if (params.bgm) nodes.bgmMode.value = params.bgm;
+  setBgmVolume(params.bgm_volume, prefix);
+  nodes.bgmPath.value = params.bgm_path || "";
+  const issueInput = nodes.issueNumber;
   if (issueInput) issueInput.value = params.issue_number != null ? params.issue_number : "";
 }
 
@@ -873,6 +941,20 @@ function syncStyleForRenderEngine() {
   }
 }
 
+function syncScheduleRenderEngineForStyle() {
+  const style = state.templateStyles.find((item) => item.style === $("scheduleVisualStyle").value);
+  if (style && style.render_engine) $("scheduleRenderEngine").value = style.render_engine;
+}
+
+function syncScheduleStyleForRenderEngine() {
+  if ($("scheduleRenderEngine").value !== "hyperframes") return;
+  const current = state.templateStyles.find((item) => item.style === $("scheduleVisualStyle").value);
+  if (!current || current.render_engine !== "hyperframes") {
+    const fallback = state.templateStyles.find((item) => item.render_engine === "hyperframes");
+    if (fallback) $("scheduleVisualStyle").value = fallback.style;
+  }
+}
+
 function renderTemplateStyles(styles) {
   state.templateStyles = Array.isArray(styles) ? styles : [];
   if (!state.templateStyles.length) return;
@@ -881,6 +963,12 @@ function renderTemplateStyles(styles) {
     .map((item) => `<option value="${escapeAttr(item.style)}">${escapeHtml(item.label || item.style)}</option>`)
     .join("");
   if (state.templateStyles.some((item) => item.style === selected)) $("visualStyle").value = selected;
+  const scheduleStyle = $("scheduleVisualStyle");
+  if (scheduleStyle) {
+    const scheduleSelected = scheduleStyle.value;
+    scheduleStyle.innerHTML = $("visualStyle").innerHTML;
+    if (state.templateStyles.some((item) => item.style === scheduleSelected)) scheduleStyle.value = scheduleSelected;
+  }
 }
 
 function activeTemplateParams(templates) {
@@ -1608,11 +1696,105 @@ function renderScheduler(schedule) {
   $("scheduleTime").value = schedule.time || "09:00";
   $("scheduleWindow").value = schedule.time_window || "daily";
   $("scheduleProjectCount").value = String(schedule.project_count || 5);
+  applyTemplateParams(schedule.template_params || activeTemplateParams(state.config?.templates || {}), "schedule");
+  $("scheduleModeLabel").textContent = scheduleModeLabel(schedule.mode || "candidates_only");
+  $("scheduleLastRun").textContent = schedule.last_run_date || "尚未运行";
+  $("scheduleNextRun").textContent = nextScheduleLabel(schedule);
+  $("scheduleStatus").textContent = scheduleStatusText(schedule);
+}
+
+function scheduleModeLabel(mode) {
+  const labels = {
+    candidates_only: "只生成候选草稿",
+    auto_script: "自动生成口播草稿",
+    auto_video: "自动生成正式视频",
+  };
+  return labels[mode] || labels.candidates_only;
+}
+
+function scheduleStatusText(schedule) {
+  const mode = schedule.mode || "candidates_only";
   const lastRun = schedule.last_run_date ? `上次运行: ${schedule.last_run_date}` : "尚未运行";
-  const modeText = (schedule.mode || "candidates_only") === "auto_script"
-    ? "定时任务会自动确认前 N 个候选并生成口播草稿，但不会自动渲染。"
-    : "定时任务只生成候选草稿，不会自动确认或渲染。";
-  $("scheduleStatus").textContent = `${modeText}${lastRun}`;
+  const modeText = mode === "auto_video"
+    ? "定时任务会自动确认项目、确认口播、校验计划并生成正式 mp4；质检阻断时不会自动忽略。"
+    : mode === "auto_script"
+      ? "定时任务会自动确认前 N 个候选并生成口播草稿，但不会自动渲染。"
+      : "定时任务只生成候选草稿，不会自动确认或渲染。";
+  return `${modeText}${lastRun}`;
+}
+
+function nextScheduleLabel(schedule) {
+  if (!schedule.enabled) return "未启用";
+  const frequency = schedule.frequency === "weekly" ? "每周一" : "每天";
+  return `${frequency} ${schedule.time || "09:00"}`;
+}
+
+function schedulerPayloadFromForm(current) {
+  return {
+    enabled: $("scheduleEnabled").checked,
+    mode: $("scheduleMode").value,
+    frequency: $("scheduleFrequency").value,
+    time: $("scheduleTime").value || "09:00",
+    time_window: $("scheduleWindow").value,
+    project_count: Number($("scheduleProjectCount").value),
+    template_params: currentTemplateParams("schedule"),
+    last_run_date: current?.scheduler?.last_run_date || "",
+  };
+}
+
+function openScheduleView() {
+  renderScheduler(state.config?.scheduler || {});
+  $("scheduleView").hidden = false;
+}
+
+function closeScheduleView() {
+  $("scheduleView").hidden = true;
+  $("scheduleMessage").textContent = "";
+}
+
+async function saveSchedule() {
+  const current = state.config;
+  if (!current) return;
+  setBusy(true);
+  $("scheduleMessage").textContent = "保存中...";
+  try {
+    await saveSchedulePayload(current);
+    await loadConfig();
+    $("scheduleMessage").textContent = "已保存";
+  } catch (error) {
+    $("scheduleMessage").textContent = error.message;
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function saveSchedulePayload(current) {
+  return post("/api/config", {
+    scheduler: schedulerPayloadFromForm(current),
+  });
+}
+
+async function runScheduleNow() {
+  const current = state.config;
+  if (!current) return;
+  setBusy(true);
+  $("scheduleMessage").textContent = "正在试跑...";
+  try {
+    await saveSchedulePayload(current);
+    await loadConfig();
+    const result = await post("/api/scheduler/run-due", { force: true });
+    if (result.job?.id) {
+      closeScheduleView();
+      await loadJobs();
+      await loadJob(result.job.id);
+    } else {
+      $("scheduleMessage").textContent = result.reason === "not_due" ? "当前计划尚未到执行时间" : result.reason || "未启动";
+    }
+  } catch (error) {
+    $("scheduleMessage").textContent = error.message;
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function saveSettings() {
@@ -1646,17 +1828,6 @@ async function saveSettings() {
     };
   });
 
-  const schedulerPayload = {
-    enabled: $("scheduleEnabled").checked,
-    mode: $("scheduleMode").value,
-    frequency: $("scheduleFrequency").value,
-    time: $("scheduleTime").value || "09:00",
-    time_window: $("scheduleWindow").value,
-    project_count: Number($("scheduleProjectCount").value),
-    template_params: currentTemplateParams(),
-    last_run_date: current.scheduler?.last_run_date || "",
-  };
-
   setBusy(true);
   $("settingsMessage").textContent = "保存中...";
   try {
@@ -1664,7 +1835,6 @@ async function saveSettings() {
       github: githubPayload,
       providers: { providers },
       "model-routing": routing,
-      scheduler: schedulerPayload,
       templates: templatePayload(current),
     });
     await loadConfig();
@@ -1756,7 +1926,7 @@ function selectionButtonState(selectedCount, limit, canConfirm) {
 }
 
 function setBusy(isBusy) {
-  document.querySelectorAll("button:not(#closeSettingsBtn):not(#openSettingsBtn)").forEach((button) => {
+  document.querySelectorAll("button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleFromSettingsBtn)").forEach((button) => {
     if (isBusy) {
       button.dataset.wasDisabled = button.disabled ? "1" : "0";
       button.disabled = true;
@@ -1793,5 +1963,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleQueueLabel, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }
