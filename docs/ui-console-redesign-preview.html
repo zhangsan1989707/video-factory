@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>视频工厂控制台 UI 重整预览</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f6f8;
+        --chrome: #ffffff;
+        --panel: #ffffff;
+        --panel-soft: #f8fafc;
+        --line: #d9e0e7;
+        --line-soft: #e8edf2;
+        --text: #17202a;
+        --soft: #4b5a68;
+        --muted: #768696;
+        --faint: #a1adba;
+        --accent: #2563eb;
+        --accent-deep: #1d4ed8;
+        --accent-soft: #e8f0ff;
+        --success: #15803d;
+        --warn: #b45309;
+        --error: #b42318;
+        --dark: #111827;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 1360px;
+        min-height: 100dvh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        letter-spacing: 0;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      button,
+      input,
+      select {
+        min-height: 32px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #fff;
+        color: var(--text);
+      }
+
+      button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 0 11px;
+        font-weight: 600;
+      }
+
+      button.primary {
+        border-color: var(--accent-deep);
+        background: var(--accent);
+        color: #fff;
+      }
+
+      button.ghost {
+        background: transparent;
+      }
+
+      button.tiny {
+        min-height: 26px;
+        padding: 0 8px;
+        font-size: 12px;
+      }
+
+      input,
+      select {
+        width: 100%;
+        padding: 0 9px;
+      }
+
+      label {
+        display: grid;
+        gap: 5px;
+      }
+
+      label span,
+      .section-label,
+      .eyebrow,
+      th,
+      .hint {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: 280px minmax(760px, 1fr) 300px;
+        grid-template-rows: 64px calc(100dvh - 64px);
+        min-height: 100dvh;
+      }
+
+      .topbar {
+        grid-column: 1 / 4;
+        display: grid;
+        grid-template-columns: 280px minmax(0, 1fr) auto;
+        align-items: center;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.94);
+        backdrop-filter: blur(12px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 100%;
+        padding: 0 18px;
+        border-right: 1px solid var(--line);
+      }
+
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: var(--dark);
+        color: #fff;
+        font-family: var(--mono);
+        font-size: 13px;
+        font-weight: 800;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      .brand h1 {
+        font-size: 15px;
+        line-height: 1.15;
+      }
+
+      .brand p,
+      .crumb {
+        color: var(--muted);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .stage-strip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        padding: 0 18px;
+      }
+
+      .stage-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        height: 30px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel-soft);
+        color: var(--soft);
+        font-size: 12px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+
+      .stage-pill.active {
+        border-color: #bcd0ff;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 16px;
+      }
+
+      .left-rail,
+      .right-rail {
+        min-height: 0;
+        overflow: auto;
+        background: var(--chrome);
+      }
+
+      .left-rail {
+        border-right: 1px solid var(--line);
+      }
+
+      .right-rail {
+        border-left: 1px solid var(--line);
+      }
+
+      .rail-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 15px 16px 12px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .rail-head h2 {
+        font-size: 14px;
+      }
+
+      .rail-section {
+        padding: 15px 16px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .section-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+        font-family: var(--mono);
+        text-transform: uppercase;
+      }
+
+      .field-grid {
+        display: grid;
+        gap: 10px;
+      }
+
+      .field-row {
+        display: grid;
+        grid-template-columns: 1fr 92px;
+        gap: 8px;
+      }
+
+      .status-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .status-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 13px;
+      }
+
+      .status-row strong {
+        color: var(--soft);
+        font-size: 12px;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .workspace-head {
+        display: grid;
+        gap: 12px;
+        padding: 18px 22px 14px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .title-row {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 18px;
+      }
+
+      .title-row h2 {
+        font-size: 22px;
+        letter-spacing: 0;
+      }
+
+      .title-row p {
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .quick-metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .metric {
+        display: grid;
+        gap: 3px;
+        min-height: 58px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel-soft);
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .metric strong {
+        font-size: 15px;
+      }
+
+      .tabs {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .tab {
+        border-color: transparent;
+        background: transparent;
+        color: var(--soft);
+      }
+
+      .tab.active {
+        border-color: var(--line);
+        background: var(--panel);
+        box-shadow: 0 1px 2px rgba(20, 30, 45, 0.06);
+      }
+
+      .work-body {
+        min-height: 0;
+        overflow: auto;
+        padding: 16px 22px 22px;
+      }
+
+      .table-card,
+      .editor-card,
+      .log-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        overflow: auto;
+      }
+
+      table {
+        width: 100%;
+        min-width: 880px;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      th,
+      td {
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--line-soft);
+        text-align: left;
+        vertical-align: top;
+        font-size: 13px;
+      }
+
+      th {
+        background: var(--panel-soft);
+        font-family: var(--mono);
+        font-weight: 650;
+      }
+
+      th:nth-child(1),
+      td:nth-child(1) {
+        width: 44px;
+      }
+
+      th:nth-child(2),
+      td:nth-child(2) {
+        width: 62px;
+      }
+
+      th:nth-child(4),
+      td:nth-child(4),
+      th:nth-child(5),
+      td:nth-child(5) {
+        width: 78px;
+      }
+
+      .repo {
+        display: grid;
+        gap: 4px;
+      }
+
+      .repo strong {
+        font-size: 13px;
+      }
+
+      .repo span,
+      td small {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .score {
+        color: var(--success);
+        font-family: var(--mono);
+      }
+
+      .risk {
+        color: var(--warn);
+      }
+
+      .side-card {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      .job-id {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        width: fit-content;
+        min-height: 24px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 8px;
+      }
+
+      .timeline-item {
+        display: grid;
+        grid-template-columns: 12px minmax(0, 1fr);
+        gap: 8px;
+        color: var(--soft);
+        font-size: 12px;
+      }
+
+      .timeline-item .dot {
+        margin-top: 5px;
+        background: var(--line);
+      }
+
+      .timeline-item.done .dot {
+        background: var(--success);
+      }
+
+      .timeline-item.current .dot {
+        background: var(--accent);
+        box-shadow: 0 0 0 4px var(--accent-soft);
+      }
+
+      .artifact {
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr);
+        gap: 10px;
+        align-items: center;
+      }
+
+      .thumb {
+        aspect-ratio: 9 / 16;
+        border-radius: 7px;
+        background:
+          linear-gradient(160deg, rgba(37, 99, 235, 0.88), rgba(17, 24, 39, 0.98)),
+          linear-gradient(90deg, #fff 1px, transparent 1px);
+      }
+
+      .artifact strong,
+      .history-item strong {
+        display: block;
+        overflow: hidden;
+        font-size: 13px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .artifact span,
+      .history-item span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .history-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .history-item {
+        padding: 9px 10px;
+        border: 1px solid var(--line-soft);
+        border-radius: 7px;
+        background: var(--panel-soft);
+      }
+
+      .note {
+        padding: 10px;
+        border: 1px solid #bfdbfe;
+        border-radius: 8px;
+        background: #eff6ff;
+        color: #1e3a8a;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .log-card {
+        margin-top: 14px;
+        padding: 12px;
+        background: var(--dark);
+        color: #dbeafe;
+        font-family: var(--mono);
+        font-size: 12px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="mark">GV</div>
+          <div>
+            <h1>视频生产工厂</h1>
+            <p>github-video / local</p>
+          </div>
+        </div>
+
+        <div class="stage-strip">
+          <div class="stage-pill active"><span class="dot"></span>候选项目</div>
+          <div class="stage-pill">口播脚本</div>
+          <div class="stage-pill">渲染校验</div>
+          <div class="stage-pill">正式产物</div>
+          <div class="crumb">workspace: video-factory</div>
+        </div>
+
+        <div class="top-actions">
+          <button class="ghost">定时生产</button>
+          <button class="ghost">配置</button>
+          <button>新建任务</button>
+          <button class="primary">创建任务</button>
+        </div>
+      </header>
+
+      <aside class="left-rail">
+        <div class="rail-head">
+          <h2>任务设置</h2>
+          <button class="tiny ghost">重置</button>
+        </div>
+
+        <section class="rail-section">
+          <div class="section-label">内容来源</div>
+          <div class="field-grid">
+            <label>
+              <span>任务类型</span>
+              <select>
+                <option>GitHub 热榜</option>
+              </select>
+            </label>
+            <div class="field-row">
+              <label>
+                <span>时间维度</span>
+                <select>
+                  <option>周榜</option>
+                </select>
+              </label>
+              <label>
+                <span>项目数</span>
+                <select>
+                  <option>5</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              <span>期数</span>
+              <input placeholder="自动递增" />
+            </label>
+          </div>
+        </section>
+
+        <section class="rail-section">
+          <div class="section-label">视频模板</div>
+          <div class="field-grid">
+            <label>
+              <span>视觉风格</span>
+              <select>
+                <option>科技热点风</option>
+              </select>
+            </label>
+            <label>
+              <span>渲染引擎</span>
+              <select>
+                <option>HyperFrames</option>
+              </select>
+            </label>
+            <label>
+              <span>字幕模式</span>
+              <select>
+                <option>大字强钩子</option>
+              </select>
+            </label>
+            <label>
+              <span>口播语气</span>
+              <select>
+                <option>专业测评</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="rail-section">
+          <div class="section-label">音频</div>
+          <div class="field-grid">
+            <div class="field-row">
+              <label>
+                <span>BGM</span>
+                <select>
+                  <option>默认</option>
+                </select>
+              </label>
+              <label>
+                <span>音量</span>
+                <input value="0.065" />
+              </label>
+            </div>
+            <label>
+              <span>BGM 路径</span>
+              <input placeholder="/Users/me/Music/bgm.mp3" />
+            </label>
+          </div>
+        </section>
+
+        <section class="rail-section">
+          <div class="section-label">环境状态</div>
+          <div class="status-list">
+            <div class="status-row"><span>GitHub Token</span><strong>已配置 ghp_...</strong></div>
+            <div class="status-row"><span>模型路由</span><strong>2 个已通过测试</strong></div>
+            <div class="status-row"><span>渲染环境</span><strong>可渲染</strong></div>
+            <div class="status-row"><span>真实 smoke</span><strong>未运行</strong></div>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <div class="workspace-head">
+          <div class="title-row">
+            <div>
+              <h2>GitHub 热榜生产线</h2>
+              <p>当前阶段只处理候选项目，设置和任务上下文分别固定在左右两侧。</p>
+            </div>
+            <div class="tabs">
+              <button class="tab active">候选项目</button>
+              <button class="tab">口播脚本</button>
+              <button class="tab">进度日志</button>
+            </div>
+          </div>
+
+          <div class="quick-metrics">
+            <div class="metric"><span>候选来源</span><strong>GitHub API · 无缓存</strong></div>
+            <div class="metric"><span>目标产物</span><strong>1080x1920 mp4</strong></div>
+            <div class="metric"><span>预计时长</span><strong>55-70 秒</strong></div>
+            <div class="metric"><span>下一步</span><strong>确认项目</strong></div>
+          </div>
+        </div>
+
+        <div class="work-body">
+          <div class="table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>顺序</th>
+                  <th>项目</th>
+                  <th>评分</th>
+                  <th>星标</th>
+                  <th>语言</th>
+                  <th>推荐理由</th>
+                  <th>风险</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><input type="checkbox" checked /></td>
+                  <td>1</td>
+                  <td><div class="repo"><strong>model-router</strong><span>owner/model-router</span></div></td>
+                  <td class="score">92</td>
+                  <td>18.2k</td>
+                  <td>TS</td>
+                  <td>模型路由与成本控制主题清晰，适合做第一名强钩子。</td>
+                  <td class="risk">依赖说明偏长</td>
+                </tr>
+                <tr>
+                  <td><input type="checkbox" checked /></td>
+                  <td>2</td>
+                  <td><div class="repo"><strong>agent-studio</strong><span>team/agent-studio</span></div></td>
+                  <td class="score">88</td>
+                  <td>12.6k</td>
+                  <td>Python</td>
+                  <td>Agent 工作流话题热，视频中可承接自动化生产场景。</td>
+                  <td>低</td>
+                </tr>
+                <tr>
+                  <td><input type="checkbox" checked /></td>
+                  <td>3</td>
+                  <td><div class="repo"><strong>screen-capture-kit</strong><span>dev/screen-capture-kit</span></div></td>
+                  <td class="score">84</td>
+                  <td>9.4k</td>
+                  <td>Rust</td>
+                  <td>展示性强，适合安排在中段补充画面变化。</td>
+                  <td>需要解释用途</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <pre class="log-card">stage: draft_candidates
+source: github trending weekly
+action: 等待人工确认项目
+hint: 左侧只调生产参数，右侧只看任务状态和产物。</pre>
+        </div>
+      </main>
+
+      <aside class="right-rail">
+        <div class="rail-head">
+          <h2>任务上下文</h2>
+          <span class="badge"><span class="dot"></span>运行中</span>
+        </div>
+
+        <section class="rail-section">
+          <div class="section-label">当前任务</div>
+          <div class="side-card">
+            <div class="job-id"><strong>GH-20260614-021</strong><span>weekly</span></div>
+            <div class="timeline">
+              <div class="timeline-item done"><span class="dot"></span><span>创建草稿</span></div>
+              <div class="timeline-item current"><span class="dot"></span><span>等待确认项目</span></div>
+              <div class="timeline-item"><span class="dot"></span><span>生成口播</span></div>
+              <div class="timeline-item"><span class="dot"></span><span>渲染视频</span></div>
+            </div>
+            <div class="note">异常、恢复建议、重生成动作都留在这里，不再挤占左侧参数区。</div>
+            <button class="tiny">重生成候选</button>
+          </div>
+        </section>
+
+        <section class="rail-section">
+          <div class="section-label">产物</div>
+          <div class="side-card artifact">
+            <div class="thumb"></div>
+            <div>
+              <strong>preview_cover.jpg</strong>
+              <span>待确认后生成正式 mp4</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="rail-section">
+          <div class="section-label">历史任务</div>
+          <div class="history-list">
+            <div class="history-item"><strong>GH-20260614-020</strong><span>已完成 · final.mp4</span></div>
+            <div class="history-item"><strong>GH-20260613-018</strong><span>待确认口播</span></div>
+            <div class="history-item"><strong>GH-20260612-017</strong><span>失败 · dry run</span></div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </body>
+</html>
