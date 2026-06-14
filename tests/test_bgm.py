@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.composer.bgm import post_process_video
+from src.utils.config import BGM_VOLUME
 
 
 class BgmTest(unittest.TestCase):
@@ -23,7 +24,7 @@ class BgmTest(unittest.TestCase):
                 normalize_audio.side_effect = lambda path: path
                 post_process_video(video, bgm_path=bgm)
 
-            add_bgm.assert_called_once_with(video, bgm, video, volume=0.13)
+            add_bgm.assert_called_once_with(video, bgm, video, volume=BGM_VOLUME)
 
 
 if __name__ == "__main__":
