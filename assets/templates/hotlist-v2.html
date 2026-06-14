@@ -54,6 +54,8 @@
   --s-hook-card-bg: {{ palette.hook_card_bg }};
   --s-hook-card-border: {{ palette.hook_card_border }};
   --s-hook-card-radius: {{ palette.hook_card_radius }};
+  --platform-safe-top: 220px;
+  --platform-safe-bottom: 170px;
 }
 
 body {
@@ -1284,6 +1286,25 @@ body {
 {% if style_key == "tech_hotspot" %}
 /* === Tech Hotspot: cyber grid, neon glows (default, no overrides needed) === */
 {% endif %}
+
+/* === SOCIAL PLATFORM SAFE AREA ===
+   Keep important text below top app chrome and above bottom controls. */
+.intro-screen {
+  padding-top: var(--platform-safe-top);
+  padding-bottom: var(--platform-safe-bottom);
+}
+.list-screen {
+  padding-top: var(--platform-safe-top);
+  padding-bottom: 118px;
+}
+.detail-screen {
+  padding-top: var(--platform-safe-top);
+  padding-bottom: 128px;
+}
+.hook-screen {
+  padding-top: var(--platform-safe-top);
+  padding-bottom: var(--platform-safe-bottom);
+}
 </style>
 </head>
 <body>

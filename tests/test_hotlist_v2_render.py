@@ -56,6 +56,9 @@ class HotlistV2RenderTest(unittest.TestCase):
                 self.assertIn("#screen-intro .intro-badge", html)
                 self.assertIn("#screen-intro .intro-cta", html)
                 self.assertIn("animation: none;", html)
+                self.assertIn("--platform-safe-top: 220px;", html)
+                self.assertIn("--platform-safe-bottom: 170px;", html)
+                self.assertIn("padding-top: var(--platform-safe-top);", html)
 
     def test_bytedance_intro_uses_product_visual_language(self) -> None:
         data = _data_from_projects([
