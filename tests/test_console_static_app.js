@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, recoveryHintForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleQueueLabel, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleQueueLabel, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -12,6 +12,7 @@ async function run() {
   testDraftJobsExposeSeparateCreateAndCollectActions();
   testActiveAwaitingInputKeepsActionsBlocked();
   testCompletedBackgroundStagesChooseReviewTabs();
+  await testRefreshCurrentJobReloadsHistoryWhenPollingCompletes();
   testRegenerateButtonsFollowStage();
   testUnverifiedQualityDoesNotHardBlockRender();
   testRenderTemplateStylesPopulatesStyleSelect();
@@ -192,6 +193,123 @@ function testCompletedBackgroundStagesChooseReviewTabs() {
   assert.equal(autoTabForCompletedBackground({ status: "awaiting_input", stage: "awaiting_project_confirmation" }), "candidates");
   assert.equal(autoTabForCompletedBackground({ status: "awaiting_input", stage: "awaiting_script_confirmation" }), "script");
   assert.equal(autoTabForCompletedBackground({ status: "awaiting_render", stage: "preparing_plan" }), "");
+}
+
+async function testRefreshCurrentJobReloadsHistoryWhenPollingCompletes() {
+  const calls = [];
+  global.fetch = async (path) => {
+    calls.push(path);
+    if (path === "/api/jobs/GH-HOTLIST-20990101-001") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          job: {
+            id: "GH-HOTLIST-20990101-001",
+            status: "completed",
+            stage: "completed",
+            template_params: {},
+          },
+          candidates: [],
+          segments: [],
+          artifacts: {},
+          stage_history: [],
+        }),
+      };
+    }
+    if (path === "/api/jobs") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          jobs: [
+            { id: "GH-HOTLIST-20990101-001", status: "completed", stage: "completed" },
+          ],
+        }),
+      };
+    }
+    throw new Error(`unexpected fetch: ${path}`);
+  };
+  const elements = basicConsoleNodes();
+  global.document = {
+    getElementById(id) {
+      return elements[id] || null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+  global.window = {
+    clearInterval(id) {
+      calls.push(`clear:${id}`);
+    },
+  };
+
+  state.currentJobId = "GH-HOTLIST-20990101-001";
+  state.pollTimer = 7;
+  await refreshCurrentJob();
+
+  assert.equal(state.pollTimer, null);
+  assert.deepEqual(calls.slice(0, 3), [
+    "/api/jobs/GH-HOTLIST-20990101-001",
+    "clear:7",
+    "/api/jobs",
+  ]);
+  assert.match(elements.historyList.innerHTML, /completed/);
+}
+
+function basicConsoleNodes() {
+  const emptyListNode = () => ({
+    className: "",
+    innerHTML: "",
+    textContent: "",
+    querySelectorAll() {
+      return [];
+    },
+  });
+  const buttonNode = () => ({
+    textContent: "",
+    dataset: {},
+    disabled: false,
+  });
+  return {
+    currentJobId: { textContent: "" },
+    currentStage: { textContent: "" },
+    currentModelCall: { textContent: "" },
+    currentError: { hidden: true, textContent: "" },
+    currentDiagnostics: { hidden: true, textContent: "" },
+    candidateSourceSummary: { textContent: "" },
+    narrationSourceSummary: { textContent: "" },
+    openJobFolderBtn: buttonNode(),
+    nextActionBtn: buttonNode(),
+    confirmSelectionBtn: buttonNode(),
+    saveScriptBtn: buttonNode(),
+    regenerateCandidatesBtn: buttonNode(),
+    regenerateScriptBtn: buttonNode(),
+    regenerateVideoBtn: buttonNode(),
+    cancelJobBtn: buttonNode(),
+    refreshCandidatesBtn: buttonNode(),
+    refreshCandidatesBtn2: buttonNode(),
+    visualStyle: { value: "tech_hotspot" },
+    renderEngine: { value: "hyperframes" },
+    subtitleMode: { value: "large_hook" },
+    tone: { value: "professional_review" },
+    bgmMode: { value: "default" },
+    bgmVolume: { value: "0.13" },
+    bgmPath: { value: "" },
+    issueNumber: { value: "" },
+    projectCount: { value: "5" },
+    candidateRows: emptyListNode(),
+    scriptEditor: emptyListNode(),
+    qualityReport: emptyListNode(),
+    logBox: { textContent: "" },
+    stageTimeline: emptyListNode(),
+    artifactSummary: emptyListNode(),
+    publishActions: emptyListNode(),
+    artifactList: emptyListNode(),
+    scheduleQueue: emptyListNode(),
+    historyList: emptyListNode(),
+  };
 }
 
 async function testCreateDraftDoesNotCollectCandidates() {
