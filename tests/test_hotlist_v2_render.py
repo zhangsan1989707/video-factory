@@ -54,6 +54,32 @@ class HotlistV2RenderTest(unittest.TestCase):
                 self.assertIn('id="screen-hook"', html)
                 self.assertIn('window.__timelines["main"]', html)
 
+    def test_bytedance_intro_uses_product_visual_language(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "适合做成中文短视频切入点。",
+                "stars": 1000,
+                "daily_growth": "估算日均 star 约 +2800",
+                "language": "Python",
+            }
+        ])
+        render_data = {**data, **_timeline_context(data)}
+
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "bytedance.html"
+            render_composition(render_data, output, style="bytedance_product")
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn("--accent-cyan: #3D7EFF;", html)
+        self.assertIn("background: #1d2129;", html)
+        self.assertIn("font-weight: 500;", html)
+        self.assertIn('class="stat-num highlight-metric"', html)
+        self.assertIn("border-top: 1px solid #e5e6eb;", html)
+        self.assertIn("content: '↗';", html)
+        self.assertIn("border-left: 6px solid var(--accent-cyan);", html)
+
     def test_preview_rendering_uses_each_registered_style(self) -> None:
         projects = [
             {
