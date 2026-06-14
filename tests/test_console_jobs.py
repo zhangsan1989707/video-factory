@@ -2652,6 +2652,20 @@ class ConsoleJobsTest(unittest.TestCase):
             saved = read_json(jobs_dir / job["id"] / "task.json", {})
             self.assertEqual(saved["template_params"], job["template_params"])
 
+    def test_create_hotlist_job_locks_next_auto_issue_number(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+            ):
+                create_job("GH-HOTLIST-20990101-OLD", {"template_params": {"issue_number": 26}})
+                job = create_hotlist_job({"template_params": {"bgm": "none"}})
+
+            self.assertEqual(job["template_params"]["issue_number"], 27)
+            saved = read_json(jobs_dir / job["id"] / "task.json", {})
+            self.assertEqual(saved["template_params"]["issue_number"], 27)
+
     def test_create_job_accepts_frontend_visual_style_alias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)

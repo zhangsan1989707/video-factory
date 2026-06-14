@@ -35,7 +35,7 @@ from src.models import AssetManifest, ScriptSegment, Shot, ShotPlan, VideoScript
 from src.pipeline import run_pipeline
 from src.composer.bgm import post_process_video
 from src.composer.vertical import render_vertical_previews
-from src.hotlist_v2.render import render_hotlist_v2_from_projects, render_hotlist_v2_previews_from_projects
+from src.hotlist_v2.render import _resolve_issue_number, render_hotlist_v2_from_projects, render_hotlist_v2_previews_from_projects
 from src.hotlist_v2.template import normalize_style, render_engine_for_style
 from src.planner.script_v2 import generate_script_from_shot_plan
 from src.console.quality import (
@@ -73,7 +73,7 @@ from src.utils.config import BGM_VOLUME
 README_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
 def create_hotlist_job(payload: dict[str, Any]) -> dict[str, Any]:
-    return _create_job_with_retry("GH-HOTLIST", payload)
+    return _create_job_with_retry("GH-HOTLIST", _with_auto_issue_number(payload))
 
 def create_single_project_vertical_job(payload: dict[str, Any]) -> dict[str, Any]:
     return _create_job_with_retry("GH-SINGLE", {**payload, "type": "single_project_vertical"})
@@ -95,6 +95,12 @@ def _create_job_with_retry(prefix: str, payload: dict[str, Any]) -> dict[str, An
                 raise
             last_error = exc
     raise last_error or ValueError("无法创建任务")
+
+def _with_auto_issue_number(payload: dict[str, Any]) -> dict[str, Any]:
+    params = dict(payload.get("template_params") or {})
+    if _issue_number({"template_params": params}) is None:
+        params["issue_number"] = _resolve_issue_number()
+    return {**payload, "template_params": params}
 
 async def generate_candidates(job_id: str, force_refresh: bool = False) -> dict[str, Any]:
     job = read_job(job_id)
