@@ -2522,11 +2522,15 @@ class ConsoleJobsTest(unittest.TestCase):
 
     def test_job_numbering_and_finalize_do_not_overwrite_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            jobs_dir = Path(tmp)
+            jobs_dir = Path(tmp) / "jobs"
+            publish_dir = Path(tmp) / "published"
             with patch("src.console.store.JOBS_DIR", jobs_dir), patch("src.console.jobs.JOBS_DIR", jobs_dir):
                 today = datetime.now().strftime("%Y%m%d")
                 self.assertTrue(next_job_id("GH-HOTLIST").endswith("-001"))
-                first = create_job(f"GH-HOTLIST-{today}-001", {"title": "测试 视频"})
+                first = create_job(f"GH-HOTLIST-{today}-001", {
+                    "title": "测试 视频",
+                    "template_params": {"official_output_dir": str(publish_dir)},
+                })
                 self.assertTrue(next_job_id("GH-HOTLIST").endswith("-002"))
 
                 final = jobs_dir / first["id"] / "final.mp4"
@@ -2535,20 +2539,20 @@ class ConsoleJobsTest(unittest.TestCase):
                 one = finalize_numbered_output(first["id"], "测试 视频")["job"]["official_video"]
                 two = finalize_numbered_output(first["id"], "测试 视频")["job"]["official_video"]
 
-                self.assertTrue(one.endswith(f"GH-HOTLIST-{today}-第001期-测试-视频.mp4"))
-                self.assertTrue(two.endswith(f"GH-HOTLIST-{today}-第001期-测试-视频-v2.mp4"))
+                self.assertEqual(Path(one), publish_dir / f"GH-HOTLIST-{today}-第001期-测试-视频.mp4")
+                self.assertEqual(Path(two), publish_dir / f"GH-HOTLIST-{today}-第001期-测试-视频-v2.mp4")
                 self.assertEqual(Path(one).read_bytes(), b"video")
                 self.assertEqual(Path(two).read_bytes(), b"video")
+                self.assertTrue(final.exists())
+                self.assertFalse((jobs_dir / first["id"] / Path(one).name).exists())
                 versions = job_detail(first["id"])["video_versions"]
                 self.assertEqual([item["name"] for item in versions], [
-                    Path(one).name,
                     Path(two).name,
                 ])
-                self.assertFalse(versions[0]["is_official"])
-                self.assertTrue(versions[1]["is_official"])
-                self.assertNotIn("final.mp4", [item["name"] for item in versions])
+                self.assertTrue(versions[0]["is_official"])
+                self.assertTrue(versions[0]["external"])
 
-    def test_finalize_copies_official_video_to_configured_output_dir(self) -> None:
+    def test_finalize_writes_official_video_only_to_configured_output_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp) / "jobs"
             publish_dir = Path(tmp) / "published"
@@ -2568,9 +2572,11 @@ class ConsoleJobsTest(unittest.TestCase):
                 official = Path(result["job"]["official_video"])
                 published = publish_dir / "GH-HOTLIST-20990101-第024期-测试视频.mp4"
 
-                self.assertEqual(official.name, "GH-HOTLIST-20990101-第024期-测试视频.mp4")
+                self.assertEqual(official, published)
                 self.assertEqual(official.read_bytes(), b"video")
                 self.assertEqual(published.read_bytes(), b"video")
+                self.assertTrue(final.exists())
+                self.assertFalse((jobs_dir / job["id"] / published.name).exists())
 
     def test_video_versions_sort_by_version_when_timestamps_match(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

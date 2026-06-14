@@ -11,6 +11,7 @@ const state = {
 };
 
 const DEFAULT_BGM_VOLUME = 0.065;
+const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
 
 const $ = (id) => document.getElementById(id);
 
@@ -897,6 +898,7 @@ function currentTemplateParams(prefix = "") {
   const nodes = templateParamNodes(prefix);
   const issueInput = nodes.issueNumber;
   const issueVal = issueInput && issueInput.value.trim() ? Number(issueInput.value) : null;
+  const officialOutputDir = nodes.officialOutputDir ? (nodes.officialOutputDir.value.trim() || DEFAULT_OFFICIAL_OUTPUT_DIR) : "";
   return {
     style: nodes.visualStyle.value,
     render_engine: nodes.renderEngine.value,
@@ -905,7 +907,7 @@ function currentTemplateParams(prefix = "") {
     bgm: nodes.bgmMode.value,
     bgm_volume: normalizedBgmVolume(undefined, prefix),
     bgm_path: nodes.bgmPath.value.trim(),
-    official_output_dir: nodes.officialOutputDir ? nodes.officialOutputDir.value.trim() : "",
+    official_output_dir: officialOutputDir,
     issue_number: issueVal,
   };
 }
@@ -938,7 +940,7 @@ function applyTemplateParams(params, prefix = "") {
   if (params.bgm) nodes.bgmMode.value = params.bgm;
   setBgmVolume(params.bgm_volume, prefix);
   nodes.bgmPath.value = params.bgm_path || "";
-  if (nodes.officialOutputDir) nodes.officialOutputDir.value = params.official_output_dir || "";
+  if (nodes.officialOutputDir) nodes.officialOutputDir.value = params.official_output_dir || DEFAULT_OFFICIAL_OUTPUT_DIR;
   const issueInput = nodes.issueNumber;
   if (issueInput) issueInput.value = params.issue_number != null ? params.issue_number : "";
 }
@@ -1501,11 +1503,13 @@ function renderArtifactSummary(detail) {
   const summaryJobId = detail.job?.id || detail.artifacts?.job_id || "";
   const coverHref = cover.status === "ready" && summaryJobId ? artifactHref(summaryJobId, "cover_frame.png", {}) : "";
   const latestVideoMarkup = latestVideo
-    ? (summaryJobId
+    ? (latestVideo.external
+      ? `<code>${escapeHtml(latestVideo.path || latestVideo.name)}</code>`
+      : summaryJobId
       ? `<a href="${escapeAttr(artifactHref(summaryJobId, latestVideo.name, latestVideo))}" target="_blank" rel="noreferrer">${escapeHtml(latestVideo.name)}</a>`
       : escapeHtml(latestVideo.name))
     : "-";
-  const playerMarkup = latestVideo && summaryJobId
+  const playerMarkup = latestVideo && summaryJobId && !latestVideo.external
     ? `<video class="artifact-player" controls preload="metadata" src="${escapeAttr(artifactHref(summaryJobId, latestVideo.name, latestVideo))}"></video>`
     : "";
   const hasSummary = readiness.status || publish.title || cover.status || versions.length;
@@ -1518,7 +1522,9 @@ function renderArtifactSummary(detail) {
   const modelStatus = modelSummaryLabel(latestModelCall, narrationSource);
   const versionItems = versions.map((item) => `
     <div class="artifact-version">
-      <a href="${escapeAttr(artifactHref(summaryJobId, item.name, item))}" target="_blank" rel="noreferrer">${escapeHtml(item.name)}</a>
+      ${item.external
+        ? `<code>${escapeHtml(item.path || item.name)}</code>`
+        : `<a href="${escapeAttr(artifactHref(summaryJobId, item.name, item))}" target="_blank" rel="noreferrer">${escapeHtml(item.name)}</a>`}
       <span>${item.is_official ? "正式版本" : "历史版本"} · ${formatFileSize(item.size || 0)} · ${formatDuration(item.duration_seconds)}</span>
     </div>
   `).join("");

@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
 
 async function run() {
   await testJsonSuccess();
@@ -39,6 +40,7 @@ async function run() {
   testRenderSchedulerShowsAutoScriptMode();
   testRenderSchedulerShowsAutoVideoMode();
   testSchedulerPayloadUsesScheduleVideoParams();
+  testSchedulerPayloadUsesDefaultOfficialOutputDirWhenEmpty();
   testRenderScheduleRecentJobsIncludesCompletedScheduledJobs();
   testScheduleRecentLabelShowsCompletedAndRunningState();
   testQualityNotesPreferStructuredIssues();
@@ -1177,6 +1179,7 @@ function testRenderSchedulerShowsAutoVideoMode() {
   assert.equal(nodes.scheduleStatus.textContent.includes("质检阻断时不会自动忽略"), true);
   assert.equal(nodes.scheduleVisualStyle.value, "sspai_editorial");
   assert.equal(nodes.scheduleBgmMode.value, "none");
+  assert.equal(nodes.scheduleOfficialOutputDir.value, DEFAULT_OFFICIAL_OUTPUT_DIR);
 }
 
 function testSchedulerPayloadUsesScheduleVideoParams() {
@@ -1210,6 +1213,22 @@ function testSchedulerPayloadUsesScheduleVideoParams() {
   assert.equal(payload.template_params.bgm_path, "/tmp/bgm.mp3");
   assert.equal(payload.template_params.official_output_dir, "/tmp/published");
   assert.equal(payload.last_run_date, "2099-01-02");
+}
+
+function testSchedulerPayloadUsesDefaultOfficialOutputDirWhenEmpty() {
+  const nodes = scheduleNodes();
+  nodes.scheduleMode.value = "auto_video";
+  nodes.scheduleProjectCount.value = "5";
+  nodes.scheduleOfficialOutputDir.value = "";
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  const payload = schedulerPayloadFromForm({ scheduler: {} });
+
+  assert.equal(payload.template_params.official_output_dir, DEFAULT_OFFICIAL_OUTPUT_DIR);
 }
 
 function testRenderScheduleRecentJobsIncludesCompletedScheduledJobs() {
@@ -1283,7 +1302,7 @@ function scheduleNodes() {
     scheduleBgmMode: { value: "default" },
     scheduleBgmVolume: { value: "0.065" },
     scheduleBgmPath: { value: "" },
-    scheduleOfficialOutputDir: { value: "" },
+    scheduleOfficialOutputDir: { value: DEFAULT_OFFICIAL_OUTPUT_DIR },
   };
 }
 

@@ -902,12 +902,8 @@ def finalize_numbered_output(job_id: str, title: str = "") -> dict[str, Any]:
         raise ValueError("final.mp4 不存在，无法生成带编号正式文件")
     safe_title = _safe_filename(title or str(job.get("title") or "GitHub热榜视频"))
     base_name = _official_video_base_name(job, job_id, safe_title)
-    target = _available_video_path(job_dir, base_name)
-    shutil.copy2(source, target)
-    append_log(job_id, f"正式视频文件已生成: {target.name}")
-    publish_target = _copy_to_official_output_dir(job_id, job, source, base_name)
-    if publish_target:
-        append_log(job_id, f"正式视频文件已复制到指定目录: {publish_target}")
+    target = _write_to_official_output_dir(job, source, base_name)
+    append_log(job_id, f"正式视频文件已输出到指定目录: {target}")
     update_job(job_id, status="completed", stage="completed", official_video=str(target))
     return {"job": read_job(job_id), "artifacts": job_artifacts(job_id)}
 
@@ -932,11 +928,11 @@ def _official_issue_number(job: dict[str, Any], job_id: str) -> int:
             pass
     return 1
 
-def _copy_to_official_output_dir(job_id: str, job: dict[str, Any], source: Path, base_name: str) -> Path | None:
+def _write_to_official_output_dir(job: dict[str, Any], source: Path, base_name: str) -> Path:
     params = job.get("template_params") or {}
     output_dir_text = str(params.get("official_output_dir") or "").strip()
     if not output_dir_text:
-        return None
+        raise ValueError("请先配置正式视频保存目录")
     output_dir = Path(output_dir_text).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
     target = _available_video_path(output_dir, base_name)
@@ -946,10 +942,26 @@ def _copy_to_official_output_dir(job_id: str, job: dict[str, Any], source: Path,
 def _video_versions(job_id: str) -> list[dict[str, Any]]:
     job = read_job(job_id) or {}
     official_name = Path(str(job.get("official_video") or "")).name
+    official_text = str(job.get("official_video") or "").strip()
+    official_path = Path(official_text) if official_text else None
     job_dir = JOBS_DIR / job_id
     if not job_dir.exists():
         return []
     versions = []
+    if official_path and official_path.exists() and not _is_relative_to(official_path, job_dir):
+        try:
+            stat = official_path.stat()
+            versions.append({
+                "name": official_path.name,
+                "path": str(official_path),
+                "size": stat.st_size,
+                "updated_at": int(stat.st_mtime),
+                "duration_seconds": _probe_video_duration(official_path),
+                "is_official": True,
+                "external": True,
+            })
+        except OSError:
+            pass
     for path in sorted({*job_dir.glob(f"{job_id}-*.mp4"), *job_dir.glob(f"{_job_date_prefix(job_id)}-*.mp4")}):
         if path.is_symlink() or not path.is_file():
             continue
@@ -966,6 +978,13 @@ def _video_versions(job_id: str) -> list[dict[str, Any]]:
             "is_official": bool(official_name and path.name == official_name),
         })
     return sorted(versions, key=lambda item: (item["updated_at"], _version_index(str(item["name"]))))
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
 
 def _probe_video_duration(path: Path) -> float | None:
     try:

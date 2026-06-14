@@ -17,6 +17,7 @@ from src.utils.config import BGM_VOLUME, OUTPUT_DIR, ROOT_DIR
 
 CONFIG_DIR = ROOT_DIR / ".config" / "video-console"
 JOBS_DIR = OUTPUT_DIR / "jobs"
+DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频"
 
 
 DEFAULT_PROVIDERS = {
@@ -83,7 +84,7 @@ DEFAULT_SCHEDULER = {
     "time": "09:00",
     "time_window": "daily",
     "project_count": 5,
-    "template_params": {},
+    "template_params": {"official_output_dir": DEFAULT_OFFICIAL_OUTPUT_DIR},
     "last_run_date": "",
 }
 
@@ -91,6 +92,7 @@ DEFAULT_TEMPLATES = {
     "active_template": "github_hotlist_vertical_v1",
     "github_hotlist_vertical_v1": {
         "style": "tech_hotspot",
+        "official_output_dir": DEFAULT_OFFICIAL_OUTPUT_DIR,
         **default_params_for_style("tech_hotspot"),
     },
 }
@@ -737,7 +739,7 @@ def _normalize_templates(data: dict[str, Any]) -> dict[str, Any]:
     merged["orientation"] = "vertical"
     merged["bgm_volume"] = _normalize_bgm_volume(merged.get("bgm_volume", BGM_VOLUME))
     merged["bgm_path"] = str(merged.get("bgm_path") or "")
-    merged["official_output_dir"] = str(merged.get("official_output_dir") or "")
+    merged["official_output_dir"] = str(merged.get("official_output_dir") or DEFAULT_OFFICIAL_OUTPUT_DIR)
     normalized_issue = _normalize_issue_number(merged.get("issue_number"))
     if normalized_issue is None:
         merged.pop("issue_number", None)
@@ -770,7 +772,7 @@ def _normalize_template_param_patch(params: Any) -> dict[str, Any]:
     if "bgm_path" in item:
         item["bgm_path"] = str(item.get("bgm_path") or "")
     if "official_output_dir" in item:
-        item["official_output_dir"] = str(item.get("official_output_dir") or "")
+        item["official_output_dir"] = str(item.get("official_output_dir") or DEFAULT_OFFICIAL_OUTPUT_DIR)
     if "issue_number" in item:
         normalized_issue = _normalize_issue_number(item.get("issue_number"))
         if normalized_issue is None:
