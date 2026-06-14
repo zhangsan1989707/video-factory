@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -39,6 +39,7 @@ async function run() {
   testRenderSchedulerShowsAutoVideoMode();
   testSchedulerPayloadUsesScheduleVideoParams();
   testRenderScheduleRecentJobsIncludesCompletedScheduledJobs();
+  testScheduleRecentLabelShowsCompletedAndRunningState();
   testQualityNotesPreferStructuredIssues();
   testFocusScriptSegmentHighlightsTarget();
   testRenderQualityReportShowsLocateAction();
@@ -1230,6 +1231,21 @@ function testRenderScheduleRecentJobsIncludesCompletedScheduledJobs() {
   assert.match(box.innerHTML, /GH-HOTLIST-20990101-001/);
   assert.doesNotMatch(box.innerHTML, /GH-HOTLIST-20990101-002/);
   assert.equal(handlers.length, 1);
+}
+
+function testScheduleRecentLabelShowsCompletedAndRunningState() {
+  assert.equal(
+    scheduleRecentLabel({ status: "completed", stage: "completed" }),
+    "已完成 · 已完成",
+  );
+  assert.equal(
+    scheduleRecentLabel({ status: "running", stage: "generating_tts" }),
+    "运行中 · 生成语音",
+  );
+  assert.match(
+    scheduleRecentLabel({ status: "failed", stage: "preparing_plan", error: "计划文件校验失败" }),
+    /失败：计划文件校验失败/,
+  );
 }
 
 function scheduleNodes() {

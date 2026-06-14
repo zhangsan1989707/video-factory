@@ -10,7 +10,7 @@ from typing import Any
 
 from src.console.background import active_job
 from src.console.jobs import create_hotlist_job, generate_candidates, prepare_plan, render_video, save_script, save_selection, validate_plan
-from src.console.store import CONFIG_DIR, DEFAULT_SCHEDULER, DEFAULT_TEMPLATES, bool_value, config_snapshot, normalize_project_count, normalize_time_window, read_json, update_scheduler_last_run
+from src.console.store import CONFIG_DIR, DEFAULT_SCHEDULER, DEFAULT_TEMPLATES, bool_value, config_snapshot, normalize_project_count, normalize_time_window, read_json, update_job, update_scheduler_last_run
 from src.hotlist_v2.template import normalize_style
 
 
@@ -51,6 +51,7 @@ def run_due_scheduled_draft(now: datetime | None = None, force: bool = False) ->
         merged_job = {**job, **(result.get("job") or {})}
         merged_job["scheduled"] = True
         merged_job["schedule_mode"] = schedule.get("mode") or "candidates_only"
+        update_job(job["id"], scheduled=True, schedule_mode=merged_job["schedule_mode"])
         return {"started": True, "reason": "due", "job": merged_job}
     finally:
         with _LOCK:

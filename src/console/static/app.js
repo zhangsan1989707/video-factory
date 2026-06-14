@@ -236,7 +236,7 @@ function renderScheduleRecentJobs(jobs) {
     <div class="history-item scheduled">
       <button class="history-open" data-schedule-recent-job="${escapeAttr(job.id || "")}">
         <code>${escapeHtml(job.id || "")}</code>
-        <span class="status ${escapeAttr(job.status || "")}">${escapeHtml(scheduleQueueLabel(job))}</span>
+        <span class="status ${escapeAttr(job.status || "")}">${escapeHtml(scheduleRecentLabel(job))}</span>
       </button>
     </div>
   `).join("");
@@ -246,6 +246,18 @@ function renderScheduleRecentJobs(jobs) {
       loadJob(item.dataset.scheduleRecentJob);
     });
   });
+}
+
+function scheduleRecentLabel(job) {
+  const status = String(job.status || "");
+  const stage = String(job.stage || "");
+  const labels = {
+    completed: `已完成 · ${stageLabel(stage)}`,
+    failed: `失败：${_shortUiText(job.error || job.failed_stage || "待查看", 36)}`,
+    running: `运行中 · ${stageLabel(stage)}`,
+    awaiting_input: `待处理 · ${scheduleQueueLabel(job)}`,
+  };
+  return labels[status] || scheduleQueueLabel(job);
 }
 
 function renderHistoryJobs(jobs) {
@@ -1744,7 +1756,7 @@ function schedulerPayloadFromForm(current) {
 }
 
 function openScheduleView() {
-  renderScheduler(state.config?.scheduler || {});
+  void refreshScheduleView();
   $("scheduleView").hidden = false;
 }
 
@@ -1785,9 +1797,8 @@ async function runScheduleNow() {
     await loadConfig();
     const result = await post("/api/scheduler/run-due", { force: true });
     if (result.job?.id) {
-      closeScheduleView();
       await loadJobs();
-      await loadJob(result.job.id);
+      $("scheduleMessage").textContent = `试跑已启动/完成: ${result.job.id}`;
     } else {
       $("scheduleMessage").textContent = result.reason === "not_due" ? "当前计划尚未到执行时间" : result.reason || "未启动";
     }
@@ -1795,6 +1806,18 @@ async function runScheduleNow() {
     $("scheduleMessage").textContent = error.message;
   } finally {
     setBusy(false);
+  }
+}
+
+async function refreshScheduleView() {
+  try {
+    const config = state.config || await api("/api/config");
+    state.config = config;
+    renderScheduler(config.scheduler || {});
+    const jobs = await api("/api/jobs");
+    renderScheduleRecentJobs(jobs.jobs || []);
+  } catch (error) {
+    console.error(error);
   }
 }
 
@@ -1964,5 +1987,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

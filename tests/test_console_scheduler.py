@@ -55,6 +55,9 @@ class ConsoleSchedulerTest(unittest.TestCase):
             self.assertEqual(first["job"]["stage"], "awaiting_project_confirmation")
             self.assertEqual(second["reason"], "not_due")
             self.assertEqual(len(calls), 1)
+            saved_job = read_json(jobs_dir / first["job"]["id"] / "task.json", {})
+            self.assertIs(saved_job["scheduled"], True)
+            self.assertEqual(saved_job["schedule_mode"], "candidates_only")
             saved = read_json(config_dir / "scheduler.json", {})
             self.assertEqual(saved["last_run_date"], "2099-01-02")
 

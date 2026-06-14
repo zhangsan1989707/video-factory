@@ -335,6 +335,8 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "template": template["name"],
         "template_params": template["params"],
         "project_count": normalize_project_count(payload.get("project_count")),
+        "scheduled": bool_value(payload.get("scheduled")),
+        "schedule_mode": str(payload.get("schedule_mode") or ""),
         "job_dir": str(job_dir),
         "official_video": "",
         "error": "",
