@@ -888,6 +888,7 @@ function templateParamNodes(prefix = "") {
     bgmMode: $(`${prefix}BgmMode`),
     bgmVolume: $(`${prefix}BgmVolume`),
     bgmPath: $(`${prefix}BgmPath`),
+    officialOutputDir: prefix ? $(`${prefix}OfficialOutputDir`) : null,
     issueNumber: prefix ? null : $("issueNumber"),
   };
 }
@@ -904,6 +905,7 @@ function currentTemplateParams(prefix = "") {
     bgm: nodes.bgmMode.value,
     bgm_volume: normalizedBgmVolume(undefined, prefix),
     bgm_path: nodes.bgmPath.value.trim(),
+    official_output_dir: nodes.officialOutputDir ? nodes.officialOutputDir.value.trim() : "",
     issue_number: issueVal,
   };
 }
@@ -936,6 +938,7 @@ function applyTemplateParams(params, prefix = "") {
   if (params.bgm) nodes.bgmMode.value = params.bgm;
   setBgmVolume(params.bgm_volume, prefix);
   nodes.bgmPath.value = params.bgm_path || "";
+  if (nodes.officialOutputDir) nodes.officialOutputDir.value = params.official_output_dir || "";
   const issueInput = nodes.issueNumber;
   if (issueInput) issueInput.value = params.issue_number != null ? params.issue_number : "";
 }
@@ -1005,6 +1008,7 @@ function templatePayload(current) {
       bgm: params.bgm,
       bgm_volume: params.bgm_volume,
       bgm_path: params.bgm_path,
+      official_output_dir: params.official_output_dir,
       narration_tone: params.narration_tone,
       orientation: "vertical",
     },

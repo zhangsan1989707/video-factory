@@ -661,6 +661,7 @@ function testTemplatePayloadUsesActiveTemplate() {
     bgm: "none",
     bgm_volume: 0.32,
     bgm_path: "",
+    official_output_dir: "",
     narration_tone: "short_video_hook",
   });
 }
@@ -1193,6 +1194,7 @@ function testSchedulerPayloadUsesScheduleVideoParams() {
   nodes.scheduleBgmMode.value = "custom";
   nodes.scheduleBgmVolume.value = "0.12";
   nodes.scheduleBgmPath.value = "/tmp/bgm.mp3";
+  nodes.scheduleOfficialOutputDir.value = "/tmp/published";
   global.document = {
     getElementById(id) {
       return nodes[id];
@@ -1206,6 +1208,7 @@ function testSchedulerPayloadUsesScheduleVideoParams() {
   assert.equal(payload.template_params.style, "bytedance_product");
   assert.equal(payload.template_params.bgm_volume, 0.12);
   assert.equal(payload.template_params.bgm_path, "/tmp/bgm.mp3");
+  assert.equal(payload.template_params.official_output_dir, "/tmp/published");
   assert.equal(payload.last_run_date, "2099-01-02");
 }
 
@@ -1280,6 +1283,7 @@ function scheduleNodes() {
     scheduleBgmMode: { value: "default" },
     scheduleBgmVolume: { value: "0.065" },
     scheduleBgmPath: { value: "" },
+    scheduleOfficialOutputDir: { value: "" },
   };
 }
 

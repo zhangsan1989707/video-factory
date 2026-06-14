@@ -901,11 +901,47 @@ def finalize_numbered_output(job_id: str, title: str = "") -> dict[str, Any]:
     if not source.exists():
         raise ValueError("final.mp4 不存在，无法生成带编号正式文件")
     safe_title = _safe_filename(title or str(job.get("title") or "GitHub热榜视频"))
-    target = _available_video_path(job_dir, f"{job_id}-{safe_title}")
+    base_name = _official_video_base_name(job, job_id, safe_title)
+    target = _available_video_path(job_dir, base_name)
     shutil.copy2(source, target)
     append_log(job_id, f"正式视频文件已生成: {target.name}")
+    publish_target = _copy_to_official_output_dir(job_id, job, source, base_name)
+    if publish_target:
+        append_log(job_id, f"正式视频文件已复制到指定目录: {publish_target}")
     update_job(job_id, status="completed", stage="completed", official_video=str(target))
     return {"job": read_job(job_id), "artifacts": job_artifacts(job_id)}
+
+def _official_video_base_name(job: dict[str, Any], job_id: str, safe_title: str) -> str:
+    return f"{_job_date_prefix(job_id)}-第{_official_issue_number(job, job_id):03d}期-{safe_title}"
+
+def _job_date_prefix(job_id: str) -> str:
+    parts = job_id.split("-")
+    if len(parts) >= 3 and re.fullmatch(r"\d{8}", parts[2] or ""):
+        return "-".join(parts[:3])
+    return job_id
+
+def _official_issue_number(job: dict[str, Any], job_id: str) -> int:
+    issue = _issue_number(job)
+    if issue is not None:
+        return issue
+    parts = job_id.split("-")
+    if len(parts) >= 4:
+        try:
+            return int(parts[3])
+        except ValueError:
+            pass
+    return 1
+
+def _copy_to_official_output_dir(job_id: str, job: dict[str, Any], source: Path, base_name: str) -> Path | None:
+    params = job.get("template_params") or {}
+    output_dir_text = str(params.get("official_output_dir") or "").strip()
+    if not output_dir_text:
+        return None
+    output_dir = Path(output_dir_text).expanduser()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target = _available_video_path(output_dir, base_name)
+    shutil.copy2(source, target)
+    return target
 
 def _video_versions(job_id: str) -> list[dict[str, Any]]:
     job = read_job(job_id) or {}
@@ -914,7 +950,7 @@ def _video_versions(job_id: str) -> list[dict[str, Any]]:
     if not job_dir.exists():
         return []
     versions = []
-    for path in job_dir.glob(f"{job_id}-*.mp4"):
+    for path in sorted({*job_dir.glob(f"{job_id}-*.mp4"), *job_dir.glob(f"{_job_date_prefix(job_id)}-*.mp4")}):
         if path.is_symlink() or not path.is_file():
             continue
         try:

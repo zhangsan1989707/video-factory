@@ -719,7 +719,7 @@ def _normalize_templates(data: dict[str, Any]) -> dict[str, Any]:
         template = {**template, "style": template.get("visual_style")}
     has_render_engine = "render_engine" in template
     merged = dict(DEFAULT_TEMPLATES[active])
-    for key in ("project_count", "style", "render_engine", "subtitle_mode", "bgm", "bgm_volume", "narration_tone", "orientation", "bgm_path", "issue_number"):
+    for key in ("project_count", "style", "render_engine", "subtitle_mode", "bgm", "bgm_volume", "narration_tone", "orientation", "bgm_path", "issue_number", "official_output_dir"):
         if key in template:
             merged[key] = template[key]
     merged["project_count"] = normalize_project_count(merged.get("project_count"))
@@ -737,6 +737,7 @@ def _normalize_templates(data: dict[str, Any]) -> dict[str, Any]:
     merged["orientation"] = "vertical"
     merged["bgm_volume"] = _normalize_bgm_volume(merged.get("bgm_volume", BGM_VOLUME))
     merged["bgm_path"] = str(merged.get("bgm_path") or "")
+    merged["official_output_dir"] = str(merged.get("official_output_dir") or "")
     normalized_issue = _normalize_issue_number(merged.get("issue_number"))
     if normalized_issue is None:
         merged.pop("issue_number", None)
@@ -768,6 +769,8 @@ def _normalize_template_param_patch(params: Any) -> dict[str, Any]:
         item.pop("narration_tone", None)
     if "bgm_path" in item:
         item["bgm_path"] = str(item.get("bgm_path") or "")
+    if "official_output_dir" in item:
+        item["official_output_dir"] = str(item.get("official_output_dir") or "")
     if "issue_number" in item:
         normalized_issue = _normalize_issue_number(item.get("issue_number"))
         if normalized_issue is None:
