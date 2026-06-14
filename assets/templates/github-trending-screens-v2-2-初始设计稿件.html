@@ -220,8 +220,8 @@ body {
 .lang-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
 .intro-date {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);
-  background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06);
+  font-family: var(--font-mono); font-size: 11px; color: var(--accent-cyan);
+  background: rgba(0,212,255,0.1); border: 1px solid rgba(0,212,255,0.28);
   border-radius: 8px; padding: 6px 14px;
 }
 
@@ -277,7 +277,11 @@ body {
   display: flex; align-items: center; justify-content: space-between;
 }
 
-.list-date-chip { font-family: var(--font-mono); font-size: 9px; color: var(--text-dim); }
+.list-date-chip {
+  font-family: var(--font-mono); font-size: 9px; color: var(--accent-cyan);
+  background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.22);
+  border-radius: 999px; padding: 3px 8px;
+}
 
 .filter-pills { display: flex; gap: 6px; }
 
@@ -540,7 +544,8 @@ body {
 .hook-ep-badge {
   display: inline-flex; align-items: center; gap: 6px;
   font-family: var(--font-mono); font-size: 9px; color: var(--accent-cyan);
-  border: 1px solid rgba(0,212,255,0.25); border-radius: 6px;
+  background: rgba(0,212,255,0.09);
+  border: 1px solid rgba(0,212,255,0.28); border-radius: 6px;
   padding: 3px 10px; margin-bottom: 16px; letter-spacing: 0.1em;
 }
 
@@ -759,7 +764,7 @@ body {
               </div>
             </div>
 
-            <div class="intro-date anim-delay-4">2026 年 6 月 9 日 · 第 24 期</div>
+            <div class="intro-date anim-delay-4">2026 年 6 月 14 日 · 第 24 期</div>
           </div>
 
           <div class="intro-bottom anim-delay-5">
@@ -800,7 +805,7 @@ body {
               <div class="header-badge">● 实时</div>
             </div>
             <div class="list-meta">
-              <span class="list-date-chip">2026.06.09 · 本周</span>
+              <span class="list-date-chip">2026.06.14 · 本周</span>
               <div class="filter-pills">
                 <div class="filter-pill active">全部</div>
                 <div class="filter-pill inactive">AI</div>

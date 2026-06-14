@@ -193,7 +193,10 @@ body {
 .lang-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
 .intro-date {
-  font-size: 11px; color: var(--text-tertiary);
+  display: inline-flex; align-items: center;
+  font-size: 11px; color: var(--accent); font-weight: 500;
+  background: rgba(0,122,255,0.07); border: 0.5px solid rgba(0,122,255,0.18);
+  border-radius: 18px; padding: 5px 12px;
 }
 
 .intro-bottom {
@@ -249,7 +252,11 @@ body {
   display: flex; align-items: center; justify-content: space-between;
 }
 
-.list-date-chip { font-size: 11px; color: var(--text-tertiary); }
+.list-date-chip {
+  font-size: 11px; color: var(--accent);
+  background: rgba(0,122,255,0.07); border: 0.5px solid rgba(0,122,255,0.18);
+  border-radius: 18px; padding: 4px 10px;
+}
 
 .filter-pills { display: flex; gap: 6px; }
 
@@ -492,7 +499,8 @@ body {
 .hook-ep-badge {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 10px; color: var(--accent); font-weight: 500;
-  border: 0.5px solid rgba(0,122,255,0.15); border-radius: 8px;
+  background: rgba(0,122,255,0.07);
+  border: 0.5px solid rgba(0,122,255,0.18); border-radius: 8px;
   padding: 4px 12px; margin-bottom: 20px; letter-spacing: 0.04em;
 }
 
@@ -691,7 +699,7 @@ body {
               </div>
             </div>
 
-            <div class="intro-date anim-4">2026 年 6 月 9 日 · 第 24 期</div>
+            <div class="intro-date anim-4">2026 年 6 月 14 日 · 第 24 期</div>
           </div>
 
           <div class="intro-bottom anim-5">
@@ -727,7 +735,7 @@ body {
               <div class="header-badge">● 实时</div>
             </div>
             <div class="list-meta">
-              <span class="list-date-chip">2026.06.09 · 本周</span>
+              <span class="list-date-chip">2026.06.14 · 本周</span>
               <div class="filter-pills">
                 <div class="filter-pill active">全部</div>
                 <div class="filter-pill inactive">AI</div>

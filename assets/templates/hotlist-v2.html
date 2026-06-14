@@ -195,8 +195,8 @@ body {
 .lang-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 
 .intro-date {
-  font-family: var(--font-mono); font-size: 22px; color: var(--text-dim);
-  background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06);
+  font-family: var(--font-mono); font-size: 22px; color: var(--accent-cyan);
+  background: rgba(var(--accent-cyan-rgb), 0.1); border: 1px solid rgba(var(--accent-cyan-rgb), 0.28);
   border-radius: 14px; padding: 13px 24px; margin-bottom: 24px;
   animation: fadeInUp 0.6s ease both; animation-delay: 0.55s;
 }
@@ -235,7 +235,11 @@ body {
   padding: 8px 16px; border-radius: 12px; letter-spacing: 0.1em;
 }
 .list-meta { display: flex; align-items: center; justify-content: space-between; }
-.list-date-chip { font-family: var(--font-mono); font-size: 18px; color: var(--text-dim); }
+.list-date-chip {
+  font-family: var(--font-mono); font-size: 18px; color: var(--accent-cyan);
+  background: rgba(var(--accent-cyan-rgb), 0.08); border: 1px solid rgba(var(--accent-cyan-rgb), 0.22);
+  border-radius: 999px; padding: 7px 14px;
+}
 .filter-pills { display: flex; gap: 8px; }
 .filter-pill {
   font-family: var(--font-mono); font-size: 16px; padding: 6px 14px;
@@ -554,7 +558,8 @@ body {
 .hook-ep-badge {
   display: inline-flex; align-items: center; gap: 8px;
   font-family: var(--font-mono); font-size: 17px; color: var(--accent-cyan);
-  border: 1px solid rgba(var(--accent-cyan-rgb), 0.25); border-radius: 8px;
+  background: rgba(var(--accent-cyan-rgb), 0.09);
+  border: 1px solid rgba(var(--accent-cyan-rgb), 0.28); border-radius: 8px;
   padding: 7px 16px; margin-bottom: 24px; letter-spacing: 0.1em;
 }
 .hook-title {
@@ -719,10 +724,10 @@ body {
 .lang-dot { width: 11px; height: 11px; }
 .lang-distribution { display: none; }
 .intro-date, .list-date-chip, .hook-ep-badge {
-  background: transparent;
-  border: 0.5px solid rgba(0,0,0,0.12);
+  background: rgba(var(--accent-cyan-rgb), 0.08);
+  border: 0.5px solid rgba(var(--accent-cyan-rgb), 0.2);
   border-radius: 999px;
-  color: var(--text-dim);
+  color: var(--accent-cyan);
   font-family: var(--font-body);
   font-weight: 500;
   letter-spacing: 0;
@@ -994,8 +999,9 @@ body {
   color: #c0a070;
 }
 .intro-date {
-  background: rgba(255,255,255,0.04);
-  border-color: rgba(255,255,255,0.1);
+  background: rgba(var(--accent-cyan-rgb), 0.1);
+  border-color: rgba(var(--accent-cyan-rgb), 0.28);
+  color: var(--accent-cyan);
 }
 .rank-item {
   box-shadow: 0 1px 3px rgba(0,0,0,0.3);
@@ -1089,6 +1095,11 @@ body {
   background: linear-gradient(180deg, #ffffff 0%, #faf9f7 100%);
 }
 .list-screen, .detail-screen, .hook-screen { background: #ffffff; }
+.intro-date, .list-date-chip, .hook-ep-badge {
+  background: rgba(var(--accent-cyan-rgb), 0.06);
+  border-color: rgba(var(--accent-cyan-rgb), 0.24);
+  color: var(--accent-cyan);
+}
 .stat-chip { padding: 20px 18px; }
 .intro-cta {
   background: rgba(var(--accent-cyan-rgb), 0.04);
@@ -1116,9 +1127,14 @@ body {
 {% if style_key == "bytedance_product" %}
 /* === ByteDance Product: clean, gradient spots, rounded badges === */
 .intro-screen {
-  background: linear-gradient(180deg, #f7f8fa 0%, #ffffff 50%, #f7f8fa 100%);
+  background: linear-gradient(180deg, #f4f7ff 0%, #ffffff 50%, #f4f7ff 100%);
 }
 .list-screen, .detail-screen, .hook-screen { background: var(--canvas-bg); }
+.intro-date, .list-date-chip, .hook-ep-badge {
+  background: rgba(var(--accent-cyan-rgb), 0.08);
+  border-color: rgba(var(--accent-cyan-rgb), 0.22);
+  color: var(--accent-cyan);
+}
 .detail-hero-card {
   background: #ffffff; border: none;
   box-shadow: 0 2px 12px rgba(0,0,0,0.06), inset 4px 0 0 var(--accent-cyan);
@@ -1180,10 +1196,6 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  background: #ffffff;
-  border: 1px solid #d9dde5;
-  border-radius: 999px;
-  color: var(--text-secondary);
 }
 .intro-date::after {
   content: '↗';
@@ -1212,6 +1224,11 @@ body {
   background: linear-gradient(180deg, var(--canvas-bg) 0%, #fffaf0 50%, var(--canvas-bg) 100%);
 }
 .list-screen, .detail-screen, .hook-screen { background: var(--canvas-bg); }
+.intro-date, .list-date-chip, .hook-ep-badge {
+  background: rgba(var(--accent-cyan-rgb), 0.08);
+  border-color: rgba(var(--accent-cyan-rgb), 0.25);
+  color: var(--accent-cyan);
+}
 .detail-hero-card {
   background: linear-gradient(135deg, rgba(201,168,76,0.06), #ffffff 40%);
   border: 1.5px solid rgba(201,168,76,0.3);
