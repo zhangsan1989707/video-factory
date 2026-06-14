@@ -10,6 +10,8 @@ const state = {
   _refreshInFlight: false,
 };
 
+const DEFAULT_BGM_VOLUME = 0.13;
+
 const $ = (id) => document.getElementById(id);
 
 async function api(path, options = {}) {
@@ -820,8 +822,23 @@ function currentTemplateParams() {
     subtitle_mode: $("subtitleMode").value,
     narration_tone: $("tone").value,
     bgm: $("bgmMode").value,
+    bgm_volume: normalizedBgmVolume(),
     bgm_path: $("bgmPath").value.trim(),
   };
+}
+
+function normalizedBgmVolume(value) {
+  const node = $("bgmVolume");
+  const raw = value != null ? value : (node ? node.value : DEFAULT_BGM_VOLUME);
+  const number = Number(raw);
+  if (!Number.isFinite(number)) return DEFAULT_BGM_VOLUME;
+  return Math.min(1, Math.max(0, number));
+}
+
+function setBgmVolume(value) {
+  const node = $("bgmVolume");
+  if (!node) return;
+  node.value = normalizedBgmVolume(value).toFixed(2);
 }
 
 function applyTemplateParams(params) {
@@ -832,6 +849,7 @@ function applyTemplateParams(params) {
   if (params.subtitle_mode) $("subtitleMode").value = params.subtitle_mode;
   if (params.narration_tone) $("tone").value = params.narration_tone;
   if (params.bgm) $("bgmMode").value = params.bgm;
+  setBgmVolume(params.bgm_volume);
   $("bgmPath").value = params.bgm_path || "";
 }
 
@@ -878,6 +896,7 @@ function templatePayload(current) {
       render_engine: params.render_engine,
       subtitle_mode: params.subtitle_mode,
       bgm: params.bgm,
+      bgm_volume: params.bgm_volume,
       bgm_path: params.bgm_path,
       narration_tone: params.narration_tone,
       orientation: "vertical",
@@ -1768,5 +1787,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, recoveryHintForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleQueueLabel, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, recoveryHintForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleQueueLabel, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

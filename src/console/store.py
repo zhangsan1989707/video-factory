@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from src.hotlist_v2.template import default_params_for_style, list_template_styles, normalize_style, render_engine_for_style
-from src.utils.config import OUTPUT_DIR, ROOT_DIR
+from src.utils.config import BGM_VOLUME, OUTPUT_DIR, ROOT_DIR
 
 
 CONFIG_DIR = ROOT_DIR / ".config" / "video-console"
@@ -717,7 +717,7 @@ def _normalize_templates(data: dict[str, Any]) -> dict[str, Any]:
         template = {**template, "style": template.get("visual_style")}
     has_render_engine = "render_engine" in template
     merged = dict(DEFAULT_TEMPLATES[active])
-    for key in ("project_count", "style", "render_engine", "subtitle_mode", "bgm", "narration_tone", "orientation", "bgm_path"):
+    for key in ("project_count", "style", "render_engine", "subtitle_mode", "bgm", "bgm_volume", "narration_tone", "orientation", "bgm_path"):
         if key in template:
             merged[key] = template[key]
     merged["project_count"] = normalize_project_count(merged.get("project_count"))
@@ -733,6 +733,7 @@ def _normalize_templates(data: dict[str, Any]) -> dict[str, Any]:
     if merged.get("narration_tone") not in {"professional_review", "short_video_hook", "calm_analysis"}:
         merged["narration_tone"] = DEFAULT_TEMPLATES[active]["narration_tone"]
     merged["orientation"] = "vertical"
+    merged["bgm_volume"] = _normalize_bgm_volume(merged.get("bgm_volume", BGM_VOLUME))
     merged["bgm_path"] = str(merged.get("bgm_path") or "")
     item["active_template"] = active
     item[active] = merged
@@ -754,12 +755,21 @@ def _normalize_template_param_patch(params: Any) -> dict[str, Any]:
         item.pop("subtitle_mode", None)
     if "bgm" in item and item.get("bgm") not in {"default", "none", "custom"}:
         item.pop("bgm", None)
+    if "bgm_volume" in item:
+        item["bgm_volume"] = _normalize_bgm_volume(item.get("bgm_volume"))
     if "narration_tone" in item and item.get("narration_tone") not in {"professional_review", "short_video_hook", "calm_analysis"}:
         item.pop("narration_tone", None)
     if "bgm_path" in item:
         item["bgm_path"] = str(item.get("bgm_path") or "")
     return item
 
+
+def _normalize_bgm_volume(value: Any) -> float:
+    try:
+        volume = float(value)
+    except (TypeError, ValueError):
+        return BGM_VOLUME
+    return min(1.0, max(0.0, volume))
 
 def _template_names(templates: dict[str, Any]) -> set[str]:
     return {name for name, value in templates.items() if name != "active_template" and isinstance(value, dict)}

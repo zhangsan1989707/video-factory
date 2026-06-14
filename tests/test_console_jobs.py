@@ -303,6 +303,12 @@ class ConsoleJobsTest(unittest.TestCase):
             self.assertTrue((job_dir / "script.json").exists())
             self.assertTrue((job_dir / "cover_frame.png").exists())
 
+    def test_bgm_volume_is_clamped(self) -> None:
+        self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": 0.42}}), 0.42)
+        self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": 2}}), 1.0)
+        self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": -1}}), 0.0)
+        self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": "loud"}}), 0.13)
+
     def test_save_single_project_script_runs_quality_and_publish_pack_without_deleting_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
@@ -361,6 +367,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 job = console_jobs.create_single_project_vertical_job({
                     "repo_url": "https://github.com/demo/alpha",
                     "title": "Alpha Review",
+                    "template_params": {"bgm_volume": 0.24},
                 })
                 job_dir = jobs_dir / job["id"]
                 write_json(job_dir / "asset_manifest.json", {"assets": []})
@@ -372,6 +379,7 @@ class ConsoleJobsTest(unittest.TestCase):
 
             self.assertEqual(calls[0]["from_plan"], str(jobs_dir / job["id"]))
             self.assertEqual(calls[0]["style"], "single-review")
+            self.assertEqual(calls[0]["bgm_volume"], 0.24)
             self.assertEqual(result["job"]["status"], "completed")
             self.assertTrue(Path(result["job"]["official_video"]).exists())
 
@@ -1373,7 +1381,7 @@ class ConsoleJobsTest(unittest.TestCase):
             ):
                 job = create_job("GH-HOTLIST-20990101-BGM", {
                     "project_count": 2,
-                    "template_params": {"bgm": "custom", "bgm_path": str(bgm_file)},
+                    "template_params": {"bgm": "custom", "bgm_path": str(bgm_file), "bgm_volume": 0.42},
                 })
                 _mark_awaiting_project_confirmation(job["id"])
                 selection = save_selection(job["id"], {"items": _sample_projects()})
@@ -1385,6 +1393,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(result["job"]["status"], "completed")
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(post_calls[0][1]["bgm_path"], str(bgm_file))
+                self.assertEqual(post_calls[0][1]["bgm_volume"], 0.42)
                 self.assertFalse(post_calls[0][1]["no_bgm"])
 
     def test_render_video_fails_for_missing_custom_bgm_path(self) -> None:

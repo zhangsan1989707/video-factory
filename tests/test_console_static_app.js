@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, recoveryHintForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleQueueLabel, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, qualityBlocksRender, qualityNotes, recoveryHintForJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleQueueLabel, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 
 async function run() {
   await testJsonSuccess();
@@ -16,6 +16,7 @@ async function run() {
   testUnverifiedQualityDoesNotHardBlockRender();
   testRenderTemplateStylesPopulatesStyleSelect();
   testTemplatePayloadUsesActiveTemplate();
+  testApplyTemplateParamsRestoresBgmVolume();
   testRenderArtifactsShowsPreviewAndOfficialVideo();
   testRenderArtifactSummaryShowsPublishMetadata();
   testRenderHistoryJobsShowsOpenAndDeleteActions();
@@ -236,6 +237,7 @@ async function testCreateDraftDoesNotCollectCandidates() {
     subtitleMode: { value: "large_hook" },
     tone: { value: "professional_review" },
     bgmMode: { value: "default" },
+    bgmVolume: { value: "0.13" },
     bgmPath: { value: "" },
     currentJobId: { textContent: "" },
     currentStage: { textContent: "" },
@@ -290,6 +292,7 @@ async function testCreateDraftDoesNotCollectCandidates() {
   assert.deepEqual(calls.map((call) => [call.method, call.path]), [["POST", "/api/jobs"], ["GET", "/api/jobs"]]);
   assert.equal(calls[0].body.time_window, "monthly");
   assert.equal(calls[0].body.project_count, 10);
+  assert.equal(calls[0].body.template_params.bgm_volume, 0.13);
   assert.equal(values.nextActionBtn.textContent, "生成候选草稿");
   assert.equal(values.nextActionBtn.dataset.action, "collect-candidates");
   assert.equal(values.logBox.textContent, "任务已按当前时间维度和项目数创建。点击“生成候选草稿”拉取候选项目。\n");
@@ -348,6 +351,7 @@ async function testCreateSingleProjectDraftUsesRepoUrl() {
     subtitleMode: { value: "large_hook" },
     tone: { value: "professional_review" },
     bgmMode: { value: "default" },
+    bgmVolume: { value: "0.13" },
     bgmPath: { value: "" },
     currentJobId: { textContent: "" },
     currentStage: { textContent: "" },
@@ -507,6 +511,7 @@ function testTemplatePayloadUsesActiveTemplate() {
     subtitleMode: { value: "standard" },
     tone: { value: "short_video_hook" },
     bgmMode: { value: "none" },
+    bgmVolume: { value: "0.32" },
     bgmPath: { value: "" },
   };
   global.document = {
@@ -530,9 +535,34 @@ function testTemplatePayloadUsesActiveTemplate() {
     project_count: 5,
     subtitle_mode: "standard",
     bgm: "none",
+    bgm_volume: 0.32,
     bgm_path: "",
     narration_tone: "short_video_hook",
   });
+}
+
+function testApplyTemplateParamsRestoresBgmVolume() {
+  const values = {
+    visualStyle: { value: "" },
+    renderEngine: { value: "" },
+    subtitleMode: { value: "" },
+    tone: { value: "" },
+    bgmMode: { value: "" },
+    bgmVolume: { value: "" },
+    bgmPath: { value: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return values[id];
+    },
+  };
+
+  applyTemplateParams({ bgm_volume: 0.45, bgm_path: "/tmp/music.mp3" });
+  assert.equal(values.bgmVolume.value, "0.45");
+  assert.equal(values.bgmPath.value, "/tmp/music.mp3");
+
+  applyTemplateParams({ bgm_volume: "loud" });
+  assert.equal(values.bgmVolume.value, "0.13");
 }
 
 function testRenderTemplateStylesPopulatesStyleSelect() {
@@ -739,6 +769,7 @@ function testRenderJobRefreshesEmbeddedStageHistory() {
     subtitleMode: { value: "" },
     tone: { value: "" },
     bgmMode: { value: "" },
+    bgmVolume: { value: "0.13" },
     bgmPath: { value: "" },
     nextActionBtn: { textContent: "", dataset: {}, disabled: false },
     confirmSelectionBtn: { textContent: "", disabled: false },
@@ -783,6 +814,7 @@ function testBusyRestoreKeepsLatestJobActionState() {
     subtitleMode: { value: "" },
     tone: { value: "" },
     bgmMode: { value: "" },
+    bgmVolume: { value: "0.13" },
     bgmPath: { value: "" },
     nextActionBtn: { textContent: "生成最终视频（耗时）", dataset: { action: "render-video" }, disabled: false },
     confirmSelectionBtn: { textContent: "", dataset: {}, disabled: true },
