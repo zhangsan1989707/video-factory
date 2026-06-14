@@ -399,6 +399,27 @@ class ConsoleJobsTest(unittest.TestCase):
             }),
         )
 
+    def test_narration_sanitizers_preserve_long_text_without_ellipsis(self) -> None:
+        long_text = (
+            "AI 代理写代码最麻烦的地方，不是它不会写，而是它太容易把一个小问题扩成一整套复杂架构。"
+            "Ponytail 的核心动作是把约束写进配置，让代理只交付解决当前问题的最少代码。"
+            "它讲的不是更聪明的代理，而是更克制的交付边界，让每次改动都能回到真实需求本身。"
+            "适合：被过度设计和无效抽象反复拖慢的自动化开发者。"
+        )
+        raw_segments = [
+            {"id": "intro", "label": "开场", "text": "这期看 AI 工具怎么回到真实工作流。"},
+            {"id": "project-1", "label": "第 1 名", "text": long_text},
+            {"id": "outro", "label": "结尾", "text": "你想看哪个项目实操，评论区打名字。"},
+        ]
+
+        model_segments = console_jobs._sanitize_model_segments([_sample_projects()[0]], raw_segments)
+        polished_segments = console_jobs._sanitize_polished_segments(raw_segments, raw_segments)
+
+        self.assertEqual(model_segments[1]["text"], long_text)
+        self.assertEqual(polished_segments[1]["text"], long_text)
+        self.assertFalse(model_segments[1]["text"].endswith("..."))
+        self.assertFalse(polished_segments[1]["text"].endswith("..."))
+
     def test_manifest_prefers_homepage_then_readme_image_then_repo(self) -> None:
         manifest = console_jobs._manifest([{
             "name": "alpha",

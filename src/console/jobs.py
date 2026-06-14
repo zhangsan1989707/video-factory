@@ -1980,7 +1980,7 @@ def _sanitize_polished_segments(
     for source in original:
         segment_id = str(source.get("id") or "")
         segment = by_id.get(segment_id)
-        text = _short_text(str(segment.get("text") or ""), 140) if segment else ""
+        text = _clean_narration_text(str(segment.get("text") or "")) if segment else ""
         if not segment_id or not text or _contains_producer_visual_jargon(text) or _contains_forbidden_narration(text):
             return []
         cleaned.append({
@@ -1996,7 +1996,7 @@ def _sanitize_model_segments(projects: list[dict[str, Any]], segments: list[dict
     cleaned = []
     for segment_id in expected:
         segment = by_id.get(segment_id)
-        text = _short_text(str(segment.get("text") or ""), 120) if segment else ""
+        text = _clean_narration_text(str(segment.get("text") or "")) if segment else ""
         if not text or _contains_producer_visual_jargon(text) or _contains_forbidden_narration(text):
             return []
         cleaned.append({
@@ -2005,6 +2005,9 @@ def _sanitize_model_segments(projects: list[dict[str, Any]], segments: list[dict
             "text": text,
         })
     return cleaned
+
+def _clean_narration_text(text: str) -> str:
+    return " ".join(text.split()).strip()
 
 def _segment_label(segment_id: str) -> str:
     if segment_id == "intro":
