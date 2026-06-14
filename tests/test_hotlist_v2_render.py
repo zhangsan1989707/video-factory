@@ -53,6 +53,9 @@ class HotlistV2RenderTest(unittest.TestCase):
                 self.assertIn('id="screen-detail-01"', html)
                 self.assertIn('id="screen-hook"', html)
                 self.assertIn('window.__timelines["main"]', html)
+                self.assertIn("#screen-intro .intro-badge", html)
+                self.assertIn("#screen-intro .intro-cta", html)
+                self.assertIn("animation: none;", html)
 
     def test_bytedance_intro_uses_product_visual_language(self) -> None:
         data = _data_from_projects([
