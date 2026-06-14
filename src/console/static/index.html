@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>视频工厂控制台</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260612-ux" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260614-issue" />
   </head>
   <body>
     <noscript>
@@ -46,6 +46,10 @@
               <option value="9">9</option>
               <option value="10">10</option>
             </select>
+          </label>
+          <label>
+            <span>期数</span>
+            <input id="issueNumber" type="number" min="1" max="999" placeholder="自动递增" style="width:90px">
           </label>
           <label id="repoUrlField" hidden>
             <span>仓库 URL</span>
@@ -160,7 +164,7 @@
           </label>
           <label>
             <span>BGM 音量</span>
-            <input id="bgmVolume" type="number" min="0" max="1" step="0.01" value="0.13">
+            <input id="bgmVolume" type="number" min="0" max="1" step="0.01" value="0.065">
           </label>
           <label>
             <span>BGM 路径</span>
@@ -339,6 +343,6 @@
       </div>
     </aside>
 
-    <script src="/static/app.js?v=20260612-fix2"></script>
+    <script src="/static/app.js?v=20260614-issue"></script>
   </body>
 </html>

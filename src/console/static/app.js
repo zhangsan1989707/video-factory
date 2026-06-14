@@ -10,7 +10,7 @@ const state = {
   _refreshInFlight: false,
 };
 
-const DEFAULT_BGM_VOLUME = 0.13;
+const DEFAULT_BGM_VOLUME = 0.065;
 
 const $ = (id) => document.getElementById(id);
 
@@ -816,6 +816,8 @@ function renderDiagnostics(detail) {
 }
 
 function currentTemplateParams() {
+  const issueInput = $("issueNumber");
+  const issueVal = issueInput && issueInput.value.trim() ? Number(issueInput.value) : null;
   return {
     style: $("visualStyle").value,
     render_engine: $("renderEngine").value,
@@ -824,6 +826,7 @@ function currentTemplateParams() {
     bgm: $("bgmMode").value,
     bgm_volume: normalizedBgmVolume(),
     bgm_path: $("bgmPath").value.trim(),
+    issue_number: issueVal,
   };
 }
 
@@ -851,6 +854,8 @@ function applyTemplateParams(params) {
   if (params.bgm) $("bgmMode").value = params.bgm;
   setBgmVolume(params.bgm_volume);
   $("bgmPath").value = params.bgm_path || "";
+  const issueInput = $("issueNumber");
+  if (issueInput) issueInput.value = params.issue_number != null ? params.issue_number : "";
 }
 
 function syncRenderEngineForStyle() {

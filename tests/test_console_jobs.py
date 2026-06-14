@@ -307,7 +307,7 @@ class ConsoleJobsTest(unittest.TestCase):
         self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": 0.42}}), 0.42)
         self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": 2}}), 1.0)
         self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": -1}}), 0.0)
-        self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": "loud"}}), 0.13)
+        self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": "loud"}}), 0.065)
 
     def test_save_single_project_script_runs_quality_and_publish_pack_without_deleting_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

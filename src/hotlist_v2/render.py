@@ -34,6 +34,7 @@ async def render_hotlist_v2(
     limit: int = 10,
     durations: dict[str, int] | None = None,
     style: str = DEFAULT_STYLE,
+    issue_number: int | None = None,
 ) -> Path:
     """Full pipeline: fetch → template → HyperFrames → TTS → final video.
 
@@ -43,12 +44,15 @@ async def render_hotlist_v2(
         token: GitHub API token
         limit: Number of projects to include
         durations: Optional screen duration overrides
+        issue_number: Optional issue number override (default: current ISO week)
 
     Returns:
         Path to final video
     """
     console.print("[bold cyan]Step 1/5:[/] Fetching GitHub trending data...")
     data = await fetch_trending(time_window, token=token, limit=limit)
+    if issue_number is not None:
+        data["issue"] = _resolve_issue_number(issue_number)
     return await render_hotlist_v2_from_data(data, output_path=output_path, durations=durations, style=style, limit=limit)
 
 
@@ -60,9 +64,10 @@ async def render_hotlist_v2_from_projects(
     narration_segments: list[dict] | None = None,
     stage_callback: Callable[[str, str], None] | None = None,
     limit: int = 10,
+    issue_number: int | None = None,
 ) -> Path:
     """Render a hotlist v2 video from already selected console project data."""
-    data = _data_from_projects(projects)
+    data = _data_from_projects(projects, issue_number=issue_number)
     return await render_hotlist_v2_from_data(
         data,
         output_path=output_path,
@@ -80,10 +85,11 @@ def render_hotlist_v2_previews_from_projects(
     durations: dict[str, int] | None = None,
     style: str = DEFAULT_STYLE,
     limit: int = 10,
+    issue_number: int | None = None,
 ) -> list[Path]:
     """Render static preview frames from the HyperFrames HTML template."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    data = _data_from_projects(projects)
+    data = _data_from_projects(projects, issue_number=issue_number)
     timeline = _timeline_context(data, durations, limit=limit)
     render_data = {**data, **timeline}
     html_dir = output_dir.parent / "hyperframes_preview_html"
@@ -164,7 +170,49 @@ def _emit_stage(stage_callback: Callable[[str, str], None] | None, stage: str, m
         stage_callback(stage, message)
 
 
-def _data_from_projects(projects: list[dict]) -> dict:
+def _resolve_issue_number(explicit: int | None = None) -> int:
+    """Resolve the issue number: explicit > auto-increment from history > ISO week."""
+    if explicit is not None and explicit > 0:
+        return int(explicit)
+    # Auto-increment: scan previous jobs for the highest issue number used
+    last_issue = _last_issue_from_history()
+    if last_issue is not None:
+        return last_issue + 1
+    # Fallback: current ISO week number
+    return datetime.now(CST).isocalendar()[1]
+
+
+def _last_issue_from_history() -> int | None:
+    """Scan existing job records to find the highest issue number previously used."""
+    try:
+        from src.console.store import JOBS_DIR, read_json
+        max_issue = None
+        for task_path in JOBS_DIR.glob("*/task.json"):
+            try:
+                job = read_json(task_path, {})
+                params = job.get("template_params") or {}
+                issue = params.get("issue_number")
+                if issue is not None and isinstance(issue, (int, float)) and int(issue) > 0:
+                    candidate = int(issue)
+                    if max_issue is None or candidate > max_issue:
+                        max_issue = candidate
+                # Also check the rendered data snapshot
+                data_path = task_path.parent / "trending-data.json"
+                if data_path.exists():
+                    data = read_json(data_path, {})
+                    issue_in_data = data.get("issue")
+                    if issue_in_data is not None and isinstance(issue_in_data, (int, float)) and int(issue_in_data) > 0:
+                        candidate = int(issue_in_data)
+                        if max_issue is None or candidate > max_issue:
+                            max_issue = candidate
+            except Exception:
+                continue
+        return max_issue
+    except Exception:
+        return None
+
+
+def _data_from_projects(projects: list[dict], issue_number: int | None = None) -> dict:
     """Normalize console selected projects to the hotlist v2 template shape."""
     normalized = []
     languages_seen: dict[str, str] = {}
@@ -226,10 +274,11 @@ def _data_from_projects(projects: list[dict]) -> dict:
     _dedupe_project_copy(normalized)
 
     now = datetime.now(CST)
+    resolved_issue = _resolve_issue_number(issue_number)
     languages = [{"name": name, "color": color} for name, color in list(languages_seen.items())[:6]]
     return {
         "date": f"{now.year} 年 {now.month} 月 {now.day} 日",
-        "issue": now.isocalendar()[1],
+        "issue": resolved_issue,
         "total_projects": len(normalized),
         "total_languages": len(languages),
         "total_new_stars": _star_display(total_daily_growth) if total_daily_growth else "待确认",

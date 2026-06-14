@@ -497,7 +497,7 @@ def prepare_plan(job_id: str) -> dict[str, Any]:
         write_json(job_dir / "info.json", {"projects": selected})
         visual_style = _visual_style(job)
         if _render_engine(job) == "hyperframes":
-            previews = render_hotlist_v2_previews_from_projects(selected, job_dir / "preview_frames", style=visual_style)
+            previews = render_hotlist_v2_previews_from_projects(selected, job_dir / "preview_frames", style=visual_style, issue_number=_issue_number(job))
         else:
             previews = render_vertical_previews(script, shot_plan, manifest, job_dir / "preview_frames")
         cover = _write_cover_frame(job_id, previews)
@@ -774,6 +774,7 @@ async def render_video(job_id: str) -> dict[str, Any]:
                 style=visual_style,
                 narration_segments=narration_segments,
                 stage_callback=on_pipeline_stage,
+                issue_number=_issue_number(job),
             )
             raise_if_cancelled(job_id)
             update_job(job_id, status="running", stage="post_processing")
@@ -1192,6 +1193,17 @@ def _render_engine(job: dict[str, Any]) -> str:
     if engine in {"hyperframes", "pil"}:
         return engine
     return render_engine_for_style(_visual_style(job))
+
+def _issue_number(job: dict[str, Any]) -> int | None:
+    params = job.get("template_params") or {}
+    val = params.get("issue_number")
+    if val is not None:
+        try:
+            n = int(val)
+            return n if n > 0 else None
+        except (TypeError, ValueError):
+            return None
+    return None
 
 def _pipeline_style_for_job(job: dict[str, Any]) -> str:
     job_type = _job_type(job)

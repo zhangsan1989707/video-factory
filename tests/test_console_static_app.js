@@ -550,6 +550,7 @@ function testApplyTemplateParamsRestoresBgmVolume() {
     bgmMode: { value: "" },
     bgmVolume: { value: "" },
     bgmPath: { value: "" },
+    issueNumber: { value: "" },
   };
   global.document = {
     getElementById(id) {
@@ -562,7 +563,7 @@ function testApplyTemplateParamsRestoresBgmVolume() {
   assert.equal(values.bgmPath.value, "/tmp/music.mp3");
 
   applyTemplateParams({ bgm_volume: "loud" });
-  assert.equal(values.bgmVolume.value, "0.13");
+  assert.equal(values.bgmVolume.value, "0.07");
 }
 
 function testRenderTemplateStylesPopulatesStyleSelect() {
