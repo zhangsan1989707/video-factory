@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>视频工厂控制台</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="/static/styles.css?v=20260614-schedule" />
+    <link rel="stylesheet" href="/static/styles.css?v=20260614-workbench" />
   </head>
   <body>
     <noscript>
@@ -14,11 +14,32 @@
     <div class="app">
       <header class="topbar">
         <div class="brand-block">
-          <div class="eyebrow">github-video / local console</div>
-          <h1>GitHub 热榜生产线</h1>
-          <div class="crumb">workspace: <code>video-factory</code></div>
+          <div class="brand-mark">GV</div>
+          <div>
+            <h1>视频生产工厂</h1>
+            <div class="crumb">workspace: <code>video-factory</code></div>
+          </div>
+        </div>
+        <div class="stage-strip">
+          <span class="stage-pill active"><span class="pulse-dot"></span>候选项目</span>
+          <span class="stage-pill">口播脚本</span>
+          <span class="stage-pill">渲染校验</span>
+          <span class="stage-pill">正式产物</span>
         </div>
         <div class="top-actions">
+          <button id="openScheduleBtn" class="ghost">定时生产</button>
+          <button id="openSettingsBtn" class="ghost">配置</button>
+          <button id="newJobBtn" class="ghost">新建任务</button>
+          <button id="nextActionBtn" class="primary" data-action="create">创建任务</button>
+        </div>
+      </header>
+
+      <aside class="left-rail panel">
+        <div class="rail-head">
+          <h2>任务设置</h2>
+        </div>
+        <section>
+          <div class="section-title">内容来源</div>
           <label>
             <span>任务类型</span>
             <select id="jobType">
@@ -49,7 +70,7 @@
           </label>
           <label>
             <span>期数</span>
-            <input id="issueNumber" type="number" min="1" max="999" placeholder="自动递增" style="width:90px">
+            <input id="issueNumber" type="number" min="1" max="999" placeholder="自动递增">
           </label>
           <label id="repoUrlField" hidden>
             <span>仓库 URL</span>
@@ -59,31 +80,6 @@
             <span>计划目录</span>
             <input id="planPath" placeholder="/Users/me/project/output/jobs/GH-...">
           </label>
-          <button id="nextActionBtn" class="primary" data-action="create">创建任务</button>
-          <button id="newJobBtn" class="ghost">新建任务</button>
-          <button id="openScheduleBtn" class="ghost">定时生产</button>
-          <button id="openSettingsBtn" class="ghost">配置</button>
-        </div>
-      </header>
-
-      <aside class="left-rail panel">
-        <section>
-          <div class="section-title">当前任务</div>
-          <div class="job-card">
-            <code id="currentJobId">未创建</code>
-            <div id="currentStage">等待创建任务</div>
-            <div id="currentModelCall" class="job-meta">model: -</div>
-            <div id="currentError" class="job-error" hidden></div>
-            <div id="recoveryHint" class="job-recovery" hidden></div>
-            <pre id="currentDiagnostics" class="job-diagnostics" hidden></pre>
-            <div class="regen-actions">
-              <button id="refreshCandidatesBtn" class="tiny" disabled title="跳过缓存，从 GitHub API 重新拉取最新候选数据">跳过缓存</button>
-              <button id="regenerateCandidatesBtn" class="tiny" disabled>重生成候选</button>
-              <button id="regenerateScriptBtn" class="tiny" disabled>重生成口播</button>
-              <button id="regenerateVideoBtn" class="tiny" disabled>重生成视频</button>
-              <button id="cancelJobBtn" class="tiny danger" disabled>取消任务</button>
-            </div>
-          </div>
         </section>
 
         <section class="run-summary">
@@ -96,33 +92,7 @@
         </section>
 
         <section>
-          <div class="section-title">配置状态</div>
-          <div class="kv">
-            <span>GitHub Token</span>
-            <strong id="githubStatus">读取中</strong>
-          </div>
-          <div class="kv">
-            <span>模型路由</span>
-            <strong id="routingStatus">按任务配置</strong>
-          </div>
-          <div class="kv">
-            <span>渲染环境</span>
-            <strong id="preflightStatus">检测中</strong>
-          </div>
-          <div class="kv">
-            <span>真实 smoke</span>
-            <strong id="realSmokeStatus">未运行</strong>
-          </div>
-          <button id="runRealSmokeBtn" class="tiny" type="button">运行真实 smoke</button>
-          <div class="kv">
-            <span>模板</span>
-            <strong>github_hotlist_vertical_v1</strong>
-          </div>
-          <button id="openScheduleSideBtn" class="tiny" type="button">打开定时生产</button>
-        </section>
-
-        <section>
-          <div class="section-title">模板参数</div>
+          <div class="section-title">视频模板</div>
           <label>
             <span>视觉风格</span>
             <select id="visualStyle">
@@ -156,6 +126,10 @@
               <option value="calm_analysis">冷静解读</option>
             </select>
           </label>
+        </section>
+
+        <section>
+          <div class="section-title">音频</div>
           <label>
             <span>BGM</span>
             <select id="bgmMode">
@@ -174,6 +148,31 @@
           </label>
         </section>
 
+        <section>
+          <div class="section-title">配置状态</div>
+          <div class="kv">
+            <span>GitHub Token</span>
+            <strong id="githubStatus">读取中</strong>
+          </div>
+          <div class="kv">
+            <span>模型路由</span>
+            <strong id="routingStatus">按任务配置</strong>
+          </div>
+          <div class="kv">
+            <span>渲染环境</span>
+            <strong id="preflightStatus">检测中</strong>
+          </div>
+          <div class="kv">
+            <span>真实 smoke</span>
+            <strong id="realSmokeStatus">未运行</strong>
+          </div>
+          <button id="runRealSmokeBtn" class="tiny" type="button">运行真实 smoke</button>
+          <div class="kv">
+            <span>模板</span>
+            <strong>github_hotlist_vertical_v1</strong>
+          </div>
+          <button id="openScheduleSideBtn" class="tiny" type="button">打开定时生产</button>
+        </section>
       </aside>
 
       <main class="workspace">
@@ -245,6 +244,27 @@
       </main>
 
       <aside class="right-rail panel">
+        <div class="rail-head">
+          <h2>任务上下文</h2>
+        </div>
+        <section>
+          <div class="section-title">当前任务</div>
+          <div class="job-card">
+            <code id="currentJobId">未创建</code>
+            <div id="currentStage">等待创建任务</div>
+            <div id="currentModelCall" class="job-meta">model: -</div>
+            <div id="currentError" class="job-error" hidden></div>
+            <div id="recoveryHint" class="job-recovery" hidden></div>
+            <pre id="currentDiagnostics" class="job-diagnostics" hidden></pre>
+            <div class="regen-actions">
+              <button id="refreshCandidatesBtn" class="tiny" disabled title="跳过缓存，从 GitHub API 重新拉取最新候选数据">跳过缓存</button>
+              <button id="regenerateCandidatesBtn" class="tiny" disabled>重生成候选</button>
+              <button id="regenerateScriptBtn" class="tiny" disabled>重生成口播</button>
+              <button id="regenerateVideoBtn" class="tiny" disabled>重生成视频</button>
+              <button id="cancelJobBtn" class="tiny danger" disabled>取消任务</button>
+            </div>
+          </div>
+        </section>
         <section>
           <div class="section-title action-title">
             <span>产物</span>
@@ -446,6 +466,6 @@
       </div>
     </aside>
 
-    <script src="/static/app.js?v=20260614-schedule"></script>
+    <script src="/static/app.js?v=20260614-workbench"></script>
   </body>
 </html>
