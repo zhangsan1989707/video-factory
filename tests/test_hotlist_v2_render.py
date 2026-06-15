@@ -10,9 +10,11 @@ from jinja2 import Environment, FileSystemLoader
 
 from src.hotlist_v2.render import (
     _build_script_from_timeline,
+    _build_script_from_spec,
     _build_video_spec,
     _data_from_projects,
     _render_hyperframes,
+    _render_data_from_spec,
     _timeline_context,
     _validate_video_spec,
     render_hotlist_v2_from_projects,
@@ -283,6 +285,29 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertEqual(spec["visual"]["theme_source"], "design.md")
         self.assertEqual(spec["visual"]["theme"], "custom_design")
         self.assertEqual(spec["visual"]["design_md"], str(design))
+
+    def test_render_data_and_script_are_rebuilt_from_spec(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "一个值得关注的项目。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+        spec = _build_video_spec(data, _timeline_context(data), style="tech_hotspot")
+        spec["scenes"][0]["voiceover"] = "这是来自 spec 的开场旁白。"
+        spec["scenes"][2]["voiceover"] = "这是拆镜后的排名镜头。"
+
+        render_data = _render_data_from_spec(data, spec)
+        script = _build_script_from_spec(spec)
+
+        self.assertEqual(render_data["intro_screen"]["narration"], "这是来自 spec 的开场旁白。")
+        self.assertEqual(render_data["detail_screens"][0]["narration"], "这是拆镜后的排名镜头。")
+        self.assertEqual(script.segments[0].narration, "这是来自 spec 的开场旁白。")
+        self.assertEqual(script.segments[2].narration, "这是拆镜后的排名镜头。")
+        self.assertEqual(script.total_duration, spec["video_basics"]["total_duration"])
 
     def test_video_spec_validator_rejects_bad_component_missing_transition_and_late_hook(self) -> None:
         data = _data_from_projects([

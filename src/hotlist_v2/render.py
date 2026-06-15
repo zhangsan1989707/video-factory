@@ -155,20 +155,19 @@ async def render_hotlist_v2_from_data(
     audio_dir = work_dir / "audio"
     segment_durations = _audio_segment_durations(script, audio_dir)
     timeline = _timeline_context(data, durations, narration_segments, segment_durations=segment_durations, limit=limit)
-    script = _build_script_from_timeline(timeline)
-    script_path.write_text(json.dumps(script.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
-    console.print(f"  ✓ TTS audio: {audio_dir}")
-
     video_spec = _build_video_spec(data, timeline, style=style, work_dir=work_dir)
     _validate_video_spec(video_spec)
     spec_path = work_dir / "video-spec.json"
     spec_path.write_text(json.dumps(video_spec, indent=2, ensure_ascii=False), encoding="utf-8")
     console.print(f"  ✓ Video spec audit: {spec_path}")
+    script = _build_script_from_spec(video_spec)
+    script_path.write_text(json.dumps(script.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+    console.print(f"  ✓ TTS audio: {audio_dir}")
 
     # Step 3: Render HTML composition
     _emit_stage(stage_callback, "composing_html", "开始生成 HTML 画面。")
     console.print("[bold cyan]Step 3/5:[/] Rendering HTML composition...")
-    render_data = {**data, **timeline}
+    render_data = _render_data_from_spec(data, video_spec)
     data_path = work_dir / "trending-data.json"
     data_path.write_text(json.dumps(render_data, indent=2, ensure_ascii=False), encoding="utf-8")
     html_path = work_dir / "composition.html"
@@ -1043,6 +1042,24 @@ def _build_script_from_timeline(timeline: dict) -> VideoScript:
     )
 
 
+def _build_script_from_spec(spec: dict[str, Any]) -> VideoScript:
+    scenes = spec.get("scenes") if isinstance(spec.get("scenes"), list) else []
+    return VideoScript(
+        title="GitHub 热榜速报",
+        segments=[
+            ScriptSegment(
+                timestamp=float(scene["start"]),
+                duration=float(scene["duration"]),
+                narration=str(scene["voiceover"]),
+                action="show",
+                target=str(scene["target"]),
+            )
+            for scene in scenes
+        ],
+        total_duration=float((spec.get("video_basics") or {}).get("total_duration") or 0),
+    )
+
+
 def _build_video_spec(data: dict, timeline: dict, style: str = DEFAULT_STYLE, work_dir: Path | None = None) -> dict[str, Any]:
     """Build an auditable director spec from the current HyperFrames timeline."""
     scenes = _build_scene_model(data, timeline)
@@ -1101,6 +1118,25 @@ def _build_video_spec(data: dict, timeline: dict, style: str = DEFAULT_STYLE, wo
     }
 
 
+def _render_data_from_spec(data: dict, spec: dict[str, Any]) -> dict[str, Any]:
+    scenes = spec.get("scenes") if isinstance(spec.get("scenes"), list) else []
+    detail_screens = [_detail_render_from_spec_scene(scene) for scene in scenes if str(scene.get("target") or "").startswith("project-")]
+    top_projects = data.get("projects") or []
+    return {
+        **data,
+        "intro_screen": _screen_from_spec_scene(_scene_for_target(scenes, "intro")),
+        "list_screen": _screen_from_spec_scene(_scene_for_target(scenes, "list")),
+        "detail_screens": detail_screens,
+        "hook_screen": _screen_from_spec_scene(_scene_for_target(scenes, "hook")),
+        "total_duration": float((spec.get("video_basics") or {}).get("total_duration") or 0),
+        "top_projects": top_projects[: min(len(top_projects), max(1, len(detail_screens) // 2) if detail_screens else len(top_projects))],
+        "intro_duration": float((_scene_for_target(scenes, "intro") or {}).get("duration") or 0),
+        "list_duration": float((_scene_for_target(scenes, "list") or {}).get("duration") or 0),
+        "detail_duration": 0,
+        "hook_duration": float((_scene_for_target(scenes, "hook") or {}).get("duration") or 0),
+    }
+
+
 def _build_scene_model(data: dict, timeline: dict) -> list[dict[str, Any]]:
     projects = data.get("projects") or []
     scenes = [
@@ -1113,6 +1149,7 @@ def _build_scene_model(data: dict, timeline: dict) -> list[dict[str, Any]]:
             motion="SLAMS title, CASCADES metrics",
             asset_dependencies=[],
             subtitle_keywords=["GitHub", "热榜", "真实项目"],
+            project={},
         ),
         _scene_from_screen(
             timeline["list_screen"],
@@ -1123,6 +1160,7 @@ def _build_scene_model(data: dict, timeline: dict) -> list[dict[str, Any]]:
             motion="CASCADES rank rows",
             asset_dependencies=[],
             subtitle_keywords=[str(project.get("name") or "") for project in projects[:3] if project.get("name")],
+            project={},
         ),
     ]
 
@@ -1141,6 +1179,7 @@ def _build_scene_model(data: dict, timeline: dict) -> list[dict[str, Any]]:
                 str(project.get("hook") or ""),
                 str(project.get("language") or ""),
             ],
+            project=project,
         ))
 
     scenes.append(_scene_from_screen(
@@ -1153,6 +1192,7 @@ def _build_scene_model(data: dict, timeline: dict) -> list[dict[str, Any]]:
         asset_dependencies=[],
         subtitle_keywords=["评论区", "项目", "实操"],
         out_transition="fade-out",
+        project={},
     ))
     return scenes
 
@@ -1161,6 +1201,35 @@ def _detail_visual_description(detail: dict) -> str:
     if detail.get("detail_kind") == "rank-punch":
         return "排名冲击镜头，突出项目排名、名称、stars、语言和一句痛点钩子，先让观众记住它是谁。"
     return "价值证明镜头，突出具体用途、用户收益、证据来源和风险提示，承接上一镜的排名冲击。"
+
+
+def _scene_for_target(scenes: list[dict[str, Any]], target: str) -> dict[str, Any]:
+    for scene in scenes:
+        if str(scene.get("target") or "") == target:
+            return scene
+    return {}
+
+
+def _screen_from_spec_scene(scene: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "screen_id": str(scene.get("screen_id") or ""),
+        "start": float(scene.get("start") or 0),
+        "duration": float(scene.get("duration") or 0),
+        "narration": str(scene.get("voiceover") or ""),
+        "target": str(scene.get("target") or ""),
+        "subtitle_html": _subtitle_html(str(scene.get("voiceover") or ""), list(scene.get("subtitle_keywords") or [])),
+    }
+
+
+def _detail_render_from_spec_scene(scene: dict[str, Any]) -> dict[str, Any]:
+    target = str(scene.get("target") or "")
+    project = scene.get("project") or {}
+    return {
+        **_screen_from_spec_scene(scene),
+        "detail_kind": "rank-punch" if target.endswith("-proof") is False else "value-proof",
+        "paired_target": f"{target}-proof" if target.endswith("-proof") is False else target.rsplit("-proof", 1)[0],
+        "project": project,
+    }
 
 
 def _scene_from_screen(
@@ -1173,6 +1242,7 @@ def _scene_from_screen(
     asset_dependencies: list[dict[str, str]],
     subtitle_keywords: list[str],
     out_transition: str = "hard cut",
+    project: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     narration = str(screen.get("narration") or "").strip()
     start = round(float(screen.get("start") or 0), 1)
@@ -1198,6 +1268,7 @@ def _scene_from_screen(
         "asset_dependencies": asset_dependencies,
         "subtitle_mode": "keyword_highlight",
         "subtitle_keywords": keywords,
+        "project": project or {},
     }
 
 
