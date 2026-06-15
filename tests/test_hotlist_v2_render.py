@@ -286,6 +286,44 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertEqual(spec["visual"]["theme"], "custom_design")
         self.assertEqual(spec["visual"]["design_md"], str(design))
 
+    def test_render_composition_applies_design_md_visual_overrides(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "一个值得关注的项目。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+        with TemporaryDirectory() as tmp:
+            design = Path(tmp) / "design.md"
+            design.write_text(
+                "---\n"
+                "colors:\n"
+                "  accent: '#ff3366'\n"
+                "  background: '#101820'\n"
+                "typography:\n"
+                "  display: \"'SF Pro Display', sans-serif\"\n"
+                "rounded:\n"
+                "  card: '28px'\n"
+                "motion:\n"
+                "  decor_density: minimal\n"
+                "---\n",
+                encoding="utf-8",
+            )
+            spec = _build_video_spec(data, _timeline_context(data), style="tech_hotspot", work_dir=Path(tmp))
+            render_data = _render_data_from_spec(data, spec)
+            output = Path(tmp) / "composition.html"
+            render_composition(render_data, output, style="tech_hotspot")
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn("--accent-cyan: #ff3366;", html)
+        self.assertIn("--accent-cyan-rgb: 255, 51, 102;", html)
+        self.assertIn("--canvas-bg: #101820;", html)
+        self.assertIn("--font-display: 'SF Pro Display', sans-serif;", html)
+        self.assertIn("--s-card-radius: 28px;", html)
+
     def test_render_data_and_script_are_rebuilt_from_spec(self) -> None:
         data = _data_from_projects([
             {

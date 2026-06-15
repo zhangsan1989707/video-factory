@@ -1124,6 +1124,7 @@ def _render_data_from_spec(data: dict, spec: dict[str, Any]) -> dict[str, Any]:
     top_projects = data.get("projects") or []
     return {
         **data,
+        "visual": spec.get("visual") or {},
         "intro_screen": _screen_from_spec_scene(_scene_for_target(scenes, "intro")),
         "list_screen": _screen_from_spec_scene(_scene_for_target(scenes, "list")),
         "detail_screens": detail_screens,

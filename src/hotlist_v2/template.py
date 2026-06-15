@@ -5,9 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import yaml
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent.parent / "assets" / "templates"
+PROJECT_ROOT = TEMPLATE_DIR.parent.parent
 DEFAULT_STYLE = "tech_hotspot"
 
 DEFAULT_STYLE_PARAMS = {
@@ -420,6 +422,98 @@ def list_template_styles() -> list[dict[str, Any]]:
     ]
 
 
+def _style_profile_with_design_overrides(base_profile: dict[str, str], data: dict) -> dict[str, str]:
+    design = _load_design_tokens(_design_path_from_data(data))
+    if not design:
+        return base_profile
+    profile = dict(base_profile)
+    colors = design.get("colors") if isinstance(design.get("colors"), dict) else {}
+    typography = design.get("typography") if isinstance(design.get("typography"), dict) else {}
+    rounded = design.get("rounded") if isinstance(design.get("rounded"), dict) else {}
+    motion = design.get("motion") if isinstance(design.get("motion"), dict) else {}
+
+    _apply_color(profile, colors, "accent", "accent_cyan", "accent_cyan_rgb")
+    _apply_color(profile, colors, "background", "canvas_bg")
+    _apply_color(profile, colors, "card", "bg_card")
+    _apply_color(profile, colors, "panel", "bg_panel")
+    _apply_color(profile, colors, "text_primary", "text_primary")
+    _apply_color(profile, colors, "text_secondary", "text_secondary")
+    _apply_color(profile, colors, "text_dim", "text_dim")
+
+    if typography.get("display"):
+        profile["font_display"] = str(typography["display"])
+    if typography.get("body"):
+        profile["font_body"] = str(typography["body"])
+    if typography.get("mono"):
+        profile["font_mono"] = str(typography["mono"])
+
+    if rounded.get("card"):
+        profile["card_border_radius"] = str(rounded["card"])
+        profile["metric_card_radius"] = str(rounded["card"])
+        profile["hook_card_radius"] = str(rounded["card"])
+    if rounded.get("item"):
+        profile["item_border_radius"] = str(rounded["item"])
+    if rounded.get("badge"):
+        profile["badge_border_radius"] = str(rounded["badge"])
+
+    if motion.get("decor_density") == "minimal":
+        profile["show_scanline"] = "0"
+        profile["show_grid"] = "0"
+        profile["show_orbit_rings"] = "0"
+        profile["show_glow_orbs"] = "0"
+    return profile
+
+
+def _design_path_from_data(data: dict) -> Path | None:
+    visual = data.get("visual") if isinstance(data.get("visual"), dict) else {}
+    design_path = str(visual.get("design_md") or "").strip()
+    if design_path:
+        path = Path(design_path)
+        if path.exists():
+            return path
+    for candidate in (PROJECT_ROOT / "design.md", PROJECT_ROOT / "DESIGN.md"):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _load_design_tokens(path: Path | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8")
+        if text.startswith("---"):
+            parts = text.split("---", 2)
+            text = parts[1] if len(parts) >= 3 else text
+        loaded = yaml.safe_load(text) or {}
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return {}
+
+
+def _apply_color(profile: dict[str, str], colors: dict, source_key: str, target_key: str, rgb_key: str | None = None) -> None:
+    color = str(colors.get(source_key) or "").strip()
+    if not color:
+        return
+    profile[target_key] = color
+    if rgb_key and color.startswith("#"):
+        rgb = _hex_to_rgb(color)
+        if rgb:
+            profile[rgb_key] = rgb
+
+
+def _hex_to_rgb(color: str) -> str:
+    raw = color.strip().lstrip("#")
+    if len(raw) == 3:
+        raw = "".join(ch * 2 for ch in raw)
+    if len(raw) != 6:
+        return ""
+    try:
+        return f"{int(raw[0:2], 16)}, {int(raw[2:4], 16)}, {int(raw[4:6], 16)}"
+    except ValueError:
+        return ""
+
+
 def render_composition(
     data: dict,
     output_path: Path,
@@ -443,6 +537,7 @@ def render_composition(
     )
     style_key = normalize_style(style)
     template = env.get_template(STYLE_TEMPLATES[style_key])
+    style_profile = _style_profile_with_design_overrides(STYLE_PROFILES[style_key], data)
 
     merged = {**DEFAULT_DURATIONS, **(durations or {})}
     context = {
@@ -450,7 +545,7 @@ def render_composition(
         **data,
         "style_key": style_key,
         "default_style_profile": STYLE_PROFILES[DEFAULT_STYLE],
-        "style_profile": STYLE_PROFILES[style_key],
+        "style_profile": style_profile,
         "style_registry": TEMPLATE_REGISTRY[style_key],
     }
     html = template.render(**context)
