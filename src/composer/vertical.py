@@ -1,5 +1,6 @@
 """Vertical short-video composer."""
 
+from contextvars import ContextVar
 from pathlib import Path
 
 from moviepy import AudioClip, AudioFileClip, VideoClip, concatenate_audioclips
@@ -21,6 +22,9 @@ from src.utils.render import (
 )
 
 console = Console()
+
+_ASSET_CACHE: ContextVar[dict[str, Image.Image] | None] = ContextVar("vertical_asset_cache", default=None)
+_BG_CACHE: ContextVar[dict[tuple[str, int, int], Image.Image] | None] = ContextVar("vertical_bg_cache", default=None)
 
 BG = (2, 20, 38)
 GRID = (11, 53, 80)
@@ -55,8 +59,14 @@ def _fade(fill: tuple[int, int, int], opacity: float) -> tuple[int, int, int, in
 def _open_asset(asset_path: str) -> Image.Image | None:
     if not asset_path:
         return None
+    cache = _ASSET_CACHE.get()
+    if cache is not None and asset_path in cache:
+        return cache[asset_path]
     try:
-        return Image.open(asset_path).convert("RGB")
+        asset = Image.open(asset_path).convert("RGB")
+        if cache is not None:
+            cache[asset_path] = asset
+        return asset
     except Exception:
         return None
 
@@ -101,13 +111,22 @@ def _project_name(title: str) -> str:
 
 
 def _hotlist_bg(asset_path: str, width: int, height: int, progress: float = 0.0) -> Image.Image:
-    try:
-        asset = Image.open(asset_path).convert("RGB")
-        bg = cover_crop(asset, width, height).filter(ImageFilter.GaussianBlur(radius=34))
-        frame = bg.convert("RGBA")
-        frame.alpha_composite(Image.new("RGBA", (width, height), (*BG, 224)))
-    except Exception:
-        frame = Image.new("RGBA", (width, height), (*BG, 255))
+    bg_cache = _BG_CACHE.get()
+    bg_key = (asset_path, width, height)
+    base = bg_cache.get(bg_key) if bg_cache is not None else None
+    if base is None:
+        try:
+            asset = _open_asset(asset_path)
+            if asset is None:
+                raise ValueError("missing asset")
+            bg = cover_crop(asset, width, height).filter(ImageFilter.GaussianBlur(radius=34))
+            base = bg.convert("RGBA")
+            base.alpha_composite(Image.new("RGBA", (width, height), (*BG, 224)))
+        except Exception:
+            base = Image.new("RGBA", (width, height), (*BG, 255))
+        if bg_cache is not None:
+            bg_cache[bg_key] = base
+    frame = base.copy()
 
     draw = ImageDraw.Draw(frame)
     drift = int(progress * 10)
@@ -740,109 +759,122 @@ def compose_vertical_video(
     fps: int = VIDEO_FPS,
 ) -> Path:
     """Render a 1080x1920 short-form video from V2 plan artifacts."""
+    asset_cache_token = _ASSET_CACHE.set({})
+    bg_cache_token = _BG_CACHE.set({})
     asset_paths = _asset_map(manifest)
     audio_clips = []
     audio_durations = []
-    for i, _segment in enumerate(script.segments):
-        audio_path = audio_dir / f"segment-{i:03d}.mp3"
-        if audio_path.exists():
-            clip = AudioFileClip(str(audio_path))
-            audio_clips.append(clip)
-            audio_durations.append(clip.duration)
-        else:
-            audio_durations.append(_segment.duration)
-
-    # Pre-compute per-shot metadata for lazy frame generation
-    shot_meta = []
-    t = 0.0
-    for i, shot in enumerate(shot_plan.shots):
-        segment = script.segments[i] if i < len(script.segments) else None
-        subtitle = segment.narration if segment else shot.subtitle
-        duration = audio_durations[i] if i < len(audio_durations) else shot.duration
-        asset_path = asset_paths.get(shot.visual_asset, "")
-        num_frames = max(1, int(duration * fps))
-        dynamic_frames = min(num_frames, max(8, int(duration * 5)))
-        shot_meta.append({
-            "start": t,
-            "duration": duration,
-            "subtitle": subtitle,
-            "asset_path": asset_path,
-            "treatment": shot.visual_treatment,
-            "dynamic_frames": dynamic_frames,
-        })
-        t += duration
-    total_duration = t
-
-    # Save preview frames in a separate pass (only a few frames per shot)
-    preview_dir.mkdir(parents=True, exist_ok=True)
-    for i, meta in enumerate(shot_meta):
-        progress = 0.55
-        frame = _render_frame(
-            shot_plan.title,
-            meta["subtitle"],
-            meta["asset_path"],
-            meta["treatment"],
-            progress,
-            VIDEO_WIDTH_V,
-            VIDEO_HEIGHT_V,
-        )
-        frame.save(preview_dir / f"shot-{i + 1:02d}.png")
-
-    # Lazy frame generation via make_frame callback — avoids OOM
-    def make_frame(t: float):
-        # Find which shot this time falls into
-        shot_idx = 0
-        for i, meta in enumerate(shot_meta):
-            if t >= meta["start"]:
-                shot_idx = i
-        meta = shot_meta[shot_idx]
-        elapsed = t - meta["start"]
-        # Skip the first 0.1s to avoid black/blank frames at the start
-        elapsed = max(0.1, elapsed)
-        progress = min(1.0, elapsed / meta["duration"]) if meta["duration"] > 0 else 1.0
-        # Map progress to dynamic frame index (same logic as before)
-        dynamic_frames = meta["dynamic_frames"]
-        source_i = min(dynamic_frames - 1, int(progress * dynamic_frames))
-        frame_progress = source_i / max(1, dynamic_frames - 1)
-        frame = _render_frame(
-            shot_plan.title,
-            meta["subtitle"],
-            meta["asset_path"],
-            meta["treatment"],
-            frame_progress,
-            VIDEO_WIDTH_V,
-            VIDEO_HEIGHT_V,
-        )
-        return np.array(frame)
-
-    video_clip = VideoClip(make_frame, duration=total_duration)
     final_audio = None
     silent = None
-    if audio_clips:
-        final_audio = concatenate_audioclips(audio_clips)
-        video_clip = video_clip.with_audio(final_audio)
-    else:
-        silent = AudioClip(lambda t: 0, duration=total_duration, fps=44100)
-        video_clip = video_clip.with_audio(silent)
+    video_clip = None
+    try:
+        for i, _segment in enumerate(script.segments):
+            audio_path = audio_dir / f"segment-{i:03d}.mp3"
+            if audio_path.exists():
+                clip = AudioFileClip(str(audio_path))
+                audio_clips.append(clip)
+                audio_durations.append(clip.duration)
+            else:
+                audio_durations.append(_segment.duration)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    console.print("  编码竖屏视频...")
-    video_clip.write_videofile(
-        str(output_path),
-        fps=fps,
-        codec="libx264",
-        audio_codec="aac",
-        bitrate="7000k",
-        preset="medium",
-        logger=None,
-    )
-    video_clip.close()
-    if final_audio is not None:
-        final_audio.close()
-    if silent is not None:
-        silent.close()
-    for clip in audio_clips:
-        clip.close()
+        # Pre-compute per-shot metadata for lazy frame generation
+        shot_meta = []
+        t = 0.0
+        for i, shot in enumerate(shot_plan.shots):
+            segment = script.segments[i] if i < len(script.segments) else None
+            subtitle = segment.narration if segment else shot.subtitle
+            duration = audio_durations[i] if i < len(audio_durations) else shot.duration
+            asset_path = asset_paths.get(shot.visual_asset, "")
+            num_frames = max(1, int(duration * fps))
+            dynamic_frames = min(num_frames, max(8, int(duration * 5)))
+            shot_meta.append({
+                "start": t,
+                "duration": duration,
+                "subtitle": subtitle,
+                "asset_path": asset_path,
+                "treatment": shot.visual_treatment,
+                "dynamic_frames": dynamic_frames,
+            })
+            t += duration
+        total_duration = t
+
+        # Save preview frames in a separate pass (only a few frames per shot)
+        preview_dir.mkdir(parents=True, exist_ok=True)
+        for i, meta in enumerate(shot_meta):
+            progress = 0.55
+            frame = _render_frame(
+                shot_plan.title,
+                meta["subtitle"],
+                meta["asset_path"],
+                meta["treatment"],
+                progress,
+                VIDEO_WIDTH_V,
+                VIDEO_HEIGHT_V,
+            )
+            frame.save(preview_dir / f"shot-{i + 1:02d}.png")
+
+        frame_cache: dict[tuple[int, int], np.ndarray] = {}
+
+        # Lazy frame generation via make_frame callback — avoids OOM
+        def make_frame(t: float):
+            # Find which shot this time falls into
+            shot_idx = 0
+            for i, meta in enumerate(shot_meta):
+                if t >= meta["start"]:
+                    shot_idx = i
+            meta = shot_meta[shot_idx]
+            elapsed = t - meta["start"]
+            # Skip the first 0.1s to avoid black/blank frames at the start
+            elapsed = max(0.1, elapsed)
+            progress = min(1.0, elapsed / meta["duration"]) if meta["duration"] > 0 else 1.0
+            # Map progress to dynamic frame index (same logic as before)
+            dynamic_frames = meta["dynamic_frames"]
+            source_i = min(dynamic_frames - 1, int(progress * dynamic_frames))
+            cache_key = (shot_idx, source_i)
+            if cache_key not in frame_cache:
+                frame_progress = source_i / max(1, dynamic_frames - 1)
+                frame = _render_frame(
+                    shot_plan.title,
+                    meta["subtitle"],
+                    meta["asset_path"],
+                    meta["treatment"],
+                    frame_progress,
+                    VIDEO_WIDTH_V,
+                    VIDEO_HEIGHT_V,
+                )
+                frame_cache[cache_key] = np.array(frame)
+            return frame_cache[cache_key]
+
+        video_clip = VideoClip(make_frame, duration=total_duration)
+        if audio_clips:
+            final_audio = concatenate_audioclips(audio_clips)
+            video_clip = video_clip.with_audio(final_audio)
+        else:
+            silent = AudioClip(lambda t: 0, duration=total_duration, fps=44100)
+            video_clip = video_clip.with_audio(silent)
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        console.print("  编码竖屏视频...")
+        video_clip.write_videofile(
+            str(output_path),
+            fps=fps,
+            codec="libx264",
+            audio_codec="aac",
+            bitrate="7000k",
+            preset="medium",
+            logger=None,
+        )
+    finally:
+        _ASSET_CACHE.reset(asset_cache_token)
+        _BG_CACHE.reset(bg_cache_token)
+        if video_clip is not None:
+            video_clip.close()
+        if final_audio is not None:
+            final_audio.close()
+        if silent is not None:
+            silent.close()
+        for clip in audio_clips:
+            clip.close()
     console.print(f"  ✓ 竖屏视频已保存到: {output_path}")
     return output_path
 

@@ -134,6 +134,54 @@ def _stage(stage_callback: Callable[[str, str], None] | None, name: str, message
         stage_callback(name, message)
 
 
+async def _generate_audio_task(script, paths: ProjectPaths, voice: str) -> None:
+    await generate_all_audio(script, paths.base, voice)
+
+
+async def _capture_and_tts(
+    manifest,
+    script,
+    paths: ProjectPaths,
+    voice: str,
+    stage_callback: Callable[[str, str], None] | None,
+):
+    _stage(stage_callback, "capturing_assets", "开始采集真实素材。")
+    console.print("[cyan]🖼️ 正在采集真实素材...[/cyan]")
+    _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
+    console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
+    captured_manifest, _audio_files = await asyncio.gather(
+        capture_assets(manifest, paths.assets_dir),
+        _generate_audio_task(script, paths, voice),
+    )
+    _write_json(paths.asset_manifest_json, captured_manifest.to_dict())
+    return captured_manifest
+
+
+async def _record_desktop_and_tts(
+    desktop_plan,
+    script,
+    paths: ProjectPaths,
+    voice: str,
+    stage_callback: Callable[[str, str], None] | None,
+):
+    _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
+    console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
+    _stage(stage_callback, "capturing_assets", "开始录制桌面浏览镜头。")
+    console.print("[cyan]🎥 正在录制桌面浏览镜头...[/cyan]")
+    _audio_files, frames_info = await asyncio.gather(
+        _generate_audio_task(script, paths, voice),
+        record_desktop_review(desktop_plan, paths.base),
+    )
+    return frames_info
+
+
+async def _fetch_hotlist_project(index: int, url: str):
+    owner, repo = parse_github_url(url)
+    project = await fetch_repo_info(owner, repo)
+    manifest = _prefix_manifest_ids(index, generate_asset_manifest(project))
+    return index, project, manifest
+
+
 def _finish_video(
     output_path: Path,
     no_bgm: bool,
@@ -176,12 +224,7 @@ async def _run_from_plan(
         if dry_run:
             console.print(f"\n[green]✅ From-plan dry run 完成。请检查: {paths.base}[/green]\n")
             return paths.base
-        _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
-        console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
-        await generate_all_audio(script, paths.base, voice)
-        _stage(stage_callback, "capturing_assets", "开始录制桌面浏览镜头。")
-        console.print("[cyan]🎥 正在录制桌面浏览镜头...[/cyan]")
-        frames_info = await record_desktop_review(desktop_plan, paths.base)
+        frames_info = await _record_desktop_and_tts(desktop_plan, script, paths, voice, stage_callback)
         _stage(stage_callback, "composing_video", "开始合成 desktop-review 视频。")
         console.print("[cyan]🎬 正在合成 desktop-review 视频...[/cyan]")
         output_path = compose_desktop_review_video(
@@ -207,13 +250,11 @@ async def _run_from_plan(
         console.print(f"\n[green]✅ From-plan dry run 完成。请检查: {paths.base}[/green]\n")
         return paths.base
     if _manifest_needs_capture(manifest_data):
-        _stage(stage_callback, "capturing_assets", "开始采集真实素材。")
-        console.print("[cyan]🖼️ 正在采集真实素材...[/cyan]")
-        manifest = await capture_assets(manifest, paths.assets_dir)
-        _write_json(paths.asset_manifest_json, manifest.to_dict())
-    _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
-    console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
-    await generate_all_audio(script, paths.base, voice)
+        manifest = await _capture_and_tts(manifest, script, paths, voice, stage_callback)
+    else:
+        _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
+        console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
+        await generate_all_audio(script, paths.base, voice)
     _stage(stage_callback, "composing_video", "开始合成竖屏视频。")
     console.print("[cyan]🎬 正在合成竖屏视频...[/cyan]")
     output_path = compose_vertical_video(
@@ -252,13 +293,14 @@ async def _run_hotlist(
     paths = ProjectPaths(project_dir)
 
     console.print("[cyan]🔍 正在抓取热榜项目信息...[/cyan]")
+    results = await asyncio.gather(*[
+        _fetch_hotlist_project(index, item)
+        for index, item in enumerate(url_list[:10], start=1)
+    ])
     projects = []
     manifests = []
-    for index, item in enumerate(url_list[:10], start=1):
-        owner, repo = parse_github_url(item)
-        project = await fetch_repo_info(owner, repo)
+    for index, project, manifest in sorted(results, key=lambda item: item[0]):
         projects.append(project)
-        manifest = _prefix_manifest_ids(index, generate_asset_manifest(project))
         manifests.append(manifest)
         console.print(f"   ✓ #{index} {project.full_name} | {project.stars} stars")
 
@@ -278,14 +320,7 @@ async def _run_hotlist(
         console.print(f"\n[green]✅ Hotlist dry run 完成。请检查: {paths.base}[/green]\n")
         return paths.base
 
-    _stage(stage_callback, "capturing_assets", "开始采集真实素材。")
-    console.print("[cyan]🖼️ 正在采集真实素材...[/cyan]")
-    combined_manifest = await capture_assets(combined_manifest, paths.assets_dir)
-    _write_json(paths.asset_manifest_json, combined_manifest.to_dict())
-
-    _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
-    console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
-    await generate_all_audio(script, paths.base, voice)
+    combined_manifest = await _capture_and_tts(combined_manifest, script, paths, voice, stage_callback)
 
     _stage(stage_callback, "composing_video", "开始合成热榜竖屏视频。")
     console.print("[cyan]🎬 正在合成热榜竖屏视频...[/cyan]")
@@ -325,13 +360,7 @@ async def _run_desktop_review(
         console.print(f"\n[green]✅ Desktop dry run 完成。请检查: {paths.base}[/green]\n")
         return paths.base
 
-    _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
-    console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
-    await generate_all_audio(script, paths.base, voice)
-
-    _stage(stage_callback, "capturing_assets", "开始录制桌面浏览镜头。")
-    console.print("[cyan]🎥 正在录制桌面浏览镜头...[/cyan]")
-    frames_info = await record_desktop_review(desktop_plan, paths.base)
+    frames_info = await _record_desktop_and_tts(desktop_plan, script, paths, voice, stage_callback)
 
     _stage(stage_callback, "composing_video", "开始合成 desktop-review 视频。")
     console.print("[cyan]🎬 正在合成 desktop-review 视频...[/cyan]")
@@ -388,14 +417,7 @@ async def _run_vertical(
     if brief.recommendation == "skip":
         console.print("[yellow]⚠ brief 建议跳过，但仍继续生成竖屏草稿。[/yellow]")
 
-    _stage(stage_callback, "capturing_assets", "开始采集真实素材。")
-    console.print("[cyan]🖼️ 正在采集真实素材...[/cyan]")
-    manifest = await capture_assets(manifest, paths.assets_dir)
-    _write_json(paths.asset_manifest_json, manifest.to_dict())
-
-    _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
-    console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
-    await generate_all_audio(script, paths.base, voice)
+    manifest = await _capture_and_tts(manifest, script, paths, voice, stage_callback)
 
     _stage(stage_callback, "composing_video", "开始合成竖屏视频。")
     console.print("[cyan]🎬 正在合成竖屏视频...[/cyan]")

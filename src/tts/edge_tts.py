@@ -13,6 +13,7 @@ from src.utils.config import TTS_VOICE, TTS_RATE
 console = Console()
 
 MAX_RETRIES = 3
+MAX_CONCURRENT_SEGMENTS = 3
 
 
 def _is_valid_audio(path: Path) -> bool:
@@ -55,25 +56,39 @@ async def generate_all_audio(
     audio_dir = output_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
-    audio_files = []
+    audio_files: list[Path | None] = [None] * len(script.segments)
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_SEGMENTS)
+
+    async def _generate_one(index: int) -> None:
+        segment = script.segments[index]
+        output_path = audio_dir / f"segment-{index:03d}.mp3"
+        async with semaphore:
+            await generate_audio_segment(
+                segment.narration,
+                output_path,
+                voice=voice,
+            )
+        audio_files[index] = output_path
 
     for i, segment in enumerate(script.segments):
         output_path = audio_dir / f"segment-{i:03d}.mp3"
         if _is_valid_audio(output_path):
             console.print(f"  复用语音 {i + 1}: {segment.narration[:20]}...")
-            audio_files.append(output_path)
+            audio_files[i] = output_path
             continue
         console.print(f"  生成语音 {i + 1}: {segment.narration[:20]}...")
 
-        await generate_audio_segment(
-            segment.narration,
-            output_path,
-            voice=voice,
-        )
-        audio_files.append(output_path)
+    tasks = [
+        asyncio.create_task(_generate_one(i))
+        for i, path in enumerate(audio_files)
+        if path is None
+    ]
+    if tasks:
+        await asyncio.gather(*tasks)
 
-    console.print(f"  ✓ 生成 {len(audio_files)} 段语音")
-    return audio_files
+    ordered_files = [path for path in audio_files if path is not None]
+    console.print(f"  ✓ 生成 {len(ordered_files)} 段语音")
+    return ordered_files
 
 
 def get_audio_duration(audio_path: Path) -> float:

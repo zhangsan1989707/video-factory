@@ -3,6 +3,7 @@
 from pathlib import Path
 from urllib.parse import urlparse
 
+import asyncio
 import httpx
 from PIL import Image, ImageDraw, ImageFont
 from playwright.async_api import async_playwright
@@ -64,13 +65,17 @@ async def _capture_page(browser, asset: VisualAsset, output_dir: Path) -> Path:
     page = await context.new_page()
     try:
         await page.goto(asset.source, wait_until="domcontentloaded", timeout=45000)
-        await page.wait_for_timeout(1800)
+        try:
+            await page.wait_for_load_state("networkidle", timeout=2500)
+        except Exception:
+            pass
+        await page.wait_for_timeout(350)
         for label in ("中文", "简体中文", "简中"):
             try:
                 option = page.get_by_text(label, exact=True).first
                 if await option.count() > 0 and await option.is_visible():
                     await option.click(timeout=1200)
-                    await page.wait_for_timeout(800)
+                    await page.wait_for_timeout(350)
                     break
             except Exception:
                 pass
@@ -86,13 +91,19 @@ async def capture_assets(manifest: AssetManifest, output_dir: Path) -> AssetMani
     """Download or screenshot assets and update their local paths."""
     output_dir.mkdir(parents=True, exist_ok=True)
     browser = None
+    image_tasks = {}
+
+    for asset in manifest.assets:
+        if asset.type == "image":
+            console.print(f"  采集素材 {asset.id}: {asset.caption}")
+            image_tasks[asset.id] = asyncio.create_task(_download_image(asset, output_dir))
 
     async with async_playwright() as playwright:
         for asset in manifest.assets:
-            console.print(f"  采集素材 {asset.id}: {asset.caption}")
             if asset.type == "image":
-                local_path = await _download_image(asset, output_dir)
+                local_path = await image_tasks[asset.id]
             else:
+                console.print(f"  采集素材 {asset.id}: {asset.caption}")
                 if browser is None:
                     browser = await playwright.chromium.launch(
                         headless=True,
