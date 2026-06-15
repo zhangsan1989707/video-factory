@@ -10,7 +10,7 @@ import subprocess
 from difflib import SequenceMatcher
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Any, Callable
 
 from rich.console import Console
 
@@ -25,6 +25,13 @@ console = Console()
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT_DIR = PROJECT_ROOT / "output" / "hotlist-v2"
+
+VALID_SCENE_COMPONENTS = {
+    "broll-hero.big-type",
+    "broll-charts.h-bar",
+    "broll-hero.big-number",
+    "broll-abstract.placeholder",
+}
 
 
 async def render_hotlist_v2(
@@ -138,6 +145,12 @@ async def render_hotlist_v2_from_data(
     script = _build_script_from_timeline(timeline)
     script_path.write_text(json.dumps(script.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
     console.print(f"  ✓ TTS audio: {audio_dir}")
+
+    video_spec = _build_video_spec(data, timeline, style=style)
+    _validate_video_spec(video_spec)
+    spec_path = work_dir / "video-spec.json"
+    spec_path.write_text(json.dumps(video_spec, indent=2, ensure_ascii=False), encoding="utf-8")
+    console.print(f"  ✓ Video spec audit: {spec_path}")
 
     # Step 3: Render HTML composition
     _emit_stage(stage_callback, "composing_html", "开始生成 HTML 画面。")
@@ -993,6 +1006,223 @@ def _build_script_from_timeline(timeline: dict) -> VideoScript:
     )
 
 
+def _build_video_spec(data: dict, timeline: dict, style: str = DEFAULT_STYLE) -> dict[str, Any]:
+    """Build an auditable director spec from the current HyperFrames timeline."""
+    scenes = _build_scene_model(data, timeline)
+    return {
+        "schema_version": "hotlist-video-spec.v1",
+        "video_basics": {
+            "purpose": "GitHub 热榜短视频",
+            "audience": "关注开源工具、AI 工具和开发效率的中文开发者",
+            "platform": "竖屏短视频",
+            "aspect_ratio": "9:16",
+            "fps": 30,
+            "total_duration": float(timeline["total_duration"]),
+            "core_message": f"本期 GitHub TOP {data.get('total_projects', len(data.get('projects') or []))}",
+            "information_density": "hook",
+            "tone_of_voice": "克制的中文开源项目观察",
+            "viewer_familiarity": "理解 GitHub、Star、开源项目；不默认理解每个项目具体用途",
+        },
+        "narrative_structure": {
+            "beats": [
+                {"name": "hook", "start": 0.0, "end": float(timeline["intro_screen"]["duration"])},
+                {
+                    "name": "ranking",
+                    "start": float(timeline["list_screen"]["start"]),
+                    "end": _scene_end(timeline["list_screen"]),
+                },
+                {
+                    "name": "details",
+                    "start": float(timeline["detail_screens"][0]["start"]) if timeline["detail_screens"] else _scene_end(timeline["list_screen"]),
+                    "end": float(timeline["hook_screen"]["start"]),
+                },
+                {"name": "cta", "start": float(timeline["hook_screen"]["start"]), "end": _scene_end(timeline["hook_screen"])},
+            ],
+            "emotional_curve": ["开场给出榜单价值", "中段逐项核对用途与证据", "收尾提示互动选择"],
+            "audio_visual_relationship": "旁白解释项目价值，画面用榜单、事实卡和收尾清单承载可扫读信息。",
+        },
+        "expression": {
+            "scene_types": ["大字开场", "榜单总览", "项目事实卡", "收尾清单"],
+            "subtitle_mode": "segment_keyword_highlight",
+            "motion_language": "卡片进入、榜单级联、指标强调、硬切转场",
+            "pacing": {"average_scene_duration": _average_scene_duration(scenes), "unit": "seconds"},
+        },
+        "visual": {
+            "theme_source": "legacy_style_profile",
+            "theme": style,
+            "custom_design_md": "reserved",
+            "accent_color": "default",
+            "decor_density": "style_default",
+        },
+        "assets": _spec_assets(data),
+        "scenes": scenes,
+        "audio_timeline": [
+            {
+                "target": scene["target"],
+                "start": scene["start"],
+                "duration": scene["duration"],
+                "voiceover": scene["voiceover"],
+                "subtitle_mode": scene["subtitle_mode"],
+            }
+            for scene in scenes
+        ],
+    }
+
+
+def _build_scene_model(data: dict, timeline: dict) -> list[dict[str, Any]]:
+    projects = data.get("projects") or []
+    scenes = [
+        _scene_from_screen(
+            timeline["intro_screen"],
+            scene_id="scene-01-intro",
+            component_id="broll-hero.big-type",
+            display_text=f"TOP {data.get('total_projects', len(projects))} 热榜速报",
+            visual_description="9:16 竖屏开场，大标题、项目数量、语言数量和估算日均 star 作为首屏信息锚点。",
+            motion="SLAMS title, CASCADES metrics",
+            asset_dependencies=[],
+            subtitle_keywords=["GitHub", "热榜", "真实项目"],
+        ),
+        _scene_from_screen(
+            timeline["list_screen"],
+            scene_id="scene-02-ranking",
+            component_id="broll-charts.h-bar",
+            display_text=f"GitHub TOP {len(projects)} 榜单",
+            visual_description="榜单纵向排列，项目名、作者、语言、stars 和估算热度同屏展示，适合快速扫读。",
+            motion="CASCADES rank rows",
+            asset_dependencies=[],
+            subtitle_keywords=[str(project.get("name") or "") for project in projects[:3] if project.get("name")],
+        ),
+    ]
+
+    for detail in timeline["detail_screens"]:
+        project = detail.get("project") or {}
+        scenes.append(_scene_from_screen(
+            detail,
+            scene_id=f"scene-{len(scenes) + 1:02d}-project-{int(project.get('rank') or len(scenes) - 1):02d}",
+            component_id="broll-hero.big-number",
+            display_text=f"#{project.get('rank') or '?'} {project.get('name') or 'GitHub 项目'}",
+            visual_description=(
+                "项目事实卡，包含排名、项目名、核心问题、具体用途、受众收益、stars、forks、语言和热度趋势。"
+            ),
+            motion="FLOATS card, EMPHASIZES metric",
+            asset_dependencies=_project_asset_dependencies(project),
+            subtitle_keywords=[
+                str(project.get("name") or ""),
+                str(project.get("hook") or ""),
+                str(project.get("language") or ""),
+            ],
+        ))
+
+    scenes.append(_scene_from_screen(
+        timeline["hook_screen"],
+        scene_id=f"scene-{len(scenes) + 1:02d}-cta",
+        component_id="broll-hero.big-type",
+        display_text=f"TOP {data.get('total_projects', len(projects))} 速览收尾",
+        visual_description="收尾清单回看全部项目，用排名卡片提示观众评论选择想看的实操拆解。",
+        motion="STACKS cards, HOLDS CTA",
+        asset_dependencies=[],
+        subtitle_keywords=["评论区", "项目", "实操"],
+        out_transition="fade-out",
+    ))
+    return scenes
+
+
+def _scene_from_screen(
+    screen: dict,
+    scene_id: str,
+    component_id: str,
+    display_text: str,
+    visual_description: str,
+    motion: str,
+    asset_dependencies: list[dict[str, str]],
+    subtitle_keywords: list[str],
+    out_transition: str = "hard cut",
+) -> dict[str, Any]:
+    narration = str(screen.get("narration") or "").strip()
+    start = round(float(screen.get("start") or 0), 1)
+    duration = round(float(screen.get("duration") or 0), 1)
+    keywords = [keyword for keyword in subtitle_keywords if keyword][:4]
+    return {
+        "id": scene_id,
+        "target": str(screen.get("target") or ""),
+        "screen_id": str(screen.get("screen_id") or ""),
+        "start": start,
+        "duration": duration,
+        "end": round(start + duration, 1),
+        "type": "B-roll",
+        "component_id": component_id,
+        "voiceover": narration,
+        "display_text": display_text,
+        "expected_content": display_text,
+        "expected_effect": "观众能在一屏内理解这一段的排序、用途或行动提示。",
+        "visual_description": visual_description,
+        "motion": motion,
+        "sound_effect": "无",
+        "transition": {"in": "hard cut", "out": out_transition},
+        "asset_dependencies": asset_dependencies,
+        "subtitle_mode": "keyword_highlight",
+        "subtitle_keywords": keywords,
+    }
+
+
+def _scene_end(screen: dict) -> float:
+    return round(float(screen.get("start") or 0) + float(screen.get("duration") or 0), 1)
+
+
+def _average_scene_duration(scenes: list[dict[str, Any]]) -> float:
+    if not scenes:
+        return 0.0
+    return round(sum(float(scene["duration"]) for scene in scenes) / len(scenes), 1)
+
+
+def _spec_assets(data: dict) -> list[dict[str, str]]:
+    assets = []
+    for project in data.get("projects") or []:
+        for asset in _project_asset_dependencies(project):
+            assets.append(asset)
+    return assets
+
+
+def _project_asset_dependencies(project: dict) -> list[dict[str, str]]:
+    source = str(project.get("visual_asset_source") or project.get("repo_url") or "").strip()
+    if not source:
+        return []
+    return [{
+        "id": f"project-{project.get('rank') or 'x'}-source",
+        "type": str(project.get("visual_asset_label") or "项目来源"),
+        "source": source,
+        "usage": str(project.get("name") or "项目事实卡"),
+    }]
+
+
+def _validate_video_spec(spec: dict[str, Any]) -> None:
+    scenes = spec.get("scenes") if isinstance(spec.get("scenes"), list) else []
+    if not scenes:
+        raise ValueError("video-spec scenes 不能为空")
+    hook_scenes = [scene for scene in scenes if "intro" in str(scene.get("id") or "") or "hook" in str(scene.get("target") or "")]
+    if not hook_scenes or min(float(scene.get("start") or 0) for scene in hook_scenes) > 3.0:
+        raise ValueError("video-spec 缺少前 3 秒 hook scene")
+    total_duration = float((spec.get("video_basics") or {}).get("total_duration") or 0)
+    scene_total = round(sum(float(scene.get("duration") or 0) for scene in scenes), 1)
+    if abs(scene_total - total_duration) > 0.5:
+        raise ValueError(f"video-spec 总时长不一致: scenes={scene_total}, total={total_duration}")
+
+    for scene in scenes:
+        scene_id = str(scene.get("id") or "unknown")
+        if str(scene.get("component_id") or "") not in VALID_SCENE_COMPONENTS:
+            raise ValueError(f"{scene_id} 使用了未登记组件: {scene.get('component_id')}")
+        if float(scene.get("duration") or 0) <= 0:
+            raise ValueError(f"{scene_id} 时长必须大于 0")
+        for key in ("voiceover", "display_text", "visual_description", "motion", "sound_effect"):
+            if not str(scene.get(key) or "").strip():
+                raise ValueError(f"{scene_id} 缺少 {key}")
+        transition = scene.get("transition") or {}
+        if not str(transition.get("in") or "").strip() or not str(transition.get("out") or "").strip():
+            raise ValueError(f"{scene_id} 缺少转场")
+        if "asset_dependencies" not in scene:
+            raise ValueError(f"{scene_id} 缺少素材依赖字段")
+
+
 def _narration_by_id(segments: list[dict]) -> dict[str, str]:
     return {
         str(segment.get("id") or ""): str(segment.get("text") or "").strip()
@@ -1078,9 +1308,30 @@ def _render_hyperframes(html_path: Path, output_path: Path) -> None:
     )
     if result.returncode != 0:
         console.print(f"  [yellow]HyperFrames stderr:[/] {result.stderr[:500]}")
-        if not output_path.exists():
-            raise RuntimeError(f"HyperFrames render failed: {result.stderr[:200]}")
+        raise RuntimeError(f"HyperFrames render failed: {result.stderr[:200]}")
+    _verify_rendered_video(output_path)
     console.print(f"  HyperFrames output: {result.stdout[-300:]}")
+
+
+def _verify_rendered_video(video_path: Path) -> None:
+    if not video_path.exists() or video_path.stat().st_size <= 0:
+        raise RuntimeError(f"HyperFrames render did not produce a usable video: {video_path}")
+    try:
+        from moviepy import VideoFileClip
+
+        clip = VideoFileClip(str(video_path))
+        try:
+            if not clip.duration or clip.duration <= 0:
+                raise RuntimeError(f"HyperFrames output has invalid duration: {video_path}")
+            frame = clip.get_frame(min(0.1, max(0.0, clip.duration / 2)))
+            if getattr(frame, "size", 0) <= 0:
+                raise RuntimeError(f"HyperFrames output has an empty frame: {video_path}")
+        finally:
+            clip.close()
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"HyperFrames output verification failed: {exc}") from exc
 
 
 def _mix_audio(

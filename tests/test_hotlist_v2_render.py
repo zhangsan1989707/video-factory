@@ -8,7 +8,16 @@ from unittest.mock import patch
 
 from jinja2 import Environment, FileSystemLoader
 
-from src.hotlist_v2.render import _build_script_from_timeline, _data_from_projects, _timeline_context, render_hotlist_v2_from_projects, render_hotlist_v2_previews_from_projects
+from src.hotlist_v2.render import (
+    _build_script_from_timeline,
+    _build_video_spec,
+    _data_from_projects,
+    _render_hyperframes,
+    _timeline_context,
+    _validate_video_spec,
+    render_hotlist_v2_from_projects,
+    render_hotlist_v2_previews_from_projects,
+)
 from src.hotlist_v2.template import DEFAULT_STYLE, STYLE_PROFILES, TEMPLATE_DIR, list_template_styles, normalize_style, render_composition, supported_styles
 
 
@@ -161,6 +170,113 @@ class HotlistV2RenderTest(unittest.TestCase):
             "rendering_hyperframes",
             "mixing_audio",
         ])
+
+    def test_render_writes_video_spec_audit_file(self) -> None:
+        projects = [
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "一个值得关注的项目。",
+                "stars": 1000,
+                "language": "Python",
+                "repo_url": "https://github.com/demo/project",
+            }
+        ]
+
+        async def fake_tts(script, work_dir):
+            (work_dir / "audio").mkdir(parents=True, exist_ok=True)
+
+        def fake_render_composition(render_data, html_path, durations=None, style=DEFAULT_STYLE):
+            html_path.write_text("<html></html>", encoding="utf-8")
+
+        def fake_render_hyperframes(html_path, raw_video):
+            raw_video.write_bytes(b"raw")
+
+        def fake_mix_audio(raw_video, script, audio_dir, out):
+            out.write_bytes(b"final")
+
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "final.mp4"
+            with (
+                patch("src.hotlist_v2.render.generate_all_audio", side_effect=fake_tts),
+                patch("src.hotlist_v2.render._audio_segment_durations", return_value={"intro": 2.0, "project-1": 3.0, "outro": 2.0}),
+                patch("src.hotlist_v2.render.render_composition", side_effect=fake_render_composition),
+                patch("src.hotlist_v2.render._render_hyperframes", side_effect=fake_render_hyperframes),
+                patch("src.hotlist_v2.render._mix_audio", side_effect=fake_mix_audio),
+            ):
+                asyncio.run(render_hotlist_v2_from_projects(projects, output_path=output, style="apple_minimal"))
+
+            spec = (Path(tmp) / "video-spec.json").read_text(encoding="utf-8")
+
+        self.assertIn('"schema_version": "hotlist-video-spec.v1"', spec)
+        self.assertIn('"theme": "apple_minimal"', spec)
+        self.assertIn('"component_id": "broll-hero.big-type"', spec)
+        self.assertIn('"subtitle_mode": "keyword_highlight"', spec)
+
+    def test_video_spec_scene_model_and_validator(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "一个值得关注的项目。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+        timeline = _timeline_context(data, segment_durations={"intro": 2.0, "list": 2.0, "project-1": 3.0, "hook": 2.0})
+        spec = _build_video_spec(data, timeline, style="tech_hotspot")
+
+        _validate_video_spec(spec)
+
+        self.assertEqual(spec["video_basics"]["total_duration"], timeline["total_duration"])
+        self.assertEqual(len(spec["scenes"]), 4)
+        self.assertLessEqual(spec["scenes"][0]["start"], 3.0)
+        self.assertEqual(spec["scenes"][2]["component_id"], "broll-hero.big-number")
+        self.assertTrue(all("asset_dependencies" in scene for scene in spec["scenes"]))
+        self.assertAlmostEqual(
+            sum(scene["duration"] for scene in spec["scenes"]),
+            spec["video_basics"]["total_duration"],
+            delta=0.5,
+        )
+
+    def test_video_spec_validator_rejects_bad_component_missing_transition_and_late_hook(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "一个值得关注的项目。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+        spec = _build_video_spec(data, _timeline_context(data))
+
+        bad_component = {**spec, "scenes": [dict(scene) for scene in spec["scenes"]]}
+        bad_component["scenes"][0]["component_id"] = "fake.component"
+        with self.assertRaisesRegex(ValueError, "未登记组件"):
+            _validate_video_spec(bad_component)
+
+        missing_transition = {**spec, "scenes": [dict(scene) for scene in spec["scenes"]]}
+        missing_transition["scenes"][0] = {**missing_transition["scenes"][0], "transition": {"in": "hard cut"}}
+        with self.assertRaisesRegex(ValueError, "缺少转场"):
+            _validate_video_spec(missing_transition)
+
+        late_hook = {**spec, "scenes": [dict(scene) for scene in spec["scenes"]]}
+        late_hook["scenes"][0]["start"] = 4.0
+        with self.assertRaisesRegex(ValueError, "前 3 秒 hook"):
+            _validate_video_spec(late_hook)
+
+    def test_hyperframes_nonzero_exit_rejects_partial_output(self) -> None:
+        with TemporaryDirectory() as tmp:
+            html_path = Path(tmp) / "composition.html"
+            html_path.write_text("<html></html>", encoding="utf-8")
+            output = Path(tmp) / "raw.mp4"
+            output.write_bytes(b"partial")
+
+            completed = type("Completed", (), {"returncode": 1, "stderr": "render failed", "stdout": ""})()
+            with patch("src.hotlist_v2.render.subprocess.run", return_value=completed):
+                with self.assertRaisesRegex(RuntimeError, "HyperFrames render failed"):
+                    _render_hyperframes(html_path, output)
 
     def test_template_falls_back_to_default_style_profile_when_missing(self) -> None:
         data = _data_from_projects([
