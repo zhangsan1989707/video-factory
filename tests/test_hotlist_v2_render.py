@@ -17,6 +17,8 @@ from src.hotlist_v2.render import (
     _render_data_from_spec,
     _timeline_context,
     _validate_video_spec,
+    _verify_preview_frame_image,
+    _capture_html_screens,
     render_hotlist_v2_from_projects,
     render_hotlist_v2_previews_from_projects,
 )
@@ -323,6 +325,34 @@ class HotlistV2RenderTest(unittest.TestCase):
         self.assertIn("--canvas-bg: #101820;", html)
         self.assertIn("--font-display: 'SF Pro Display', sans-serif;", html)
         self.assertIn("--s-card-radius: 28px;", html)
+
+    def test_real_browser_preview_frames_are_nonblank_and_distinct(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "一个值得关注的项目。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+        render_data = {**data, **_timeline_context(data)}
+
+        with TemporaryDirectory() as tmp:
+            html_path = Path(tmp) / "composition.html"
+            render_composition(render_data, html_path, style="bytedance_product")
+            targets = [
+                ("screen-detail-01", Path(tmp) / "rank.png"),
+                ("screen-detail-01-proof", Path(tmp) / "proof.png"),
+            ]
+            try:
+                frames = _capture_html_screens(html_path, targets)
+            except Exception as exc:
+                self.skipTest(f"Playwright screenshot unavailable: {exc}")
+
+            for frame in frames:
+                _verify_preview_frame_image(frame)
+            self.assertNotEqual(frames[0].read_bytes(), frames[1].read_bytes())
 
     def test_render_data_and_script_are_rebuilt_from_spec(self) -> None:
         data = _data_from_projects([

@@ -913,6 +913,21 @@ def _capture_html_screens(html_path: Path, targets: list[tuple[str, Path]]) -> l
     return outputs
 
 
+def _verify_preview_frame_image(image_path: Path, min_unique_colors: int = 16) -> None:
+    from PIL import Image
+
+    if not image_path.exists() or image_path.stat().st_size <= 0:
+        raise RuntimeError(f"Preview frame missing or empty: {image_path}")
+    with Image.open(image_path) as image:
+        if image.size != (1080, 1920):
+            raise RuntimeError(f"Preview frame has unexpected size: {image.size}")
+        sample = image.convert("RGB").resize((54, 96))
+        colors = sample.getcolors(maxcolors=54 * 96)
+        unique_count = len(colors or [])
+        if unique_count < min_unique_colors:
+            raise RuntimeError(f"Preview frame appears blank or too flat: {unique_count} colors")
+
+
 def _timeline_context(
     data: dict,
     durations: dict[str, int] | None = None,
