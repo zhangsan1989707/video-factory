@@ -118,9 +118,9 @@ class HotlistV2RenderTest(unittest.TestCase):
                 html = calls[-1][0].read_text(encoding="utf-8")
                 screen_ids = [screen_id for screen_id, _target in calls[-1][1]]
 
-                self.assertEqual(len(previews), 4)
+                self.assertEqual(len(previews), 5)
                 self.assertIn(f'data-style="{style}"', html)
-                self.assertEqual(screen_ids, ["screen-intro", "screen-list", "screen-detail-01", "screen-hook"])
+                self.assertEqual(screen_ids, ["screen-intro", "screen-list", "screen-detail-01", "screen-detail-01-proof", "screen-hook"])
 
     def test_hyperframes_render_emits_stage_callbacks_in_real_order(self) -> None:
         projects = [
@@ -229,15 +229,60 @@ class HotlistV2RenderTest(unittest.TestCase):
         _validate_video_spec(spec)
 
         self.assertEqual(spec["video_basics"]["total_duration"], timeline["total_duration"])
-        self.assertEqual(len(spec["scenes"]), 4)
+        self.assertEqual(len(spec["scenes"]), 5)
         self.assertLessEqual(spec["scenes"][0]["start"], 3.0)
         self.assertEqual(spec["scenes"][2]["component_id"], "broll-hero.big-number")
+        self.assertEqual(spec["scenes"][3]["component_id"], "aroll.concept-card")
+        self.assertEqual(spec["expression"]["subtitle_mode"], "rendered_keyword_overlay")
         self.assertTrue(all("asset_dependencies" in scene for scene in spec["scenes"]))
         self.assertAlmostEqual(
             sum(scene["duration"] for scene in spec["scenes"]),
             spec["video_basics"]["total_duration"],
             delta=0.5,
         )
+
+    def test_template_renders_split_detail_screens_and_keyword_subtitles(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "一个值得关注的项目。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+        render_data = {**data, **_timeline_context(data)}
+
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "composition.html"
+            render_composition(render_data, output)
+            html = output.read_text(encoding="utf-8")
+
+        self.assertIn('id="screen-detail-01"', html)
+        self.assertIn('id="screen-detail-01-proof"', html)
+        self.assertIn("rank-punch-screen", html)
+        self.assertIn("value-proof-screen", html)
+        self.assertIn("subtitle-overlay", html)
+        self.assertIn("subtitle-keyword", html)
+
+    def test_video_spec_prefers_design_md_theme_source(self) -> None:
+        data = _data_from_projects([
+            {
+                "full_name": "demo/project",
+                "name": "project",
+                "description_zh": "一个值得关注的项目。",
+                "stars": 1000,
+                "language": "Python",
+            }
+        ])
+        with TemporaryDirectory() as tmp:
+            design = Path(tmp) / "design.md"
+            design.write_text("colors:\n  accent: '#00d4ff'\n", encoding="utf-8")
+            spec = _build_video_spec(data, _timeline_context(data), style="tech_hotspot", work_dir=Path(tmp))
+
+        self.assertEqual(spec["visual"]["theme_source"], "design.md")
+        self.assertEqual(spec["visual"]["theme"], "custom_design")
+        self.assertEqual(spec["visual"]["design_md"], str(design))
 
     def test_video_spec_validator_rejects_bad_component_missing_transition_and_late_hook(self) -> None:
         data = _data_from_projects([
@@ -322,9 +367,9 @@ class HotlistV2RenderTest(unittest.TestCase):
         script = _build_script_from_timeline(timeline)
 
         self.assertEqual(data["total_projects"], 10)
-        self.assertEqual(len(timeline["detail_screens"]), 10)
-        self.assertEqual(timeline["detail_screens"][-1]["screen_id"], "screen-detail-10")
-        self.assertEqual(len(script.segments), 13)
+        self.assertEqual(len(timeline["detail_screens"]), 20)
+        self.assertEqual(timeline["detail_screens"][-1]["screen_id"], "screen-detail-10-proof")
+        self.assertEqual(len(script.segments), 23)
         self.assertGreater(script.total_duration, 16)
 
     def test_audio_durations_extend_visual_timeline(self) -> None:
@@ -342,7 +387,8 @@ class HotlistV2RenderTest(unittest.TestCase):
         script = _build_script_from_timeline(timeline)
 
         self.assertEqual(timeline["intro_screen"]["duration"], 9.6)
-        self.assertEqual(timeline["detail_screens"][0]["duration"], 11.4)
+        self.assertEqual(timeline["detail_screens"][0]["duration"], 2.4)
+        self.assertEqual(timeline["detail_screens"][1]["duration"], 9.3)
         self.assertEqual(timeline["list_screen"]["start"], 9.6)
         self.assertEqual(script.segments[2].timestamp, timeline["detail_screens"][0]["start"])
 

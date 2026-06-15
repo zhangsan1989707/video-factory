@@ -1305,6 +1305,80 @@ body {
   padding-top: var(--platform-safe-top);
   padding-bottom: var(--platform-safe-bottom);
 }
+.subtitle-overlay {
+  position: absolute;
+  left: 56px;
+  right: 56px;
+  bottom: 92px;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.subtitle-pill {
+  max-width: 880px;
+  padding: 18px 24px;
+  border-radius: 18px;
+  background: rgba(0,0,0,0.62);
+  border: 1px solid rgba(255,255,255,0.16);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 30px;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.24);
+}
+.subtitle-keyword {
+  color: var(--accent-cyan);
+  font-weight: 800;
+}
+.rank-punch-screen .detail-body {
+  justify-content: center;
+}
+.rank-punch-hero {
+  min-height: 960px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 34px;
+  padding: 64px;
+  background: var(--card-bg);
+  border: var(--card-border);
+  border-radius: var(--card-border-radius);
+  box-shadow: var(--card-shadow);
+}
+.rank-punch-number {
+  font-family: var(--font-display);
+  font-size: 168px;
+  line-height: 0.9;
+  color: var(--accent-cyan);
+  letter-spacing: 0;
+}
+.rank-punch-name {
+  font-family: var(--font-display);
+  font-size: 78px;
+  line-height: 1.02;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.rank-punch-hook {
+  font-size: 36px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+.rank-punch-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.rank-punch-chip {
+  padding: 12px 18px;
+  border-radius: var(--badge-radius);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 22px;
+}
 </style>
 </head>
 <body>
@@ -1386,6 +1460,7 @@ body {
       </div>
     </div>
   </div>
+  <div class="subtitle-overlay"><div class="subtitle-pill">{{ intro_screen.subtitle_html | safe }}</div></div>
 </div>
 
 <!-- ======== SCREEN 2: LIST ======== -->
@@ -1445,12 +1520,13 @@ body {
       <span style="font-family:var(--font-mono);font-size:14px;color:var(--text-dim);">共 {{ total_projects }} 个热门仓库 · TOP {{ total_projects }}</span>
     </div>
   </div>
+  <div class="subtitle-overlay"><div class="subtitle-pill">{{ list_screen.subtitle_html | safe }}</div></div>
 </div>
 
 <!-- ======== SCREEN 3+: PROJECT DETAILS ======== -->
 {% for detail in detail_screens %}
 {% set top1 = detail.project %}
-<div class="screen clip" data-start="{{ detail.start }}" data-duration="{{ detail.duration }}" id="{{ detail.screen_id }}">
+<div class="screen clip {% if detail.detail_kind == 'rank-punch' %}rank-punch-screen{% else %}value-proof-screen{% endif %}" data-start="{{ detail.start }}" data-duration="{{ detail.duration }}" id="{{ detail.screen_id }}">
   <div class="scanline"></div>
   {% if palette.show_glow_orbs == "1" %}
   <div class="glow-orb glow-cyan" style="top:-200px;right:-100px;width:300px;height:300px;opacity:0.5;"></div>
@@ -1458,6 +1534,20 @@ body {
   <div style="position:absolute;top:0;right:0;width:200px;height:200px;background:radial-gradient(circle at top right, rgba(var(--accent-cyan-rgb), 0.08), transparent 70%);pointer-events:none;"></div>
 
   <div class="detail-screen">
+    {% if detail.detail_kind == 'rank-punch' %}
+    <div class="detail-body">
+      <section class="rank-punch-hero">
+        <div class="rank-punch-number">#{{ "%02d" | format(top1.rank) }}</div>
+        <div class="rank-punch-name">{{ top1.name }}</div>
+        <div class="rank-punch-hook">{{ top1.hook or top1.core_problem or "先看它解决什么问题" }}</div>
+        <div class="rank-punch-meta">
+          <div class="rank-punch-chip">★ {{ top1.stars_display }}</div>
+          <div class="rank-punch-chip">{{ top1.language or "其他" }}</div>
+          <div class="rank-punch-chip">{{ top1.trend_label }}</div>
+        </div>
+      </section>
+    </div>
+    {% else %}
     <div class="detail-body">
       <section class="detail-hero-card">
         <div class="hero-top">
@@ -1545,7 +1635,9 @@ body {
         </div>
       </div>
     </div>
+    {% endif %}
   </div>
+  <div class="subtitle-overlay"><div class="subtitle-pill">{{ detail.subtitle_html | safe }}</div></div>
 </div>
 {% endfor %}
 
@@ -1612,6 +1704,7 @@ body {
       </div>
     </div>
   </div>
+  <div class="subtitle-overlay"><div class="subtitle-pill">{{ hook_screen.subtitle_html | safe }}</div></div>
 </div>
 
 <script>

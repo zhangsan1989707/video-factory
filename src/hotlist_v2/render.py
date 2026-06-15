@@ -7,6 +7,7 @@ import math
 import re
 import shutil
 import subprocess
+from html import escape
 from difflib import SequenceMatcher
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -30,7 +31,19 @@ VALID_SCENE_COMPONENTS = {
     "broll-hero.big-type",
     "broll-charts.h-bar",
     "broll-hero.big-number",
+    "aroll.concept-card",
     "broll-abstract.placeholder",
+}
+
+HYPERFRAMES_PRESETS = {
+    "Swiss Pulse",
+    "Velvet Standard",
+    "Deconstructed",
+    "Maximalist Type",
+    "Data Drift",
+    "Soft Signal",
+    "Folk Frequency",
+    "Shadow Cut",
 }
 
 
@@ -146,7 +159,7 @@ async def render_hotlist_v2_from_data(
     script_path.write_text(json.dumps(script.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
     console.print(f"  ✓ TTS audio: {audio_dir}")
 
-    video_spec = _build_video_spec(data, timeline, style=style)
+    video_spec = _build_video_spec(data, timeline, style=style, work_dir=work_dir)
     _validate_video_spec(video_spec)
     spec_path = work_dir / "video-spec.json"
     spec_path.write_text(json.dumps(video_spec, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -938,6 +951,7 @@ def _timeline_context(
         "duration": intro_duration,
         "narration": intro_text,
         "target": "intro",
+        "subtitle_html": _subtitle_html(intro_text, ["GitHub", "热榜", "真实项目"]),
     }
     cursor += intro_duration
     list_screen = {
@@ -946,6 +960,7 @@ def _timeline_context(
         "duration": list_duration,
         "narration": list_text,
         "target": "list",
+        "subtitle_html": _subtitle_html(list_text, [str(project.get("name") or "") for project in projects[:3]]),
     }
     cursor += list_duration
 
@@ -953,16 +968,37 @@ def _timeline_context(
     for index, project in enumerate(projects, start=1):
         project_text = _narration_text(narration, f"project-{index}", _project_narration(project))
         target = f"project-{index}"
-        duration = _screen_duration(target, detail_base or _spoken_duration(project_text, 5.4, 8.5), audio_durations)
+        rank_text, proof_text = _split_project_narration(project_text, project)
+        duration = _detail_duration(
+            target,
+            detail_base or _spoken_duration(project_text, 5.4, 8.5),
+            audio_durations,
+        )
+        rank_duration, proof_duration = _split_detail_duration(duration, audio_durations.get(target), audio_durations.get(f"{target}-proof"))
         detail_screens.append({
             "screen_id": f"screen-detail-{index:02d}",
             "start": cursor,
-            "duration": duration,
-            "narration": project_text,
+            "duration": rank_duration,
+            "narration": rank_text,
             "target": target,
+            "detail_kind": "rank-punch",
+            "paired_target": f"{target}-proof",
             "project": project,
+            "subtitle_html": _subtitle_html(rank_text, [str(project.get("name") or ""), str(project.get("hook") or "")]),
         })
-        cursor += duration
+        cursor += rank_duration
+        detail_screens.append({
+            "screen_id": f"screen-detail-{index:02d}-proof",
+            "start": cursor,
+            "duration": proof_duration,
+            "narration": proof_text,
+            "target": f"{target}-proof",
+            "detail_kind": "value-proof",
+            "paired_target": target,
+            "project": project,
+            "subtitle_html": _subtitle_html(proof_text, [str(project.get("core_action") or ""), str(project.get("viewer_benefit") or "")]),
+        })
+        cursor += proof_duration
 
     hook_screen = {
         "screen_id": "screen-hook",
@@ -970,6 +1006,7 @@ def _timeline_context(
         "duration": hook_duration,
         "narration": hook_text,
         "target": "hook",
+        "subtitle_html": _subtitle_html(hook_text, ["评论区", "项目", "实操"]),
     }
     cursor += hook_duration
 
@@ -1006,9 +1043,10 @@ def _build_script_from_timeline(timeline: dict) -> VideoScript:
     )
 
 
-def _build_video_spec(data: dict, timeline: dict, style: str = DEFAULT_STYLE) -> dict[str, Any]:
+def _build_video_spec(data: dict, timeline: dict, style: str = DEFAULT_STYLE, work_dir: Path | None = None) -> dict[str, Any]:
     """Build an auditable director spec from the current HyperFrames timeline."""
     scenes = _build_scene_model(data, timeline)
+    visual = _visual_spec(style, work_dir)
     return {
         "schema_version": "hotlist-video-spec.v1",
         "video_basics": {
@@ -1042,18 +1080,12 @@ def _build_video_spec(data: dict, timeline: dict, style: str = DEFAULT_STYLE) ->
             "audio_visual_relationship": "旁白解释项目价值，画面用榜单、事实卡和收尾清单承载可扫读信息。",
         },
         "expression": {
-            "scene_types": ["大字开场", "榜单总览", "项目事实卡", "收尾清单"],
-            "subtitle_mode": "segment_keyword_highlight",
+            "scene_types": ["大字开场", "榜单总览", "排名冲击", "价值证明", "收尾清单"],
+            "subtitle_mode": "rendered_keyword_overlay",
             "motion_language": "卡片进入、榜单级联、指标强调、硬切转场",
             "pacing": {"average_scene_duration": _average_scene_duration(scenes), "unit": "seconds"},
         },
-        "visual": {
-            "theme_source": "legacy_style_profile",
-            "theme": style,
-            "custom_design_md": "reserved",
-            "accent_color": "default",
-            "decor_density": "style_default",
-        },
+        "visual": visual,
         "assets": _spec_assets(data),
         "scenes": scenes,
         "audio_timeline": [
@@ -1098,13 +1130,11 @@ def _build_scene_model(data: dict, timeline: dict) -> list[dict[str, Any]]:
         project = detail.get("project") or {}
         scenes.append(_scene_from_screen(
             detail,
-            scene_id=f"scene-{len(scenes) + 1:02d}-project-{int(project.get('rank') or len(scenes) - 1):02d}",
-            component_id="broll-hero.big-number",
+            scene_id=f"scene-{len(scenes) + 1:02d}-{detail.get('detail_kind', 'project')}-{int(project.get('rank') or len(scenes) - 1):02d}",
+            component_id="broll-hero.big-number" if detail.get("detail_kind") == "rank-punch" else "aroll.concept-card",
             display_text=f"#{project.get('rank') or '?'} {project.get('name') or 'GitHub 项目'}",
-            visual_description=(
-                "项目事实卡，包含排名、项目名、核心问题、具体用途、受众收益、stars、forks、语言和热度趋势。"
-            ),
-            motion="FLOATS card, EMPHASIZES metric",
+            visual_description=_detail_visual_description(detail),
+            motion="SLAMS rank, EMPHASIZES metric" if detail.get("detail_kind") == "rank-punch" else "FLOATS proof card, HIGHLIGHTS keywords",
             asset_dependencies=_project_asset_dependencies(project),
             subtitle_keywords=[
                 str(project.get("name") or ""),
@@ -1125,6 +1155,12 @@ def _build_scene_model(data: dict, timeline: dict) -> list[dict[str, Any]]:
         out_transition="fade-out",
     ))
     return scenes
+
+
+def _detail_visual_description(detail: dict) -> str:
+    if detail.get("detail_kind") == "rank-punch":
+        return "排名冲击镜头，突出项目排名、名称、stars、语言和一句痛点钩子，先让观众记住它是谁。"
+    return "价值证明镜头，突出具体用途、用户收益、证据来源和风险提示，承接上一镜的排名冲击。"
 
 
 def _scene_from_screen(
@@ -1195,6 +1231,52 @@ def _project_asset_dependencies(project: dict) -> list[dict[str, str]]:
     }]
 
 
+def _visual_spec(style: str, work_dir: Path | None = None) -> dict[str, str]:
+    design_path = _find_design_md(work_dir)
+    if design_path:
+        return {
+            "theme_source": "design.md",
+            "theme": "custom_design",
+            "design_md": str(design_path),
+            "preset": "",
+            "legacy_style": style,
+            "accent_color": "default",
+            "decor_density": "design_default",
+        }
+    if style in HYPERFRAMES_PRESETS:
+        return {
+            "theme_source": "hyperframes_preset",
+            "theme": style,
+            "design_md": "",
+            "preset": style,
+            "legacy_style": "",
+            "accent_color": "default",
+            "decor_density": "preset_default",
+        }
+    return {
+        "theme_source": "legacy_style_profile",
+        "theme": style,
+        "design_md": "",
+        "preset": "",
+        "legacy_style": style,
+        "accent_color": "default",
+        "decor_density": "style_default",
+    }
+
+
+def _find_design_md(work_dir: Path | None = None) -> Path | None:
+    candidates = []
+    if work_dir:
+        candidates.append(work_dir / "design.md")
+        candidates.append(work_dir / "DESIGN.md")
+    candidates.append(PROJECT_ROOT / "design.md")
+    candidates.append(PROJECT_ROOT / "DESIGN.md")
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
 def _validate_video_spec(spec: dict[str, Any]) -> None:
     scenes = spec.get("scenes") if isinstance(spec.get("scenes"), list) else []
     if not scenes:
@@ -1242,6 +1324,56 @@ def _duration_override(durations: dict[str, int], key: str) -> float | None:
         return max(1.0, float(durations[key]))
     except (TypeError, ValueError):
         return None
+
+
+def _split_project_narration(text: str, project: dict) -> tuple[str, str]:
+    text = " ".join(text.split()).strip()
+    rank = project.get("rank") or 1
+    name = project.get("name") or "GitHub 项目"
+    hook = str(project.get("hook") or project.get("core_problem") or "先看它解决什么问题").strip()
+    punch = f"第 {rank} 个，{name}。{hook}。"
+    proof = text
+    if proof.startswith(punch):
+        proof = proof[len(punch):].strip()
+    if not proof or proof == punch:
+        proof = str(project.get("reason") or project.get("viewer_benefit") or project.get("description") or "具体价值还需要结合项目说明继续核对。")
+    return punch, proof
+
+
+def _detail_duration(target: str, visual_duration: float, audio_durations: dict[str, float]) -> float:
+    rank_audio = audio_durations.get(target)
+    proof_audio = audio_durations.get(f"{target}-proof")
+    if rank_audio or proof_audio:
+        audio_duration = (rank_audio or 0) + (proof_audio or 0) + 0.7
+        return math.ceil(max(visual_duration, audio_duration) * 10) / 10
+    return round(visual_duration, 1)
+
+
+def _split_detail_duration(duration: float, rank_audio: float | None = None, proof_audio: float | None = None) -> tuple[float, float]:
+    if rank_audio or proof_audio:
+        rank_duration = math.ceil(max(1.2, min(2.4, (rank_audio or 0) + 0.35)) * 10) / 10
+    else:
+        rank_duration = round(max(1.2, min(2.2, duration * 0.32)), 1)
+    if proof_audio:
+        proof_duration = math.ceil(max(1.0, duration - rank_duration, proof_audio + 0.35) * 10) / 10
+    else:
+        proof_duration = round(max(1.0, duration - rank_duration), 1)
+    return rank_duration, proof_duration
+
+
+def _subtitle_html(text: str, keywords: list[str]) -> str:
+    text = " ".join(str(text or "").split()).strip()
+    if not text:
+        return ""
+    escaped = escape(text)
+    for keyword in sorted({kw.strip() for kw in keywords if kw and len(kw.strip()) >= 2}, key=len, reverse=True)[:4]:
+        escaped_keyword = escape(keyword)
+        escaped = escaped.replace(
+            escaped_keyword,
+            f'<span class="subtitle-keyword">{escaped_keyword}</span>',
+            1,
+        )
+    return escaped
 
 
 def _spoken_duration(text: str, minimum: float, maximum: float) -> float:
