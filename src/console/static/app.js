@@ -878,6 +878,7 @@ function templateParamNodes(prefix = "") {
       bgmMode: $("bgmMode"),
       bgmVolume: $("bgmVolume"),
       bgmPath: $("bgmPath"),
+      officialOutputDir: $("officialOutputDir"),
       issueNumber: $("issueNumber"),
     };
   }
@@ -898,7 +899,7 @@ function currentTemplateParams(prefix = "") {
   const nodes = templateParamNodes(prefix);
   const issueInput = nodes.issueNumber;
   const issueVal = issueInput && issueInput.value.trim() ? Number(issueInput.value) : null;
-  const officialOutputDir = nodes.officialOutputDir ? (nodes.officialOutputDir.value.trim() || DEFAULT_OFFICIAL_OUTPUT_DIR) : "";
+  const officialOutputDir = nodes.officialOutputDir ? (nodes.officialOutputDir.value.trim() || DEFAULT_OFFICIAL_OUTPUT_DIR) : DEFAULT_OFFICIAL_OUTPUT_DIR;
   return {
     style: nodes.visualStyle.value,
     render_engine: nodes.renderEngine.value,

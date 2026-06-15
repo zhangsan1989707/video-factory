@@ -28,6 +28,12 @@ def _fake_hyperframes_previews(projects: list[dict], output_dir: Path, **kwargs)
     return previews
 
 
+def _with_output_dir(tmp: str, params: dict | None = None) -> dict:
+    item = dict(params or {})
+    item["official_output_dir"] = str(Path(tmp) / "published")
+    return item
+
+
 class ConsoleJobsTest(unittest.TestCase):
     def setUp(self) -> None:
         route_value = {
@@ -367,7 +373,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 job = console_jobs.create_single_project_vertical_job({
                     "repo_url": "https://github.com/demo/alpha",
                     "title": "Alpha Review",
-                    "template_params": {"bgm_volume": 0.24},
+                    "template_params": _with_output_dir(tmp, {"bgm_volume": 0.24}),
                 })
                 job_dir = jobs_dir / job["id"]
                 write_json(job_dir / "asset_manifest.json", {"assets": []})
@@ -1280,7 +1286,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 job = create_job("GH-HOTLIST-20990101-009", {
                     "project_count": 2,
                     "title": "自动校验",
-                    "template_params": {"bgm": "none"},
+                    "template_params": _with_output_dir(tmp, {"bgm": "none"}),
                 })
                 _mark_awaiting_project_confirmation(job["id"])
                 selection = save_selection(job["id"], {"items": _sample_projects()})
@@ -1366,7 +1372,7 @@ class ConsoleJobsTest(unittest.TestCase):
             ):
                 job = create_job("GH-HOTLIST-20990101-HF-STYLE-RENDER", {
                     "project_count": 2,
-                    "template_params": {"style": "apple_minimal", "bgm": "none"},
+                    "template_params": _with_output_dir(tmp, {"style": "apple_minimal", "bgm": "none"}),
                 })
                 _mark_awaiting_project_confirmation(job["id"])
                 selection = save_selection(job["id"], {"items": _sample_projects()})
@@ -1402,7 +1408,7 @@ class ConsoleJobsTest(unittest.TestCase):
             ):
                 job = create_job("GH-HOTLIST-20990101-BGM", {
                     "project_count": 2,
-                    "template_params": {"bgm": "custom", "bgm_path": str(bgm_file), "bgm_volume": 0.42},
+                    "template_params": _with_output_dir(tmp, {"bgm": "custom", "bgm_path": str(bgm_file), "bgm_volume": 0.42}),
                 })
                 _mark_awaiting_project_confirmation(job["id"])
                 selection = save_selection(job["id"], {"items": _sample_projects()})
@@ -2679,6 +2685,7 @@ class ConsoleJobsTest(unittest.TestCase):
             self.assertEqual(job["template_params"]["style"], "sspai_editorial")
             self.assertEqual(job["template_params"]["render_engine"], "hyperframes")
             self.assertEqual(job["template_params"]["orientation"], "vertical")
+            self.assertEqual(job["template_params"]["official_output_dir"], "/Users/leohang/Movies/GitHub热榜视频")
             saved = read_json(jobs_dir / job["id"] / "task.json", {})
             self.assertEqual(saved["template_params"], job["template_params"])
 

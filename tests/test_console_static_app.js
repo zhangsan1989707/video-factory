@@ -304,6 +304,7 @@ function basicConsoleNodes() {
     bgmMode: { value: "default" },
     bgmVolume: { value: "0.13" },
     bgmPath: { value: "" },
+    officialOutputDir: { value: DEFAULT_OFFICIAL_OUTPUT_DIR },
     issueNumber: { value: "" },
     projectCount: { value: "5" },
     candidateRows: emptyListNode(),
@@ -364,6 +365,7 @@ async function testCreateDraftDoesNotCollectCandidates() {
     bgmMode: { value: "default" },
     bgmVolume: { value: "0.13" },
     bgmPath: { value: "" },
+    officialOutputDir: { value: DEFAULT_OFFICIAL_OUTPUT_DIR },
     currentJobId: { textContent: "" },
     currentStage: { textContent: "" },
     openJobFolderBtn: { disabled: true },
@@ -418,6 +420,7 @@ async function testCreateDraftDoesNotCollectCandidates() {
   assert.equal(calls[0].body.time_window, "monthly");
   assert.equal(calls[0].body.project_count, 10);
   assert.equal(calls[0].body.template_params.bgm_volume, 0.13);
+  assert.equal(calls[0].body.template_params.official_output_dir, DEFAULT_OFFICIAL_OUTPUT_DIR);
   assert.equal(values.nextActionBtn.textContent, "生成候选草稿");
   assert.equal(values.nextActionBtn.dataset.action, "collect-candidates");
   assert.equal(values.logBox.textContent, "任务已按当前时间维度和项目数创建。点击“生成候选草稿”拉取候选项目。\n");
@@ -639,6 +642,7 @@ function testTemplatePayloadUsesActiveTemplate() {
     bgmMode: { value: "none" },
     bgmVolume: { value: "0.32" },
     bgmPath: { value: "" },
+    officialOutputDir: { value: DEFAULT_OFFICIAL_OUTPUT_DIR },
   };
   global.document = {
     getElementById(id) {
@@ -663,7 +667,7 @@ function testTemplatePayloadUsesActiveTemplate() {
     bgm: "none",
     bgm_volume: 0.32,
     bgm_path: "",
-    official_output_dir: "",
+    official_output_dir: DEFAULT_OFFICIAL_OUTPUT_DIR,
     narration_tone: "short_video_hook",
   });
 }
@@ -677,6 +681,7 @@ function testApplyTemplateParamsRestoresBgmVolume() {
     bgmMode: { value: "" },
     bgmVolume: { value: "" },
     bgmPath: { value: "" },
+    officialOutputDir: { value: DEFAULT_OFFICIAL_OUTPUT_DIR },
     issueNumber: { value: "" },
   };
   global.document = {
@@ -899,6 +904,7 @@ function testRenderJobRefreshesEmbeddedStageHistory() {
     bgmMode: { value: "" },
     bgmVolume: { value: "0.13" },
     bgmPath: { value: "" },
+    officialOutputDir: { value: DEFAULT_OFFICIAL_OUTPUT_DIR },
     nextActionBtn: { textContent: "", dataset: {}, disabled: false },
     confirmSelectionBtn: { textContent: "", disabled: false },
     saveScriptBtn: { textContent: "", disabled: false },
@@ -944,6 +950,7 @@ function testBusyRestoreKeepsLatestJobActionState() {
     bgmMode: { value: "" },
     bgmVolume: { value: "0.13" },
     bgmPath: { value: "" },
+    officialOutputDir: { value: DEFAULT_OFFICIAL_OUTPUT_DIR },
     nextActionBtn: { textContent: "生成最终视频（耗时）", dataset: { action: "render-video" }, disabled: false },
     confirmSelectionBtn: { textContent: "", dataset: {}, disabled: true },
     saveScriptBtn: { textContent: "", dataset: {}, disabled: true },
