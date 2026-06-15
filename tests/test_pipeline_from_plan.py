@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 import time
 import unittest
@@ -42,6 +43,55 @@ class PipelineFromPlanTest(unittest.TestCase):
             self.assertEqual(result, plan_dir)
             self.assertTrue((plan_dir / "script.json").exists())
             self.assertFalse((plan_dir / "final.mp4").exists())
+            report = json.loads((plan_dir / "timing_report.json").read_text(encoding="utf-8"))
+            self.assertIn("total_seconds", report)
+            self.assertEqual([item["name"] for item in report["stages"]], ["script_generation"])
+
+    def test_stage_callback_is_unchanged_when_timing_report_is_written(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_dir = Path(tmp)
+            write_json(plan_dir / "shot_plan.json", {
+                "title": "测试热榜",
+                "shots": [
+                    {
+                        "start": 0,
+                        "duration": 1,
+                        "visual_asset": "",
+                        "visual_treatment": "hotlist_opening",
+                        "narration_intent": "开场",
+                        "subtitle": "今天看一个开源项目。",
+                    }
+                ],
+            })
+            write_json(plan_dir / "asset_manifest.json", {"assets": []})
+            events: list[tuple[str, str]] = []
+
+            asyncio.run(run_pipeline(
+                url="",
+                output=str(plan_dir / "final.mp4"),
+                orientation="vertical",
+                from_plan=str(plan_dir),
+                dry_run=True,
+                stage_callback=lambda stage, message: events.append((stage, message)),
+            ))
+
+            self.assertEqual(events, [])
+            self.assertTrue((plan_dir / "timing_report.json").exists())
+
+    def test_failed_run_does_not_write_timing_report(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_dir = Path(tmp)
+
+            with self.assertRaises(FileNotFoundError):
+                asyncio.run(run_pipeline(
+                    url="",
+                    output=str(plan_dir / "final.mp4"),
+                    orientation="vertical",
+                    from_plan=str(plan_dir),
+                    dry_run=True,
+                ))
+
+            self.assertFalse((plan_dir / "timing_report.json").exists())
 
     def test_vertical_from_plan_runs_capture_and_tts_concurrently(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -105,6 +155,11 @@ class PipelineFromPlanTest(unittest.TestCase):
             self.assertIn("capture", starts)
             self.assertIn("tts", starts)
             self.assertLess(abs(starts["capture"] - starts["tts"]), 0.02)
+            report = json.loads((plan_dir / "timing_report.json").read_text(encoding="utf-8"))
+            stage_names = [item["name"] for item in report["stages"]]
+            self.assertIn("capture_assets", stage_names)
+            self.assertIn("generate_tts", stage_names)
+            self.assertIn("capture_and_tts_concurrent", stage_names)
 
     def test_hotlist_fetches_repositories_concurrently_and_keeps_order(self) -> None:
         from src.models import ProjectInfo

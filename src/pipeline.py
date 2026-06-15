@@ -2,8 +2,11 @@
 
 import asyncio
 import json
+import time
+from contextlib import contextmanager, nullcontext
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterator
 
 from rich.console import Console
 
@@ -36,6 +39,40 @@ from src.utils.config import BGM_VOLUME, OUTPUT_DIR, TTS_VOICE, VIDEO_FPS
 console = Console()
 
 
+class _TimingReport:
+    def __init__(self) -> None:
+        self.started_at = datetime.now(timezone.utc)
+        self._start = time.perf_counter()
+        self.stages: list[dict[str, float | str]] = []
+
+    @contextmanager
+    def stage(self, name: str) -> Iterator[None]:
+        start = time.perf_counter()
+        try:
+            yield
+        finally:
+            self.add_stage(name, time.perf_counter() - start)
+
+    async def measure(self, name: str, awaitable):
+        start = time.perf_counter()
+        try:
+            return await awaitable
+        finally:
+            self.add_stage(name, time.perf_counter() - start)
+
+    def add_stage(self, name: str, seconds: float) -> None:
+        self.stages.append({"name": name, "seconds": round(seconds, 3)})
+
+    def to_dict(self) -> dict:
+        finished_at = datetime.now(timezone.utc)
+        return {
+            "started_at": self.started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "total_seconds": round(time.perf_counter() - self._start, 3),
+            "stages": self.stages,
+        }
+
+
 # ---------------------------------------------------------------------------
 # 工具函数
 # ---------------------------------------------------------------------------
@@ -44,6 +81,12 @@ def _write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _write_timing_report(output_dir: Path, timing: _TimingReport | None) -> None:
+    if timing is None:
+        return
+    _write_json(output_dir / "timing_report.json", timing.to_dict())
 
 
 def _project_info_to_dict(project_info: ProjectInfo) -> dict:
@@ -144,16 +187,20 @@ async def _capture_and_tts(
     paths: ProjectPaths,
     voice: str,
     stage_callback: Callable[[str, str], None] | None,
+    timing: _TimingReport | None = None,
 ):
     _stage(stage_callback, "capturing_assets", "开始采集真实素材。")
     console.print("[cyan]🖼️ 正在采集真实素材...[/cyan]")
     _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
     console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
+    block_start = time.perf_counter()
     captured_manifest, _audio_files = await asyncio.gather(
-        capture_assets(manifest, paths.assets_dir),
-        _generate_audio_task(script, paths, voice),
+        timing.measure("capture_assets", capture_assets(manifest, paths.assets_dir)) if timing else capture_assets(manifest, paths.assets_dir),
+        timing.measure("generate_tts", _generate_audio_task(script, paths, voice)) if timing else _generate_audio_task(script, paths, voice),
     )
     _write_json(paths.asset_manifest_json, captured_manifest.to_dict())
+    if timing:
+        timing.add_stage("capture_and_tts_concurrent", time.perf_counter() - block_start)
     return captured_manifest
 
 
@@ -163,15 +210,19 @@ async def _record_desktop_and_tts(
     paths: ProjectPaths,
     voice: str,
     stage_callback: Callable[[str, str], None] | None,
+    timing: _TimingReport | None = None,
 ):
     _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
     console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
     _stage(stage_callback, "capturing_assets", "开始录制桌面浏览镜头。")
     console.print("[cyan]🎥 正在录制桌面浏览镜头...[/cyan]")
+    block_start = time.perf_counter()
     _audio_files, frames_info = await asyncio.gather(
-        _generate_audio_task(script, paths, voice),
-        record_desktop_review(desktop_plan, paths.base),
+        timing.measure("generate_tts", _generate_audio_task(script, paths, voice)) if timing else _generate_audio_task(script, paths, voice),
+        timing.measure("record_desktop", record_desktop_review(desktop_plan, paths.base)) if timing else record_desktop_review(desktop_plan, paths.base),
     )
+    if timing:
+        timing.add_stage("record_and_tts_concurrent", time.perf_counter() - block_start)
     return frames_info
 
 
@@ -188,8 +239,12 @@ def _finish_video(
     bgm_volume: float,
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None = None,
+    timing: _TimingReport | None = None,
 ) -> Path:
     _stage(stage_callback, "post_processing", "开始执行视频后处理。")
+    if timing:
+        with timing.stage("post_processing"):
+            return post_process_video(output_path, no_bgm=no_bgm, bgm_volume=bgm_volume, bgm_path=bgm_path)
     return post_process_video(output_path, no_bgm=no_bgm, bgm_volume=bgm_volume, bgm_path=bgm_path)
 
 
@@ -207,6 +262,7 @@ async def _run_from_plan(
     bgm_volume: float,
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
+    timing: _TimingReport | None = None,
 ) -> Path:
     """从已有分镜目录恢复执行。"""
     project_dir = _resolve_plan_dir(from_plan)
@@ -219,24 +275,26 @@ async def _run_from_plan(
         with open(paths.desktop_review_plan_json, encoding="utf-8") as f:
             from src.models import desktop_review_plan_from_dict
             desktop_plan = desktop_review_plan_from_dict(json.load(f))
-        script = generate_script_from_desktop_review_plan(desktop_plan)
-        _write_json(paths.script_json, script.to_dict())
+        with timing.stage("script_generation") if timing else nullcontext():
+            script = generate_script_from_desktop_review_plan(desktop_plan)
+            _write_json(paths.script_json, script.to_dict())
         if dry_run:
             console.print(f"\n[green]✅ From-plan dry run 完成。请检查: {paths.base}[/green]\n")
             return paths.base
-        frames_info = await _record_desktop_and_tts(desktop_plan, script, paths, voice, stage_callback)
+        frames_info = await _record_desktop_and_tts(desktop_plan, script, paths, voice, stage_callback, timing)
         _stage(stage_callback, "composing_video", "开始合成 desktop-review 视频。")
         console.print("[cyan]🎬 正在合成 desktop-review 视频...[/cyan]")
-        output_path = compose_desktop_review_video(
-            plan=desktop_plan,
-            script=script,
-            frames_info=frames_info,
-            audio_dir=paths.audio_dir,
-            output_path=output_path,
-            preview_dir=paths.preview_frames_dir,
-            fps=fps,
-        )
-        return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback)
+        with timing.stage("compose_video") if timing else nullcontext():
+            output_path = compose_desktop_review_video(
+                plan=desktop_plan,
+                script=script,
+                frames_info=frames_info,
+                audio_dir=paths.audio_dir,
+                output_path=output_path,
+                preview_dir=paths.preview_frames_dir,
+                fps=fps,
+            )
+        return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
 
     # 竖屏分镜
     with open(paths.shot_plan_json, encoding="utf-8") as f:
@@ -244,29 +302,34 @@ async def _run_from_plan(
     with open(paths.asset_manifest_json, encoding="utf-8") as f:
         manifest_data = json.load(f)
     manifest = _manifest_from_dict(manifest_data)
-    script = generate_script_from_shot_plan(shot_plan)
-    _write_json(paths.script_json, script.to_dict())
+    with timing.stage("script_generation") if timing else nullcontext():
+        script = generate_script_from_shot_plan(shot_plan)
+        _write_json(paths.script_json, script.to_dict())
     if dry_run:
         console.print(f"\n[green]✅ From-plan dry run 完成。请检查: {paths.base}[/green]\n")
         return paths.base
     if _manifest_needs_capture(manifest_data):
-        manifest = await _capture_and_tts(manifest, script, paths, voice, stage_callback)
+        manifest = await _capture_and_tts(manifest, script, paths, voice, stage_callback, timing)
     else:
         _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
         console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
-        await generate_all_audio(script, paths.base, voice)
+        if timing:
+            await timing.measure("generate_tts", generate_all_audio(script, paths.base, voice))
+        else:
+            await generate_all_audio(script, paths.base, voice)
     _stage(stage_callback, "composing_video", "开始合成竖屏视频。")
     console.print("[cyan]🎬 正在合成竖屏视频...[/cyan]")
-    output_path = compose_vertical_video(
-        script=script,
-        shot_plan=shot_plan,
-        manifest=manifest,
-        audio_dir=paths.audio_dir,
-        output_path=output_path,
-        preview_dir=paths.preview_frames_dir,
-        fps=fps,
-    )
-    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback)
+    with timing.stage("compose_video") if timing else nullcontext():
+        output_path = compose_vertical_video(
+            script=script,
+            shot_plan=shot_plan,
+            manifest=manifest,
+            audio_dir=paths.audio_dir,
+            output_path=output_path,
+            preview_dir=paths.preview_frames_dir,
+            fps=fps,
+        )
+    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
 
 
 async def _run_hotlist(
@@ -279,6 +342,7 @@ async def _run_hotlist(
     bgm_volume: float,
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
+    timing: _TimingReport | None = None,
 ) -> Path:
     """热榜模式：多个仓库合成一个竖屏视频。"""
     if len(url_list) < 2:
@@ -293,10 +357,11 @@ async def _run_hotlist(
     paths = ProjectPaths(project_dir)
 
     console.print("[cyan]🔍 正在抓取热榜项目信息...[/cyan]")
-    results = await asyncio.gather(*[
-        _fetch_hotlist_project(index, item)
-        for index, item in enumerate(url_list[:10], start=1)
-    ])
+    with timing.stage("repository_fetch") if timing else nullcontext():
+        results = await asyncio.gather(*[
+            _fetch_hotlist_project(index, item)
+            for index, item in enumerate(url_list[:10], start=1)
+        ])
     projects = []
     manifests = []
     for index, project, manifest in sorted(results, key=lambda item: item[0]):
@@ -305,35 +370,39 @@ async def _run_hotlist(
         console.print(f"   ✓ #{index} {project.full_name} | {project.stars} stars")
 
     _write_json(paths.info_json, {"projects": [_project_info_to_dict(p) for p in projects]})
-    combined_manifest = _combine_manifests(manifests)
-    _write_json(paths.asset_manifest_json, combined_manifest.to_dict())
+    with timing.stage("manifest_generation") if timing else nullcontext():
+        combined_manifest = _combine_manifests(manifests)
+        _write_json(paths.asset_manifest_json, combined_manifest.to_dict())
     console.print(f"   ✓ 找到 {len(combined_manifest.assets)} 个候选素材")
 
     console.print("[cyan]🎞️ 正在生成真实热榜分镜...[/cyan]")
-    shot_plan = generate_hotlist_shot_plan(projects, manifests)
-    _write_json(paths.shot_plan_json, shot_plan.to_dict())
+    with timing.stage("shot_plan_generation") if timing else nullcontext():
+        shot_plan = generate_hotlist_shot_plan(projects, manifests)
+        _write_json(paths.shot_plan_json, shot_plan.to_dict())
 
-    script = generate_script_from_shot_plan(shot_plan)
-    _write_json(paths.script_json, script.to_dict())
+    with timing.stage("script_generation") if timing else nullcontext():
+        script = generate_script_from_shot_plan(shot_plan)
+        _write_json(paths.script_json, script.to_dict())
 
     if dry_run:
         console.print(f"\n[green]✅ Hotlist dry run 完成。请检查: {paths.base}[/green]\n")
         return paths.base
 
-    combined_manifest = await _capture_and_tts(combined_manifest, script, paths, voice, stage_callback)
+    combined_manifest = await _capture_and_tts(combined_manifest, script, paths, voice, stage_callback, timing)
 
     _stage(stage_callback, "composing_video", "开始合成热榜竖屏视频。")
     console.print("[cyan]🎬 正在合成热榜竖屏视频...[/cyan]")
-    output_path = compose_vertical_video(
-        script=script,
-        shot_plan=shot_plan,
-        manifest=combined_manifest,
-        audio_dir=paths.audio_dir,
-        output_path=output_path,
-        preview_dir=paths.preview_frames_dir,
-        fps=fps,
-    )
-    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback)
+    with timing.stage("compose_video") if timing else nullcontext():
+        output_path = compose_vertical_video(
+            script=script,
+            shot_plan=shot_plan,
+            manifest=combined_manifest,
+            audio_dir=paths.audio_dir,
+            output_path=output_path,
+            preview_dir=paths.preview_frames_dir,
+            fps=fps,
+        )
+    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
 
 
 async def _run_desktop_review(
@@ -347,33 +416,37 @@ async def _run_desktop_review(
     bgm_volume: float,
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
+    timing: _TimingReport | None = None,
 ) -> Path:
     """桌面浏览风格：录制浏览器操作 + 合成。"""
     console.print("[cyan]🖥️ 正在生成 desktop-review 分镜...[/cyan]")
-    desktop_plan = generate_desktop_review_plan(project_info)
-    _write_json(paths.desktop_review_plan_json, desktop_plan.to_dict())
+    with timing.stage("shot_plan_generation") if timing else nullcontext():
+        desktop_plan = generate_desktop_review_plan(project_info)
+        _write_json(paths.desktop_review_plan_json, desktop_plan.to_dict())
 
-    script = generate_script_from_desktop_review_plan(desktop_plan)
-    _write_json(paths.script_json, script.to_dict())
+    with timing.stage("script_generation") if timing else nullcontext():
+        script = generate_script_from_desktop_review_plan(desktop_plan)
+        _write_json(paths.script_json, script.to_dict())
 
     if dry_run:
         console.print(f"\n[green]✅ Desktop dry run 完成。请检查: {paths.base}[/green]\n")
         return paths.base
 
-    frames_info = await _record_desktop_and_tts(desktop_plan, script, paths, voice, stage_callback)
+    frames_info = await _record_desktop_and_tts(desktop_plan, script, paths, voice, stage_callback, timing)
 
     _stage(stage_callback, "composing_video", "开始合成 desktop-review 视频。")
     console.print("[cyan]🎬 正在合成 desktop-review 视频...[/cyan]")
-    output_path = compose_desktop_review_video(
-        plan=desktop_plan,
-        script=script,
-        frames_info=frames_info,
-        audio_dir=paths.audio_dir,
-        output_path=output_path,
-        preview_dir=paths.preview_frames_dir,
-        fps=fps,
-    )
-    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback)
+    with timing.stage("compose_video") if timing else nullcontext():
+        output_path = compose_desktop_review_video(
+            plan=desktop_plan,
+            script=script,
+            frames_info=frames_info,
+            audio_dir=paths.audio_dir,
+            output_path=output_path,
+            preview_dir=paths.preview_frames_dir,
+            fps=fps,
+        )
+    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
 
 
 async def _run_vertical(
@@ -388,27 +461,32 @@ async def _run_vertical(
     bgm_volume: float,
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
+    timing: _TimingReport | None = None,
 ) -> Path:
     """竖屏风格：生成 brief + 素材 + 分镜 + 合成。"""
     console.print("[cyan]🧭 正在生成选题 brief...[/cyan]")
-    brief = generate_creative_brief(project_info)
-    _write_json(paths.creative_brief_json, brief.to_dict())
+    with timing.stage("brief_generation") if timing else nullcontext():
+        brief = generate_creative_brief(project_info)
+        _write_json(paths.creative_brief_json, brief.to_dict())
     console.print(f"   ✓ {brief.recommendation}: {brief.reason}")
 
     console.print("[cyan]🖼️ 正在整理素材清单...[/cyan]")
-    manifest = generate_asset_manifest(project_info)
-    _write_json(paths.asset_manifest_json, manifest.to_dict())
+    with timing.stage("manifest_generation") if timing else nullcontext():
+        manifest = generate_asset_manifest(project_info)
+        _write_json(paths.asset_manifest_json, manifest.to_dict())
     console.print(f"   ✓ 找到 {len(manifest.assets)} 个候选素材")
 
     console.print("[cyan]🎞️ 正在生成竖屏分镜...[/cyan]")
-    if style == "single-review" or style == "default":
-        shot_plan = generate_single_review_shot_plan(project_info, brief, manifest)
-    else:
-        shot_plan = generate_shot_plan(project_info, brief, manifest)
-    _write_json(paths.shot_plan_json, shot_plan.to_dict())
+    with timing.stage("shot_plan_generation") if timing else nullcontext():
+        if style == "single-review" or style == "default":
+            shot_plan = generate_single_review_shot_plan(project_info, brief, manifest)
+        else:
+            shot_plan = generate_shot_plan(project_info, brief, manifest)
+        _write_json(paths.shot_plan_json, shot_plan.to_dict())
 
-    script = generate_script_from_shot_plan(shot_plan)
-    _write_json(paths.script_json, script.to_dict())
+    with timing.stage("script_generation") if timing else nullcontext():
+        script = generate_script_from_shot_plan(shot_plan)
+        _write_json(paths.script_json, script.to_dict())
 
     if dry_run:
         console.print(f"\n[green]✅ Dry run 完成。请检查: {paths.base}[/green]\n")
@@ -417,20 +495,21 @@ async def _run_vertical(
     if brief.recommendation == "skip":
         console.print("[yellow]⚠ brief 建议跳过，但仍继续生成竖屏草稿。[/yellow]")
 
-    manifest = await _capture_and_tts(manifest, script, paths, voice, stage_callback)
+    manifest = await _capture_and_tts(manifest, script, paths, voice, stage_callback, timing)
 
     _stage(stage_callback, "composing_video", "开始合成竖屏视频。")
     console.print("[cyan]🎬 正在合成竖屏视频...[/cyan]")
-    output_path = compose_vertical_video(
-        script=script,
-        shot_plan=shot_plan,
-        manifest=manifest,
-        audio_dir=paths.audio_dir,
-        output_path=output_path,
-        preview_dir=paths.preview_frames_dir,
-        fps=fps,
-    )
-    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback)
+    with timing.stage("compose_video") if timing else nullcontext():
+        output_path = compose_vertical_video(
+            script=script,
+            shot_plan=shot_plan,
+            manifest=manifest,
+            audio_dir=paths.audio_dir,
+            output_path=output_path,
+            preview_dir=paths.preview_frames_dir,
+            fps=fps,
+        )
+    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
 
 
 async def _run_horizontal(
@@ -447,13 +526,18 @@ async def _run_horizontal(
     bgm_volume: float,
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
+    timing: _TimingReport | None = None,
 ) -> Path:
     """横屏模式（旧版）：脚本 → TTS → 浏览器录制 → 鼠标动效 → 合成。"""
-    _write_json(paths.script_json, script.to_dict())
+    with timing.stage("script_generation") if timing else nullcontext():
+        _write_json(paths.script_json, script.to_dict())
 
     _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
     console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
-    audio_files = await generate_all_audio(script, paths.base, voice)
+    if timing:
+        audio_files = await timing.measure("generate_tts", generate_all_audio(script, paths.base, voice))
+    else:
+        audio_files = await generate_all_audio(script, paths.base, voice)
 
     total_audio_duration = sum(get_audio_duration(f) for f in audio_files)
     console.print(f"   ✓ 使用语音: {voice}")
@@ -461,24 +545,29 @@ async def _run_horizontal(
 
     _stage(stage_callback, "capturing_assets", "开始录制浏览器素材。")
     console.print("[cyan]🖥️ 正在录制浏览器...[/cyan]")
-    frames_info = await record_browser(script, paths.base, fps, total_audio_duration)
+    if timing:
+        frames_info = await timing.measure("record_browser", record_browser(script, paths.base, fps, total_audio_duration))
+    else:
+        frames_info = await record_browser(script, paths.base, fps, total_audio_duration)
 
     console.print("[cyan]🖱️ 正在生成鼠标动效...[/cyan]")
-    generate_mouse_animations(script, frames_info, paths.base, fps)
+    with timing.stage("mouse_animation_generation") if timing else nullcontext():
+        generate_mouse_animations(script, frames_info, paths.base, fps)
 
     _stage(stage_callback, "composing_video", "开始合成横屏视频。")
     console.print("[cyan]🎬 正在合成视频...[/cyan]")
-    final_path = compose_video(
-        script=script,
-        mouse_frames_dir=paths.mouse_dir,
-        audio_dir=paths.audio_dir,
-        output_path=output_path,
-        fps=fps,
-        orientation=orientation,
-        total_audio_duration=total_audio_duration,
-    )
+    with timing.stage("compose_video") if timing else nullcontext():
+        final_path = compose_video(
+            script=script,
+            mouse_frames_dir=paths.mouse_dir,
+            audio_dir=paths.audio_dir,
+            output_path=output_path,
+            fps=fps,
+            orientation=orientation,
+            total_audio_duration=total_audio_duration,
+        )
 
-    final_path = _finish_video(final_path, no_bgm, bgm_volume, bgm_path, stage_callback)
+    final_path = _finish_video(final_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
     console.print(f"\n[green]✅ 完成！视频已保存到: {final_path}[/green]\n")
     return final_path
 
@@ -486,6 +575,83 @@ async def _run_horizontal(
 # ---------------------------------------------------------------------------
 # 主入口
 # ---------------------------------------------------------------------------
+
+async def _run_pipeline_inner(
+    url: str,
+    output: str | None,
+    orientation: str,
+    voice: str,
+    min_duration: int,
+    max_duration: int,
+    fps: int,
+    dry_run: bool,
+    from_plan: str | None,
+    style: str,
+    no_bgm: bool,
+    bgm_volume: float,
+    bgm_path: str | None,
+    stage_callback: Callable[[str, str], None] | None,
+    timing: _TimingReport,
+) -> Path:
+    if from_plan:
+        return await _run_from_plan(
+            from_plan, output, voice, fps, dry_run,
+            no_bgm, bgm_volume, bgm_path, stage_callback, timing,
+        )
+
+    if not url:
+        raise ValueError("请提供 GitHub 仓库地址，或使用 --from-plan 指向已有分镜目录")
+
+    url_list = _parse_url_list(url)
+    is_hotlist = orientation == "vertical" and (style == "hotlist" or len(url_list) > 1)
+
+    if is_hotlist:
+        return await _run_hotlist(
+            url_list, output, voice, fps, dry_run,
+            no_bgm, bgm_volume, bgm_path, stage_callback, timing,
+        )
+
+    # 单仓库路径
+    owner, repo = parse_github_url(url)
+    if output:
+        output_path = Path(output)
+        project_dir = output_path.parent
+    else:
+        project_dir = OUTPUT_DIR / f"{owner}-{repo}"
+        output_path = project_dir / "final.mp4"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    paths = ProjectPaths(project_dir)
+
+    console.print("[cyan]🔍 正在抓取项目信息...[/cyan]")
+    project_info = await timing.measure("repository_fetch", fetch_repo_info(owner, repo))
+    console.print(f"   ✓ {project_info.full_name} - {project_info.description[:40]}")
+    console.print(f"   ⭐ {project_info.stars} stars | {project_info.language}")
+    _write_json(paths.info_json, _project_info_to_dict(project_info))
+
+    if style == "desktop-review":
+        return await _run_desktop_review(
+            project_info, paths, output_path, voice, fps, dry_run,
+            no_bgm, bgm_volume, bgm_path, stage_callback, timing,
+        )
+
+    if orientation == "vertical" or dry_run:
+        return await _run_vertical(
+            project_info, paths, output_path, voice, fps, style, dry_run,
+            no_bgm, bgm_volume, bgm_path, stage_callback, timing,
+        )
+
+    # 旧版横屏路径
+    console.print("[cyan]📝 正在生成视频脚本...[/cyan]")
+    with timing.stage("script_generation"):
+        script = generate_script(project_info, min_duration, max_duration)
+    console.print(f"   ✓ 生成 {len(script.segments)} 个片段，总时长 {script.total_duration:.0f} 秒")
+
+    return await _run_horizontal(
+        project_info, script, paths, output_path, voice, fps,
+        orientation, min_duration, max_duration,
+        no_bgm, bgm_volume, bgm_path, stage_callback, timing,
+    )
+
 
 async def run_pipeline(
     url: str,
@@ -505,61 +671,24 @@ async def run_pipeline(
 ) -> Path:
     """执行完整的视频生成流程。"""
     console.print(f"\n[bold]🎬 GitHub Video Maker[/bold]\n")
-
-    if from_plan:
-        return await _run_from_plan(
-            from_plan, output, voice, fps, dry_run,
-            no_bgm, bgm_volume, bgm_path, stage_callback,
-        )
-
-    if not url:
-        raise ValueError("请提供 GitHub 仓库地址，或使用 --from-plan 指向已有分镜目录")
-
-    url_list = _parse_url_list(url)
-    is_hotlist = orientation == "vertical" and (style == "hotlist" or len(url_list) > 1)
-
-    if is_hotlist:
-        return await _run_hotlist(
-            url_list, output, voice, fps, dry_run,
-            no_bgm, bgm_volume, bgm_path, stage_callback,
-        )
-
-    # 单仓库路径
-    owner, repo = parse_github_url(url)
-    if output:
-        output_path = Path(output)
-        project_dir = output_path.parent
-    else:
-        project_dir = OUTPUT_DIR / f"{owner}-{repo}"
-        output_path = project_dir / "final.mp4"
-    project_dir.mkdir(parents=True, exist_ok=True)
-    paths = ProjectPaths(project_dir)
-
-    console.print("[cyan]🔍 正在抓取项目信息...[/cyan]")
-    project_info = await fetch_repo_info(owner, repo)
-    console.print(f"   ✓ {project_info.full_name} - {project_info.description[:40]}")
-    console.print(f"   ⭐ {project_info.stars} stars | {project_info.language}")
-    _write_json(paths.info_json, _project_info_to_dict(project_info))
-
-    if style == "desktop-review":
-        return await _run_desktop_review(
-            project_info, paths, output_path, voice, fps, dry_run,
-            no_bgm, bgm_volume, bgm_path, stage_callback,
-        )
-
-    if orientation == "vertical" or dry_run:
-        return await _run_vertical(
-            project_info, paths, output_path, voice, fps, style, dry_run,
-            no_bgm, bgm_volume, bgm_path, stage_callback,
-        )
-
-    # 旧版横屏路径
-    console.print("[cyan]📝 正在生成视频脚本...[/cyan]")
-    script = generate_script(project_info, min_duration, max_duration)
-    console.print(f"   ✓ 生成 {len(script.segments)} 个片段，总时长 {script.total_duration:.0f} 秒")
-
-    return await _run_horizontal(
-        project_info, script, paths, output_path, voice, fps,
-        orientation, min_duration, max_duration,
-        no_bgm, bgm_volume, bgm_path, stage_callback,
+    timing = _TimingReport()
+    result = await _run_pipeline_inner(
+        url=url,
+        output=output,
+        orientation=orientation,
+        voice=voice,
+        min_duration=min_duration,
+        max_duration=max_duration,
+        fps=fps,
+        dry_run=dry_run,
+        from_plan=from_plan,
+        style=style,
+        no_bgm=no_bgm,
+        bgm_volume=bgm_volume,
+        bgm_path=bgm_path,
+        stage_callback=stage_callback,
+        timing=timing,
     )
+    report_dir = result if result.is_dir() else result.parent
+    _write_timing_report(report_dir, timing)
+    return result
