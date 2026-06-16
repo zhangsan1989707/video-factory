@@ -35,7 +35,7 @@ from src.models import AssetManifest, ScriptSegment, Shot, ShotPlan, VideoScript
 from src.pipeline import run_pipeline
 from src.composer.bgm import post_process_video
 from src.composer.vertical import render_vertical_previews
-from src.hotlist_v2.render import _resolve_issue_number, render_hotlist_v2_from_projects, render_hotlist_v2_previews_from_projects
+from src.hotlist_v2.render import _resolve_issue_number, _verify_preview_frame_image, render_hotlist_v2_from_projects, render_hotlist_v2_previews_from_projects
 from src.hotlist_v2.template import normalize_style, render_engine_for_style
 from src.planner.script_v2 import generate_script_from_shot_plan
 from src.console.quality import (
@@ -436,6 +436,7 @@ def _clear_plan_artifacts(job_id: str) -> None:
         "info.json",
         "cover_frame.png",
         "cover_frame.json",
+        "preview_visual_report.json",
         "readiness_report.json",
         "final.mp4",
     ):
@@ -506,8 +507,9 @@ def prepare_plan(job_id: str) -> dict[str, Any]:
             previews = render_hotlist_v2_previews_from_projects(selected, job_dir / "preview_frames", style=visual_style, issue_number=_issue_number(job))
         else:
             previews = render_vertical_previews(script, shot_plan, manifest, job_dir / "preview_frames")
+        visual_report = _write_preview_visual_report(job_id, previews)
         cover = _write_cover_frame(job_id, previews)
-        readiness = _write_readiness_report(job_id, selected, segments, len(previews), bool(cover.get("path")))
+        readiness = _write_readiness_report(job_id, selected, segments, len(previews), bool(cover.get("path")), visual_report.get("status") == "passed")
         append_log(job_id, f"计划文件已生成，并输出 {len(previews)} 张静态预览帧；预览帧来自当前渲染模板，入场、扫光和数字动效会在正式 MP4 渲染时体现。")
         update_job(
             job_id,
@@ -520,6 +522,7 @@ def prepare_plan(job_id: str) -> dict[str, Any]:
             "artifacts": job_artifacts(job_id),
             "plan_validation": {"status": "not_run", "error": ""},
             "cover_frame": cover,
+            "preview_visual_report": visual_report,
             "readiness_report": readiness,
             "render_command": f".venv/bin/python -m src.cli --from-plan {job_dir} -o {job_dir / 'final.mp4'} --vertical",
         }
@@ -1036,6 +1039,7 @@ def job_detail(job_id: str) -> dict[str, Any]:
         "hook": read_json(JOBS_DIR / job_id / "hook.json", {}),
         "publish_pack": read_json(JOBS_DIR / job_id / "publish_pack.json", {}),
         "cover_frame": read_json(JOBS_DIR / job_id / "cover_frame.json", {}),
+        "preview_visual_report": read_json(JOBS_DIR / job_id / "preview_visual_report.json", {}),
         "logs": read_log(job_id),
         "log_tail": read_log_tail(job_id),
         "failed_stage": job.get("failed_stage") or (job.get("stage") if job.get("status") == "failed" else ""),
@@ -1740,12 +1744,38 @@ def _write_cover_frame(job_id: str, previews: list[Any]) -> dict[str, Any]:
     append_log(job_id, "封面帧已生成。")
     return cover
 
+def _write_preview_visual_report(job_id: str, previews: list[Any]) -> dict[str, Any]:
+    job_dir = JOBS_DIR / job_id
+    checked = []
+    failures = []
+    for preview in previews[: min(5, len(previews))]:
+        path = Path(preview)
+        try:
+            _verify_preview_frame_image(path)
+            checked.append(str(path))
+        except Exception as exc:
+            failures.append({"path": str(path), "error": str(exc)})
+    report = {
+        "status": "passed" if checked and not failures else "failed",
+        "checked_count": len(checked),
+        "checked": checked,
+        "failures": failures,
+        "summary": f"已通过 {len(checked)} 张预览帧视觉 smoke。" if checked and not failures else "预览帧视觉 smoke 未通过。",
+    }
+    write_json(job_dir / "preview_visual_report.json", report)
+    if report["status"] == "passed":
+        append_log(job_id, report["summary"])
+    else:
+        append_log(job_id, f"{report['summary']} {failures[0]['error'] if failures else '没有可检查预览帧。'}")
+    return report
+
 def _write_readiness_report(
     job_id: str,
     projects: list[dict[str, Any]],
     segments: list[dict[str, Any]],
     preview_count: int,
     has_cover: bool,
+    visual_smoke_passed: bool = False,
 ) -> dict[str, Any]:
     quality = read_json(JOBS_DIR / job_id / "quality_report.json", {})
     publish_pack = read_json(JOBS_DIR / job_id / "publish_pack.json", {})
@@ -1753,6 +1783,7 @@ def _write_readiness_report(
         _readiness_check("projects", bool(projects), "已确认项目", "缺少已确认项目"),
         _readiness_check("script", bool(segments), "已确认口播脚本", "缺少口播脚本"),
         _readiness_check("preview_frames", preview_count >= max(1, len(projects) + 3), f"已生成 {preview_count} 张预览帧", "预览帧数量不足"),
+        _readiness_check("preview_visual_smoke", visual_smoke_passed, "预览帧视觉 smoke 已通过", "预览帧视觉 smoke 未通过"),
         _readiness_check("cover_frame", has_cover, "已生成封面帧", "缺少封面帧"),
         _readiness_check("publish_pack", bool(publish_pack.get("title") and publish_pack.get("description")), "已生成发布辅助包", "缺少发布辅助包"),
         _readiness_check("data_semantics", bool(publish_pack.get("data_note")), publish_pack.get("data_note") or ESTIMATED_GROWTH_NOTE, "缺少热度口径说明"),

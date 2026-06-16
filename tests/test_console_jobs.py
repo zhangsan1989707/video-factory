@@ -49,8 +49,11 @@ class ConsoleJobsTest(unittest.TestCase):
         self.model_route_patcher.start()
         self.preview_patcher = patch("src.console.jobs.render_hotlist_v2_previews_from_projects", side_effect=_fake_hyperframes_previews)
         self.preview_patcher.start()
+        self.preview_visual_patcher = patch("src.console.jobs._verify_preview_frame_image", return_value=None)
+        self.preview_visual_patcher.start()
 
     def tearDown(self) -> None:
+        self.preview_visual_patcher.stop()
         self.preview_patcher.stop()
         self.route_patcher.stop()
         self.model_route_patcher.stop()
@@ -734,9 +737,14 @@ class ConsoleJobsTest(unittest.TestCase):
                 cover_meta = read_json(jobs_dir / job["id"] / "cover_frame.json", {})
                 self.assertEqual(cover_meta["source"], str(previews[0]))
                 readiness = read_json(jobs_dir / job["id"] / "readiness_report.json", {})
-                self.assertEqual(readiness["score"], 85)
+                visual_check = next(item for item in readiness["checks"] if item["id"] == "preview_visual_smoke")
+                self.assertTrue(visual_check["passed"])
+                self.assertEqual(readiness["score"], 87)
                 self.assertEqual(job_detail(job["id"])["readiness_report"]["status"], "review")
                 self.assertEqual(job_detail(job["id"])["cover_frame"]["status"], "ready")
+                visual_report = job_detail(job["id"])["preview_visual_report"]
+                self.assertEqual(visual_report["status"], "passed")
+                self.assertEqual(visual_report["checked_count"], 5)
 
     def test_hotlist_manifest_prefers_homepage_then_readme_image_then_repo(self) -> None:
         projects = [
@@ -1039,6 +1047,27 @@ class ConsoleJobsTest(unittest.TestCase):
 
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(calls[0]["style"], "tech_hotspot")
+                self.assertEqual(result["readiness_report"]["status"], "review")
+
+    def test_prepare_plan_blocks_failed_preview_visual_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs._verify_preview_frame_image", side_effect=ValueError("preview frame is blank")),
+            ):
+                job = create_job("GH-HOTLIST-20990101-HF-VISUAL-FAIL", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                result = prepare_plan(job["id"])
+
+                report = result["preview_visual_report"]
+                self.assertEqual(report["status"], "failed")
+                self.assertEqual(len(report["failures"]), 5)
+                visual_check = next(item for item in result["readiness_report"]["checks"] if item["id"] == "preview_visual_smoke")
+                self.assertFalse(visual_check["passed"])
                 self.assertEqual(result["readiness_report"]["status"], "review")
 
     def test_prepare_plan_uses_selected_hyperframes_style_for_previews(self) -> None:
