@@ -63,8 +63,12 @@ def find_cjk_font() -> str | None:
 CJK_FONT_PATH = find_cjk_font()
 
 # TTS 配置
-TTS_VOICE = "zh-CN-YunxiNeural"
-TTS_RATE = "+30%"
+# 默认声音：zh-CN-XiaoxiaoNeural（女声，温柔清晰，适合短视频口播）
+# 其他备选：zh-CN-YunxiNeural（男青年）、zh-CN-YunjianNeural（男运动）、zh-CN-YunyangNeural（男资讯）、
+#          zh-CN-YunxiaNeural（男成熟）、zh-CN-XiaoyiNeural（女活泼）
+TTS_VOICE = "zh-CN-XiaoxiaoNeural"
+# 女声默认语速 +20%（男声可调至 +30%）
+TTS_RATE = "+20%"
 
 # 视频配置
 VIDEO_FPS = 30

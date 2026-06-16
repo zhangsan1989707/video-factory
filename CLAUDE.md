@@ -5,8 +5,10 @@
 ## 项目配置
 
 ### TTS 配音
-- **声音**: `zh-CN-YunxiNeural`（微软 Edge TTS 中文男声）
-- **说明**: 用户确认此声音效果好，后续视频统一使用此声音
+- **默认声音**: `zh-CN-XiaoxiaoNeural`（微软 Edge TTS 中文女声，温柔清晰）
+- **默认语速**: `+20%`
+- **备选声音**: `zh-CN-YunxiNeural`（男青年）、`zh-CN-YunjianNeural`（男运动）、`zh-CN-YunyangNeural`（男资讯）、`zh-CN-YunxiaNeural`（男成熟）、`zh-CN-XiaoyiNeural`（女活泼）
+- **说明**: 用户试听后选定 Xiaoxiao 作为默认，可通过 `--voice` 参数或修改 `src/utils/config.py` 的 `TTS_VOICE` 切换
 
 ### 视频风格
 - **desktop-review**: 桌面浏览器风格，横屏 1592x1080，带开场卡、桌面背景、浏览器窗口、鼠标指针
