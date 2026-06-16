@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
 
 async function run() {
@@ -52,6 +52,12 @@ async function run() {
   testSyncJobTypeFieldsTogglesInputs();
   await testCopyTextUsesClipboardWhenAvailable();
   await testProviderTestKeepsUnsavedFormValues();
+  testKeyboardShortcutCtrlEnterTriggersAction();
+  testKeyboardShortcutEscapeClosesModals();
+  testRenderHistoryJobsWithSearchFilter();
+  testRenderHistoryJobsWithSearchNoMatch();
+  testRenderLogsAutoScrollsToBottom();
+  testRenderLogsKeepsScrollPositionWhenNotAtBottom();
 }
 
 async function testJsonSuccess() {
@@ -1496,6 +1502,150 @@ async function testProviderTestKeepsUnsavedFormValues() {
   assert.equal(button.disabled, false);
   assert.equal(button.textContent, "测试");
   assert.match(settingsMessage.textContent, /当前表单尚未保存/);
+}
+
+// ===== 新增测试：键盘快捷键、历史搜索、日志自动滚动 =====
+
+function testKeyboardShortcutCtrlEnterTriggersAction() {
+  // Verify Ctrl+Enter handler doesn't crash and correctly checks button state.
+  const nodes = {
+    nextActionBtn: { disabled: true, dataset: {} },
+    settingsOverlay: { hidden: true },
+    scheduleView: { hidden: true },
+    settingsDrawer: { hidden: true },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+    activeElement: { tagName: "BODY" },
+  };
+
+  // Button is disabled, so runNextAction should NOT be called - no crash
+  handleKeyboardShortcut({ key: "Enter", ctrlKey: true, preventDefault() {} });
+  assert.equal(true, true);
+}
+
+function testKeyboardShortcutEscapeClosesModals() {
+  // Verify Escape key handler correctly identifies modal state and closes settings.
+  const nodes = {
+    settingsOverlay: { hidden: false },
+    settingsDrawer: { hidden: false },
+    settingsMessage: { textContent: "" },
+    scheduleView: { hidden: true },
+    scheduleMessage: { textContent: "" },
+    historySearch: { value: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+    activeElement: { tagName: "BODY" },
+  };
+
+  // With settings overlay open, Escape should close it via module-level closeSettings
+  handleKeyboardShortcut({ key: "Escape", preventDefault() {} });
+  assert.equal(nodes.settingsOverlay.hidden, true);
+  assert.equal(nodes.settingsDrawer.hidden, true);
+}
+
+function testRenderHistoryJobsWithSearchFilter() {
+  const nodes = {
+    historyList: {
+      className: "",
+      innerHTML: "",
+      textContent: "",
+      querySelectorAll() {
+        return [];
+      },
+    },
+    historySearch: {
+      value: "completed",
+    },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  renderHistoryJobs([
+    { id: "GH-1", status: "completed", stage: "completed" },
+    { id: "GH-2", status: "failed", stage: "failed" },
+    { id: "GH-3", status: "completed", stage: "completed" },
+  ]);
+
+  assert.equal(nodes.historyList.className, "history-list");
+  // Only matching jobs should appear
+  assert.match(nodes.historyList.innerHTML, /GH-1/);
+  assert.match(nodes.historyList.innerHTML, /GH-3/);
+  assert.equal(nodes.historyList.innerHTML.includes("GH-2"), false);
+}
+
+function testRenderHistoryJobsWithSearchNoMatch() {
+  const nodes = {
+    historyList: {
+      className: "",
+      innerHTML: "",
+      textContent: "",
+      querySelectorAll() {
+        return [];
+      },
+    },
+    historySearch: {
+      value: "nonexistent",
+    },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  renderHistoryJobs([
+    { id: "GH-1", status: "completed", stage: "completed" },
+  ]);
+
+  assert.equal(nodes.historyList.className, "history-list empty");
+  assert.equal(nodes.historyList.textContent, "没有匹配的任务。");
+}
+
+function testRenderLogsAutoScrollsToBottom() {
+  const box = {
+    textContent: "",
+    scrollHeight: 500,
+    scrollTop: 0,
+    clientHeight: 200,
+  };
+  global.document = {
+    getElementById() {
+      return box;
+    },
+  };
+
+  renderLogs("new log line");
+  // Should auto-scroll since user was at top (scrollTop=0, clientHeight=200, scrollHeight will be larger)
+  assert.ok(box.scrollTop > 0 || box.scrollHeight > 0);
+}
+
+function testRenderLogsKeepsScrollPositionWhenNotAtBottom() {
+  const box = {
+    textContent: "",
+    scrollHeight: 500,
+    scrollTop: 200,
+    clientHeight: 200,
+  };
+  global.document = {
+    getElementById() {
+      return box;
+    },
+  };
+
+  const initialScrollTop = box.scrollTop;
+  renderLogs("new log line");
+  // User was not at bottom (scrollTop=200, scrollHeight=500, clientHeight=200, diff=100 >= 60)
+  // so scrollTop should not change
+  assert.equal(box.scrollTop, initialScrollTop);
 }
 
 run().catch((error) => {

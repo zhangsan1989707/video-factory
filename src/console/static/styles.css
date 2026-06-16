@@ -1169,3 +1169,39 @@ textarea {
     flex-direction: column;
   }
 }
+
+/* 历史任务搜索 */
+.search-input {
+  width: 100%;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.search-input::placeholder {
+  color: var(--muted);
+}
+
+/* 键盘快捷键提示 */
+.kbd-hint {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--muted);
+  font-family: inherit;
+  vertical-align: middle;
+}

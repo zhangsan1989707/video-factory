@@ -91,6 +91,11 @@ function bindEvents() {
   $("scheduleVisualStyle").addEventListener("change", syncScheduleRenderEngineForStyle);
   $("scheduleRenderEngine").addEventListener("change", syncScheduleStyleForRenderEngine);
   $("projectCount").addEventListener("change", () => { if (state.candidates.length) renderCandidates(); });
+  $("historySearch").addEventListener("input", () => {
+    const jobs = state._lastJobs || [];
+    renderHistoryJobs(jobs);
+  });
+  document.addEventListener("keydown", handleKeyboardShortcut);
   syncJobTypeFields();
 }
 
@@ -98,6 +103,53 @@ function switchTab(name) {
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.remove("active"));
   $(`${name}Tab`).classList.add("active");
+}
+
+function handleKeyboardShortcut(event) {
+  const tag = document.activeElement && document.activeElement.tagName;
+  const isInput = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  const settingsOverlay = $("settingsOverlay");
+  const scheduleView = $("scheduleView");
+  const settingsDrawer = $("settingsDrawer");
+  const isModalOpen = (settingsOverlay && !settingsOverlay.hidden) || (scheduleView && !scheduleView.hidden) || (settingsDrawer && !settingsDrawer.hidden);
+
+  // Escape: 关闭弹窗/设置面板
+  if (event.key === "Escape") {
+    if (isModalOpen) {
+      event.preventDefault();
+      if (settingsOverlay && !settingsOverlay.hidden) closeSettings();
+      if (scheduleView && !scheduleView.hidden) closeScheduleView();
+      return;
+    }
+    // 如果搜索框有焦点，清空搜索
+    const searchInput = $("historySearch");
+    if (searchInput && document.activeElement === searchInput) {
+      searchInput.value = "";
+      searchInput.dispatchEvent(new Event("input"));
+      return;
+    }
+    return;
+  }
+
+  // Ctrl+Enter / Cmd+Enter: 触发主操作按钮
+  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+    const nextButton = $("nextActionBtn");
+    if (nextButton && !nextButton.disabled) {
+      event.preventDefault();
+      runNextAction();
+      return;
+    }
+  }
+
+  // Ctrl+F / Cmd+F: 跳转到历史搜索（不在输入框内时）
+  if ((event.ctrlKey || event.metaKey) && event.key === "f" && !isInput) {
+    const searchInput = $("historySearch");
+    if (searchInput) {
+      event.preventDefault();
+      searchInput.focus();
+    }
+    return;
+  }
 }
 
 async function loadConfig() {
@@ -262,9 +314,24 @@ function scheduleRecentLabel(job) {
 }
 
 function renderHistoryJobs(jobs) {
+  const searchNode = $("historySearch");
+  const searchTerm = searchNode ? (searchNode.value || "").trim().toLowerCase() : "";
+  const filtered = searchTerm ? (jobs || []).filter((job) => {
+    const id = String(job.id || "").toLowerCase();
+    const title = String(job.title || "").toLowerCase();
+    const stage = String(job.stage || "").toLowerCase();
+    const status = String(job.status || "").toLowerCase();
+    return id.includes(searchTerm) || title.includes(searchTerm) || stage.includes(searchTerm) || status.includes(searchTerm);
+  }) : jobs;
   const list = $("historyList");
+  state._lastJobs = jobs;
   list.className = "history-list";
-  list.innerHTML = jobs.map((job) => `
+  if (!filtered.length) {
+    list.className = "history-list empty";
+    list.textContent = searchTerm ? "没有匹配的任务。" : "暂无历史任务。";
+    return;
+  }
+  list.innerHTML = filtered.map((job) => `
     <div class="history-item">
       <button class="history-open" data-job="${escapeAttr(job.id || "")}">
         <code>${escapeHtml(job.id || "")}</code>
@@ -1412,7 +1479,12 @@ function qualityStatusLabel(status) {
 }
 
 function renderLogs(logs) {
-  $("logBox").textContent = logs || "暂无日志。";
+  const box = $("logBox");
+  const wasAtBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  box.textContent = logs || "暂无日志。";
+  if (wasAtBottom || box.textContent === "暂无日志。") {
+    box.scrollTop = box.scrollHeight;
+  }
 }
 
 function appendLogLine(message) {
@@ -2039,5 +2111,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }
