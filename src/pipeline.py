@@ -34,7 +34,7 @@ from src.planner.shot_plan import (
     generate_shot_plan,
     generate_single_review_shot_plan,
 )
-from src.utils.config import BGM_VOLUME, OUTPUT_DIR, TTS_VOICE, VIDEO_FPS
+from src.utils.config import BGM_VOLUME, OUTPUT_DIR, TTS_RATE, TTS_VOICE, VIDEO_FPS
 
 console = Console()
 
@@ -658,6 +658,7 @@ async def run_pipeline(
     output: str | None = None,
     orientation: str = "horizontal",
     voice: str = TTS_VOICE,
+    rate: str = TTS_RATE,
     min_duration: int = 30,
     max_duration: int = 60,
     fps: int = VIDEO_FPS,
@@ -670,25 +671,31 @@ async def run_pipeline(
     stage_callback: Callable[[str, str], None] | None = None,
 ) -> Path:
     """执行完整的视频生成流程。"""
+    from src.tts.edge_tts import set_tts_rate_override, reset_tts_rate_override
+
     console.print(f"\n[bold]🎬 GitHub Video Maker[/bold]\n")
     timing = _TimingReport()
-    result = await _run_pipeline_inner(
-        url=url,
-        output=output,
-        orientation=orientation,
-        voice=voice,
-        min_duration=min_duration,
-        max_duration=max_duration,
-        fps=fps,
-        dry_run=dry_run,
-        from_plan=from_plan,
-        style=style,
-        no_bgm=no_bgm,
-        bgm_volume=bgm_volume,
-        bgm_path=bgm_path,
-        stage_callback=stage_callback,
-        timing=timing,
-    )
-    report_dir = result if result.is_dir() else result.parent
-    _write_timing_report(report_dir, timing)
-    return result
+    rate_token = set_tts_rate_override(rate)
+    try:
+        result = await _run_pipeline_inner(
+            url=url,
+            output=output,
+            orientation=orientation,
+            voice=voice,
+            min_duration=min_duration,
+            max_duration=max_duration,
+            fps=fps,
+            dry_run=dry_run,
+            from_plan=from_plan,
+            style=style,
+            no_bgm=no_bgm,
+            bgm_volume=bgm_volume,
+            bgm_path=bgm_path,
+            stage_callback=stage_callback,
+            timing=timing,
+        )
+        report_dir = result if result.is_dir() else result.parent
+        _write_timing_report(report_dir, timing)
+        return result
+    finally:
+        reset_tts_rate_override(rate_token)

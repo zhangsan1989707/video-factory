@@ -2,6 +2,7 @@
 
 import asyncio
 import subprocess
+from contextvars import ContextVar
 from pathlib import Path
 
 import edge_tts
@@ -14,6 +15,25 @@ console = Console()
 
 MAX_RETRIES = 3
 MAX_CONCURRENT_SEGMENTS = 3
+
+# ContextVar: 允许在更高层（pipeline / console job）临时覆盖 TTS 语速，
+# 而不需要改 generate_all_audio / _generate_audio_task 的全部内部签名。
+# 默认值与 src.utils.config.TTS_RATE 保持一致。
+_tts_rate_override: ContextVar[str | None] = ContextVar("tts_rate_override", default=None)
+
+
+def current_tts_rate() -> str:
+    """返回当前生效的 TTS 语速：ContextVar override > 全局默认。"""
+    return _tts_rate_override.get() or TTS_RATE
+
+
+def set_tts_rate_override(rate: str | None):
+    """设置当前协程上下文中的 TTS 语速 override。返回 token 供 reset。"""
+    return _tts_rate_override.set(rate)
+
+
+def reset_tts_rate_override(token) -> None:
+    _tts_rate_override.reset(token)
 
 
 def _is_valid_audio(path: Path) -> bool:
@@ -31,12 +51,13 @@ async def generate_audio_segment(
     text: str,
     output_path: Path,
     voice: str = TTS_VOICE,
-    rate: str = TTS_RATE,
+    rate: str | None = None,
 ) -> Path:
     """生成单段语音（带重试）"""
+    effective_rate = rate if rate is not None else current_tts_rate()
     for attempt in range(MAX_RETRIES):
         try:
-            communicate = edge_tts.Communicate(text, voice, rate=rate)
+            communicate = edge_tts.Communicate(text, voice, rate=effective_rate)
             await communicate.save(str(output_path))
             return output_path
         except Exception as e:
@@ -51,8 +72,10 @@ async def generate_all_audio(
     script: VideoScript,
     output_dir: Path,
     voice: str = TTS_VOICE,
+    rate: str | None = None,
 ) -> list[Path]:
     """为脚本的所有片段生成语音"""
+    effective_rate = rate if rate is not None else current_tts_rate()
     audio_dir = output_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
@@ -67,6 +90,7 @@ async def generate_all_audio(
                 segment.narration,
                 output_path,
                 voice=voice,
+                rate=effective_rate,
             )
         audio_files[index] = output_path
 

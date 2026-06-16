@@ -12,7 +12,17 @@ from pathlib import Path
 from typing import Any
 
 from src.hotlist_v2.template import default_params_for_style, list_template_styles, normalize_style, render_engine_for_style
-from src.utils.config import BGM_VOLUME, OUTPUT_DIR, ROOT_DIR
+from src.utils.config import BGM_VOLUME, OUTPUT_DIR, ROOT_DIR, TTS_RATE, TTS_VOICE
+
+# TTS 声音白名单：与 scripts/voice_preview.py 中的实际可用声音保持一致
+ALLOWED_TTS_VOICES = {
+    "zh-CN-YunxiNeural",
+    "zh-CN-YunjianNeural",
+    "zh-CN-YunyangNeural",
+    "zh-CN-YunxiaNeural",
+    "zh-CN-XiaoxiaoNeural",
+    "zh-CN-XiaoyiNeural",
+}
 
 
 CONFIG_DIR = ROOT_DIR / ".config" / "video-console"
@@ -99,6 +109,8 @@ DEFAULT_TEMPLATES = {
     "github_hotlist_vertical_v1": {
         "style": "tech_hotspot",
         "official_output_dir": DEFAULT_OFFICIAL_OUTPUT_DIR,
+        "tts_voice": TTS_VOICE,
+        "tts_rate": TTS_RATE,
         **default_params_for_style("tech_hotspot"),
     },
 }
@@ -755,11 +767,13 @@ def _normalize_templates(data: dict[str, Any]) -> dict[str, Any]:
         active = default_name
     item = dict(DEFAULT_TEMPLATES)
     template = data.get(active) if isinstance(data.get(active), dict) else {}
+    # 先对用户传入的 patch 做严格校验（白名单 + 格式），剔除非法字段
+    template = _normalize_template_param_patch(template)
     if "style" not in template and template.get("visual_style"):
         template = {**template, "style": template.get("visual_style")}
     has_render_engine = "render_engine" in template
     merged = dict(DEFAULT_TEMPLATES[active])
-    for key in ("project_count", "style", "render_engine", "subtitle_mode", "bgm", "bgm_volume", "narration_tone", "orientation", "bgm_path", "issue_number", "official_output_dir"):
+    for key in ("project_count", "style", "render_engine", "subtitle_mode", "bgm", "bgm_volume", "narration_tone", "orientation", "bgm_path", "issue_number", "official_output_dir", "tts_voice", "tts_rate"):
         if key in template:
             merged[key] = template[key]
     merged["project_count"] = normalize_project_count(merged.get("project_count"))
@@ -778,6 +792,8 @@ def _normalize_templates(data: dict[str, Any]) -> dict[str, Any]:
     merged["bgm_volume"] = _normalize_bgm_volume(merged.get("bgm_volume", BGM_VOLUME))
     merged["bgm_path"] = str(merged.get("bgm_path") or "")
     merged["official_output_dir"] = str(merged.get("official_output_dir") or DEFAULT_OFFICIAL_OUTPUT_DIR)
+    merged["tts_voice"] = str(merged.get("tts_voice") or TTS_VOICE)
+    merged["tts_rate"] = str(merged.get("tts_rate") or TTS_RATE)
     normalized_issue = _normalize_issue_number(merged.get("issue_number"))
     if normalized_issue is None:
         merged.pop("issue_number", None)
@@ -811,6 +827,14 @@ def _normalize_template_param_patch(params: Any) -> dict[str, Any]:
         item["bgm_path"] = str(item.get("bgm_path") or "")
     if "official_output_dir" in item:
         item["official_output_dir"] = str(item.get("official_output_dir") or DEFAULT_OFFICIAL_OUTPUT_DIR)
+    if "tts_voice" in item and item.get("tts_voice") not in ALLOWED_TTS_VOICES:
+        item.pop("tts_voice", None)
+    if "tts_rate" in item:
+        rate = str(item.get("tts_rate") or "").strip()
+        if not re.match(r"^[+-]\d+%$", rate):
+            item.pop("tts_rate", None)
+        else:
+            item["tts_rate"] = rate
     if "issue_number" in item:
         normalized_issue = _normalize_issue_number(item.get("issue_number"))
         if normalized_issue is None:

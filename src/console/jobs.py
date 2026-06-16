@@ -70,7 +70,7 @@ from src.console.shared import (
     _viewer_safe_value,
     _write_ai_raw_response,
 )
-from src.utils.config import BGM_VOLUME
+from src.utils.config import BGM_VOLUME, TTS_RATE, TTS_VOICE
 
 README_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 
@@ -574,6 +574,8 @@ def _prepare_single_project_plan(job_id: str, job: dict[str, Any]) -> dict[str, 
             orientation="vertical" if not is_desktop else "horizontal",
             style=pipeline_style,
             dry_run=True,
+            voice=_tts_voice(read_job(job_id)),
+            rate=_tts_rate(read_job(job_id)),
         ))
         previews = _preview_existing_plan(job_dir)
         cover = _write_cover_frame(job_id, previews)
@@ -676,6 +678,8 @@ async def _validate_single_project_plan(job_id: str, job: dict[str, Any]) -> dic
             from_plan=str(job_dir),
             style=_pipeline_style_for_job(job),
             dry_run=True,
+            voice=_tts_voice(job),
+            rate=_tts_rate(job),
         )
         details = _plan_validation_details(job_dir)
         append_log(job_id, f"{_job_type_label(job)}计划文件校验通过，可进入最终渲染。")
@@ -725,6 +729,8 @@ async def validate_plan(job_id: str) -> dict[str, Any]:
             from_plan=str(job_dir),
             style="hotlist",
             dry_run=True,
+            voice=_tts_voice(job),
+            rate=_tts_rate(job),
         )
         details = _plan_validation_details(job_dir)
         append_log(job_id, "计划文件校验通过，可进入最终渲染。")
@@ -817,6 +823,8 @@ async def render_video(job_id: str) -> dict[str, Any]:
                 bgm_volume=_bgm_volume(job),
                 bgm_path=_bgm_path(job),
                 stage_callback=on_pipeline_stage,
+                voice=_tts_voice(job),
+                rate=_tts_rate(job),
             )
         raise_if_cancelled(job_id)
         update_job(job_id, status="running", stage="post_processing")
@@ -886,6 +894,8 @@ async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict
             bgm_volume=_bgm_volume(job),
             bgm_path=_bgm_path(job),
             stage_callback=on_pipeline_stage,
+            voice=_tts_voice(job),
+            rate=_tts_rate(job),
         )
         raise_if_cancelled(job_id)
         update_job(job_id, status="running", stage="post_processing")
@@ -1265,6 +1275,20 @@ def _bgm_volume(job: dict[str, Any]) -> float:
     except (TypeError, ValueError):
         return BGM_VOLUME
     return min(1.0, max(0.0, volume))
+
+
+def _tts_voice(job: dict[str, Any]) -> str:
+    """从任务模板参数中读取 TTS 声音；未配置时回落到全局默认值。"""
+    params = job.get("template_params") or {}
+    voice = str(params.get("tts_voice") or "").strip()
+    return voice or TTS_VOICE
+
+
+def _tts_rate(job: dict[str, Any]) -> str:
+    """从任务模板参数中读取 TTS 语速；未配置时回落到全局默认值。"""
+    params = job.get("template_params") or {}
+    rate = str(params.get("tts_rate") or "").strip()
+    return rate or TTS_RATE
 
 def _visual_style(job: dict[str, Any]) -> str:
     params = job.get("template_params") or {}

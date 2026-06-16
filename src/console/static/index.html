@@ -129,6 +129,26 @@
         </section>
 
         <section>
+          <div class="section-title">TTS 配音</div>
+          <label>
+            <span>声音</span>
+            <select id="ttsVoice">
+              <option value="zh-CN-XiaoxiaoNeural">小晓（女声 · 温柔清晰）— 默认</option>
+              <option value="zh-CN-YunxiNeural">云希（男声 · 青年活力）</option>
+              <option value="zh-CN-YunjianNeural">云健（男声 · 运动激情）</option>
+              <option value="zh-CN-YunyangNeural">云扬（男声 · 资讯专业）</option>
+              <option value="zh-CN-YunxiaNeural">云夏（男声 · 成熟稳重）</option>
+              <option value="zh-CN-XiaoyiNeural">晓伊（女声 · 活泼俏皮）</option>
+            </select>
+          </label>
+          <label>
+            <span>语速</span>
+            <input id="ttsRate" type="text" placeholder="+20%" pattern="^[+-]?\d+%$" value="+20%">
+          </label>
+          <p class="section-hint">说明：声音和语速只影响当前任务的 TTS 配音，不修改全局默认配置。</p>
+        </section>
+
+        <section>
           <div class="section-title">音频</div>
           <label>
             <span>BGM</span>

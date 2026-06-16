@@ -2785,6 +2785,48 @@ class ConsoleJobsTest(unittest.TestCase):
             saved = read_json(jobs_dir / job["id"] / "task.json", {})
             self.assertEqual(saved["template_params"]["issue_number"], 27)
 
+    def test_create_hotlist_job_persists_tts_voice_and_rate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+            ):
+                job = create_hotlist_job({
+                    "template_params": {
+                        "tts_voice": "zh-CN-YunxiNeural",
+                        "tts_rate": "+30%",
+                    }
+                })
+
+            self.assertEqual(job["template_params"]["tts_voice"], "zh-CN-YunxiNeural")
+            self.assertEqual(job["template_params"]["tts_rate"], "+30%")
+            saved = read_json(jobs_dir / job["id"] / "task.json", {})
+            self.assertEqual(saved["template_params"]["tts_voice"], "zh-CN-YunxiNeural")
+            self.assertEqual(saved["template_params"]["tts_rate"], "+30%")
+
+    def test_create_hotlist_job_rejects_invalid_tts_voice(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+            ):
+                job = create_hotlist_job({
+                    "template_params": {
+                        "tts_voice": "malicious-Voice",
+                        "tts_rate": "fast",
+                    }
+                })
+
+            # 非法 voice/rate 应当被剔除（不出现于 template）
+            self.assertNotEqual(job["template_params"]["tts_voice"], "malicious-Voice")
+            self.assertNotEqual(job["template_params"]["tts_rate"], "fast")
+            # 剔除后由全局默认值兜底
+            from src.utils.config import TTS_VOICE, TTS_RATE
+            self.assertEqual(job["template_params"]["tts_voice"], TTS_VOICE)
+            self.assertEqual(job["template_params"]["tts_rate"], TTS_RATE)
+
     def test_create_job_accepts_frontend_visual_style_alias(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)

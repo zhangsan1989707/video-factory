@@ -875,6 +875,8 @@ function templateParamNodes(prefix = "") {
       renderEngine: $("renderEngine"),
       subtitleMode: $("subtitleMode"),
       tone: $("tone"),
+      ttsVoice: $("ttsVoice"),
+      ttsRate: $("ttsRate"),
       bgmMode: $("bgmMode"),
       bgmVolume: $("bgmVolume"),
       bgmPath: $("bgmPath"),
@@ -887,6 +889,8 @@ function templateParamNodes(prefix = "") {
     renderEngine: $(`${prefix}RenderEngine`),
     subtitleMode: $(`${prefix}SubtitleMode`),
     tone: prefix ? $(`${prefix}Tone`) : $("tone"),
+    ttsVoice: prefix ? null : $("ttsVoice"),
+    ttsRate: prefix ? null : $("ttsRate"),
     bgmMode: $(`${prefix}BgmMode`),
     bgmVolume: $(`${prefix}BgmVolume`),
     bgmPath: $(`${prefix}BgmPath`),
@@ -900,11 +904,15 @@ function currentTemplateParams(prefix = "") {
   const issueInput = nodes.issueNumber;
   const issueVal = issueInput && issueInput.value.trim() ? Number(issueInput.value) : null;
   const officialOutputDir = nodes.officialOutputDir ? (nodes.officialOutputDir.value.trim() || DEFAULT_OFFICIAL_OUTPUT_DIR) : DEFAULT_OFFICIAL_OUTPUT_DIR;
+  const ttsVoice = nodes.ttsVoice ? (nodes.ttsVoice.value || "") : "";
+  const ttsRate = nodes.ttsRate ? (nodes.ttsRate.value.trim() || "") : "";
   return {
     style: nodes.visualStyle.value,
     render_engine: nodes.renderEngine.value,
     subtitle_mode: nodes.subtitleMode.value,
     narration_tone: nodes.tone.value,
+    tts_voice: ttsVoice || undefined,
+    tts_rate: ttsRate || undefined,
     bgm: nodes.bgmMode.value,
     bgm_volume: normalizedBgmVolume(undefined, prefix),
     bgm_path: nodes.bgmPath.value.trim(),
@@ -938,6 +946,8 @@ function applyTemplateParams(params, prefix = "") {
   }
   if (params.subtitle_mode) nodes.subtitleMode.value = params.subtitle_mode;
   if (params.narration_tone) nodes.tone.value = params.narration_tone;
+  if (params.tts_voice && nodes.ttsVoice) nodes.ttsVoice.value = params.tts_voice;
+  if (params.tts_rate && nodes.ttsRate) nodes.ttsRate.value = params.tts_rate;
   if (params.bgm) nodes.bgmMode.value = params.bgm;
   setBgmVolume(params.bgm_volume, prefix);
   nodes.bgmPath.value = params.bgm_path || "";
