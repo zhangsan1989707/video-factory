@@ -42,6 +42,7 @@ from src.console.store import (
     provider_connection_matches_saved,
     read_job,
     read_log,
+    recover_hanging_jobs,
     update_config,
     update_configs,
     update_job,
@@ -71,6 +72,7 @@ def _safe_path(base_dir: Path, user_path: str) -> Path | None:
 
 def run_server(host: str = "127.0.0.1", port: int = 8765, open_browser: bool = False) -> None:
     ensure_storage()
+    recover_hanging_jobs()
     start_scheduler_loop()
     server = ThreadingHTTPServer((host, port), ConsoleHandler)
     url = f"http://{host}:{port}"

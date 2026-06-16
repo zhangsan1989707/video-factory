@@ -135,7 +135,6 @@ def ensure_storage() -> None:
     _ensure_json("lark.json", DEFAULT_LARK)
     _ensure_json("templates.json", DEFAULT_TEMPLATES)
     _ensure_json("scheduler.json", DEFAULT_SCHEDULER)
-    recover_hanging_jobs()
 
 
 def recover_hanging_jobs() -> list[str]:

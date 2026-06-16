@@ -3142,6 +3142,36 @@ class TestRecoverHangingJobs(unittest.TestCase):
             finally:
                 store_mod.JOBS_DIR = Path(orig_jobs_dir)
 
+    def test_ensure_storage_does_not_recover_running_jobs(self):
+        """ensure_storage() 不应在运行中调用 recover_hanging_jobs，否则会误杀正在执行的任务。"""
+        import tempfile
+        from src.console.store import ensure_storage, JOBS_DIR, write_json, read_json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orig_jobs_dir = str(JOBS_DIR)
+            try:
+                import src.console.store as store_mod
+                store_mod.JOBS_DIR = Path(tmpdir)
+                store_mod.CONFIG_DIR = Path(tmpdir) / "config"
+
+                job_id = "GH-ENSURE-001"
+                job_dir = Path(tmpdir) / job_id
+                job_dir.mkdir(parents=True)
+                write_json(job_dir / "task.json", {
+                    "id": job_id,
+                    "status": "running",
+                    "stage": "render_video",
+                    "title": "Active Job",
+                })
+
+                ensure_storage()
+
+                job = read_json(job_dir / "task.json", {})
+                self.assertEqual(job.get("status"), "running",
+                                 "ensure_storage() 不应将正在运行的任务标记为 failed")
+            finally:
+                store_mod.JOBS_DIR = Path(orig_jobs_dir)
+
 
 if __name__ == "__main__":
     unittest.main()
