@@ -60,7 +60,7 @@ class GithubHotlistTest(unittest.TestCase):
 
         self.assertIn("GitHub API 额度 0/60，重置", str(raised.exception))
 
-    def test_collect_candidates_reuses_fresh_cache(self) -> None:
+    def test_collect_candidates_skips_fresh_cache_by_default(self) -> None:
         calls = 0
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -73,10 +73,27 @@ class GithubHotlistTest(unittest.TestCase):
             first = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=True, cache_dir=cache_dir))
             second = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), cache_dir=cache_dir))
 
-        self.assertEqual(calls, 1)
+        self.assertEqual(calls, 2)
         self.assertEqual(first["cache_status"], "fresh")
-        self.assertEqual(second["cache_status"], "hit")
+        self.assertEqual(second["cache_status"], "fresh")
         self.assertEqual(second["items"][0]["full_name"], "demo/alpha")
+
+    def test_collect_candidates_can_reuse_fresh_cache_when_requested(self) -> None:
+        calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return _github_response()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=True, cache_dir=cache_dir))
+            result = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=False, cache_dir=cache_dir))
+
+        self.assertEqual(calls, 1)
+        self.assertEqual(result["cache_status"], "hit")
+        self.assertEqual(result["items"][0]["full_name"], "demo/alpha")
 
     def test_collect_candidates_uses_stale_cache_on_rate_limit(self) -> None:
         def success_handler(request: httpx.Request) -> httpx.Response:
@@ -160,7 +177,7 @@ class GithubHotlistTest(unittest.TestCase):
 async def _collect_with_transport(
     token: str,
     transport: httpx.MockTransport,
-    force_refresh: bool = False,
+    force_refresh: bool = True,
     cache_dir: Path | None = None,
     enrich_with_llm: bool = True,
 ):

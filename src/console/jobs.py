@@ -102,7 +102,7 @@ def _with_auto_issue_number(payload: dict[str, Any]) -> dict[str, Any]:
         params["issue_number"] = _resolve_issue_number()
     return {**payload, "template_params": params}
 
-async def generate_candidates(job_id: str, force_refresh: bool = False) -> dict[str, Any]:
+async def generate_candidates(job_id: str, force_refresh: bool = True) -> dict[str, Any]:
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
@@ -115,7 +115,7 @@ async def regenerate_candidates(job_id: str) -> dict[str, Any]:
     append_log(job_id, "已请求重新生成候选项目；将清除已选项目、口播、计划文件和视频产物。")
     return await _generate_candidates_snapshot(job_id, job, force_refresh=True)
 
-async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_refresh: bool = False) -> dict[str, Any]:
+async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_refresh: bool = True) -> dict[str, Any]:
     is_refresh = force_refresh and str(job.get("stage") or "") == "awaiting_project_confirmation"
     if is_refresh:
         _clear_candidates_only(job_id)
@@ -135,10 +135,10 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_
         candidates = result["items"]
         update_github_rate_limit(str(result.get("rate_limit") or "未检测"))
         if result.get("cache_status") == "hit":
-            append_log(job_id, "GitHub 候选缓存命中，未请求 API。")
+            append_log(job_id, "使用缓存！GitHub 候选缓存命中，未请求 API。")
             append_log(job_id, f"GitHub 缓存记录额度: {result.get('rate_limit') or '未检测'}。")
         elif result.get("cache_status") == "stale_rate_limit":
-            append_log(job_id, "GitHub 额度受限，已使用最近缓存候选。")
+            append_log(job_id, "使用缓存！GitHub 额度受限，已使用最近缓存候选。")
             append_log(job_id, f"GitHub 缓存记录额度: {result.get('rate_limit') or '未检测'}。")
         else:
             append_log(job_id, f"GitHub API 额度: {result.get('rate_limit') or '未检测'}。")

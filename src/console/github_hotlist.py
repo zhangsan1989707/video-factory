@@ -36,7 +36,7 @@ async def collect_candidates(
     time_window: str,
     token: str = "",
     limit: int = 30,
-    force_refresh: bool = False,
+    force_refresh: bool = True,
 ) -> list[dict[str, Any]]:
     """Collect recent repositories using GitHub Search API."""
     return (await collect_candidates_with_meta(time_window, token=token, limit=limit, force_refresh=force_refresh))["items"]
@@ -46,7 +46,7 @@ async def collect_candidates_with_meta(
     time_window: str,
     token: str = "",
     limit: int = 30,
-    force_refresh: bool = False,
+    force_refresh: bool = True,
     enrich_with_llm: bool = True,
     llm_limit: int = 10,
 ) -> dict[str, Any]:

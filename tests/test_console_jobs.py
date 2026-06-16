@@ -903,7 +903,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 asyncio.run(generate_candidates(job["id"]))
 
                 logs = (jobs_dir / job["id"] / "logs.txt").read_text(encoding="utf-8")
-                self.assertIn("GitHub 候选缓存命中，未请求 API。", logs)
+                self.assertIn("使用缓存！GitHub 候选缓存命中，未请求 API。", logs)
                 self.assertIn("GitHub 缓存记录额度: 29/30，重置 19:31。", logs)
                 self.assertNotIn("GitHub API 额度: 29/30，重置 19:31。", logs)
 
