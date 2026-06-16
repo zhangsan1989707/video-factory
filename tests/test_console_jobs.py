@@ -3081,5 +3081,67 @@ def _mark_awaiting_project_confirmation(job_id: str) -> None:
     update_job(job_id, status="awaiting_input", stage="awaiting_project_confirmation")
 
 
+class TestRecoverHangingJobs(unittest.TestCase):
+    def test_recover_hanging_jobs_marks_running_as_failed(self):
+        import tempfile
+        from src.console.store import recover_hanging_jobs, JOBS_DIR, write_json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orig_jobs_dir = str(JOBS_DIR)
+            try:
+                import src.console.store as store_mod
+                store_mod.JOBS_DIR = Path(tmpdir)
+                store_mod.CONFIG_DIR = Path(tmpdir) / "config"
+
+                job_id = "GH-RECOVER-001"
+                job_dir = Path(tmpdir) / job_id
+                job_dir.mkdir(parents=True)
+                write_json(job_dir / "task.json", {
+                    "id": job_id,
+                    "status": "running",
+                    "stage": "render_video",
+                    "title": "Test Recovery Job",
+                    "stage_history": [],
+                })
+
+                recovered = recover_hanging_jobs()
+                self.assertIn(job_id, recovered)
+
+                job = read_json(job_dir / "task.json", {})
+                self.assertEqual(job.get("status"), "failed")
+                self.assertIn("控制台重启", job.get("error", ""))
+                self.assertEqual(job.get("failed_stage"), "render_video")
+            finally:
+                store_mod.JOBS_DIR = Path(orig_jobs_dir)
+
+    def test_recover_hanging_jobs_noops_when_no_running_jobs(self):
+        import tempfile
+        from src.console.store import recover_hanging_jobs, JOBS_DIR, write_json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orig_jobs_dir = str(JOBS_DIR)
+            try:
+                import src.console.store as store_mod
+                store_mod.JOBS_DIR = Path(tmpdir)
+                store_mod.CONFIG_DIR = Path(tmpdir) / "config"
+
+                job_id = "GH-RECOVER-002"
+                job_dir = Path(tmpdir) / job_id
+                job_dir.mkdir(parents=True)
+                write_json(job_dir / "task.json", {
+                    "id": job_id,
+                    "status": "completed",
+                    "stage": "completed",
+                })
+
+                recovered = recover_hanging_jobs()
+                self.assertEqual(len(recovered), 0)
+
+                job = read_json(job_dir / "task.json", {})
+                self.assertEqual(job.get("status"), "completed")
+            finally:
+                store_mod.JOBS_DIR = Path(orig_jobs_dir)
+
+
 if __name__ == "__main__":
     unittest.main()

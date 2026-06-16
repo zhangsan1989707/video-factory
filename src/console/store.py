@@ -135,6 +135,46 @@ def ensure_storage() -> None:
     _ensure_json("lark.json", DEFAULT_LARK)
     _ensure_json("templates.json", DEFAULT_TEMPLATES)
     _ensure_json("scheduler.json", DEFAULT_SCHEDULER)
+    recover_hanging_jobs()
+
+
+def recover_hanging_jobs() -> list[str]:
+    """将控制台重启后悬挂的 running 任务标记为 failed，保护历史产物。
+
+    控制台关闭时后台线程被强制终止，running 任务会留在 running 状态。
+    重启时自动恢复这些任务，让用户可以看到失败原因并重试。
+    """
+    recovered: list[str] = []
+    if not JOBS_DIR.exists():
+        return recovered
+    for task_path in sorted(JOBS_DIR.glob("*/task.json")):
+        if task_path.is_symlink():
+            continue
+        job = read_json(task_path, {})
+        if not isinstance(job, dict):
+            continue
+        job_id = str(job.get("id") or "")
+        if job_id != task_path.parent.name:
+            continue
+        if job.get("status") != "running":
+            continue
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        job["status"] = "failed"
+        job["error"] = "控制台重启导致任务中断，请重试。"
+        job["failed_stage"] = job.get("stage") or job.get("failed_stage") or ""
+        job["updated_at"] = now
+        history = job.get("stage_history") or []
+        history.append({
+            "stage": job.get("stage", ""),
+            "status": "failed",
+            "at": now,
+        })
+        job["stage_history"] = history[-80:]
+        write_json(task_path, job)
+        recovered.append(job_id)
+    if recovered:
+        print(f"[recovery] 已将 {len(recovered)} 个悬挂任务标记为 failed: {', '.join(recovered)}")
+    return recovered
 
 
 def _ensure_json(name: str, default: dict[str, Any]) -> None:
