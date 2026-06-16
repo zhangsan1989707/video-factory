@@ -759,6 +759,7 @@ function testRenderArtifactSummaryShowsPublishMetadata() {
     readiness_report: { status: "ready", score: 100 },
     publish_pack: { title: "GitHub热榜2个项目", hashtags: ["GitHub", "开源项目", "AI工具"] },
     cover_frame: { status: "ready" },
+    video_spec_report: { status: "ready", scene_count: 6 },
     latest_model_call: { task: "fact_check", provider: "Mock", model: "mock-model", status: "success" },
     narration_source: { status: "ai_success", provider: "Mock", model: "mock-model" },
     video_versions: [
@@ -771,6 +772,7 @@ function testRenderArtifactSummaryShowsPublishMetadata() {
   assert.match(nodes.artifactSummary.innerHTML, /artifact-player/);
   assert.match(nodes.artifactSummary.innerHTML, /artifact-cover/);
   assert.match(nodes.artifactSummary.innerHTML, /ready · 100/);
+  assert.match(nodes.artifactSummary.innerHTML, /ready · 6 scenes/);
   assert.match(nodes.artifactSummary.innerHTML, /GitHub热榜2个项目/);
   assert.match(nodes.artifactSummary.innerHTML, /GH-HOTLIST-20990101-001-测试视频-v2\.mp4/);
   assert.match(nodes.artifactSummary.innerHTML, /GH-HOTLIST-20990101-001-%E6%B5%8B%E8%AF%95%E8%A7%86%E9%A2%91-v2\.mp4/);

@@ -437,6 +437,7 @@ def _clear_plan_artifacts(job_id: str) -> None:
         "cover_frame.png",
         "cover_frame.json",
         "preview_visual_report.json",
+        "video_spec_report.json",
         "readiness_report.json",
         "final.mp4",
     ):
@@ -785,6 +786,7 @@ async def render_video(job_id: str) -> dict[str, Any]:
                 stage_callback=on_pipeline_stage,
                 issue_number=_issue_number(job),
             )
+            _write_video_spec_report(job_id)
             raise_if_cancelled(job_id)
             update_job(job_id, status="running", stage="post_processing")
             append_log(job_id, "开始执行视频后处理。")
@@ -1040,6 +1042,7 @@ def job_detail(job_id: str) -> dict[str, Any]:
         "publish_pack": read_json(JOBS_DIR / job_id / "publish_pack.json", {}),
         "cover_frame": read_json(JOBS_DIR / job_id / "cover_frame.json", {}),
         "preview_visual_report": read_json(JOBS_DIR / job_id / "preview_visual_report.json", {}),
+        "video_spec_report": read_json(JOBS_DIR / job_id / "video_spec_report.json", {}),
         "logs": read_log(job_id),
         "log_tail": read_log_tail(job_id),
         "failed_stage": job.get("failed_stage") or (job.get("stage") if job.get("status") == "failed" else ""),
@@ -1767,6 +1770,38 @@ def _write_preview_visual_report(job_id: str, previews: list[Any]) -> dict[str, 
         append_log(job_id, report["summary"])
     else:
         append_log(job_id, f"{report['summary']} {failures[0]['error'] if failures else '没有可检查预览帧。'}")
+    return report
+
+def _write_video_spec_report(job_id: str) -> dict[str, Any]:
+    job_dir = JOBS_DIR / job_id
+    spec_path = job_dir / "video-spec.json"
+    if not spec_path.exists():
+        report = {
+            "status": "missing",
+            "path": str(spec_path),
+            "summary": "未找到 video-spec.json 审计产物。",
+        }
+        write_json(job_dir / "video_spec_report.json", report)
+        append_log(job_id, report["summary"])
+        return report
+
+    spec = read_json(spec_path, {})
+    scenes = spec.get("scenes") if isinstance(spec.get("scenes"), list) else []
+    visual = spec.get("visual") if isinstance(spec.get("visual"), dict) else {}
+    video_basics = spec.get("video_basics") if isinstance(spec.get("video_basics"), dict) else {}
+    total_duration = float(video_basics.get("total_duration") or 0)
+    report = {
+        "status": "ready" if scenes else "review",
+        "path": str(spec_path),
+        "schema_version": str(spec.get("schema_version") or ""),
+        "scene_count": len(scenes),
+        "total_duration": total_duration,
+        "theme_source": str(visual.get("theme_source") or ""),
+        "theme": str(visual.get("theme") or ""),
+        "summary": f"video-spec 审计已生成：{len(scenes)} 个 scene，主题来源 {visual.get('theme_source') or '-'}。",
+    }
+    write_json(job_dir / "video_spec_report.json", report)
+    append_log(job_id, report["summary"])
     return report
 
 def _write_readiness_report(

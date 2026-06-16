@@ -1298,6 +1298,12 @@ class ConsoleJobsTest(unittest.TestCase):
                 stage_callback("composing_html", "开始生成 HTML 画面。")
                 stage_callback("rendering_hyperframes", "开始使用 HyperFrames 渲染动画视频。")
                 stage_callback("mixing_audio", "开始混合 TTS 音频。")
+            write_json(Path(output_path).parent / "video-spec.json", {
+                "schema_version": "hotlist-video-spec.v1",
+                "video_basics": {"total_duration": 8.0},
+                "visual": {"theme_source": "legacy_style_profile", "theme": "tech_hotspot"},
+                "scenes": [{"id": "scene-01-intro"}, {"id": "scene-02-ranking"}],
+            })
             Path(output_path).write_bytes(b"video")
             return Path(output_path)
 
@@ -1332,6 +1338,11 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual([segment["id"] for segment in render_calls[0]["narration_segments"]], ["intro", "project-1", "project-2", "outro"])
                 self.assertIn("stage_callback", render_calls[0])
                 self.assertEqual(result["job"]["plan_validation"]["status"], "passed")
+                spec_report = job_detail(job["id"])["video_spec_report"]
+                self.assertEqual(spec_report["status"], "ready")
+                self.assertEqual(spec_report["schema_version"], "hotlist-video-spec.v1")
+                self.assertEqual(spec_report["scene_count"], 2)
+                self.assertEqual(spec_report["theme_source"], "legacy_style_profile")
                 relevant = [
                     item["stage"]
                     for item in result["job"]["stage_history"]

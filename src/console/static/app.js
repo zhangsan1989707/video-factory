@@ -1496,6 +1496,7 @@ function renderArtifactSummary(detail) {
   const readiness = detail.readiness_report || {};
   const publish = detail.publish_pack || {};
   const cover = detail.cover_frame || {};
+  const videoSpec = detail.video_spec_report || {};
   const versions = detail.video_versions || [];
   const latestModelCall = detail.latest_model_call || {};
   const narrationSource = detail.narration_source || {};
@@ -1513,7 +1514,7 @@ function renderArtifactSummary(detail) {
   const playerMarkup = latestVideo && summaryJobId && !latestVideo.external
     ? `<video class="artifact-player" controls preload="metadata" src="${escapeAttr(artifactHref(summaryJobId, latestVideo.name, latestVideo))}"></video>`
     : "";
-  const hasSummary = readiness.status || publish.title || cover.status || versions.length;
+  const hasSummary = readiness.status || publish.title || cover.status || videoSpec.status || versions.length;
   box.className = hasSummary ? "artifact-summary" : "artifact-summary empty";
   if (!hasSummary) {
     box.textContent = "暂无任务摘要。";
@@ -1543,6 +1544,10 @@ function renderArtifactSummary(detail) {
     <div class="summary-row">
       <span>封面</span>
       <strong>${escapeHtml(cover.status || "-")}</strong>
+    </div>
+    <div class="summary-row">
+      <span>导演稿</span>
+      <strong>${escapeHtml(videoSpec.status ? `${videoSpec.status} · ${videoSpec.scene_count || 0} scenes` : "-")}</strong>
     </div>
     <div class="summary-row">
       <span>版本</span>
