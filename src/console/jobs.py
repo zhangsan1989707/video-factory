@@ -16,6 +16,7 @@ from src.console.github_hotlist import ESTIMATED_GROWTH_NOTE, collect_candidates
 from src.console.lark_sync import sync_selected_projects
 from src.console.model_router import chat_json_detail, route_snapshot
 from src.console.store import (
+    DEFAULT_OFFICIAL_OUTPUT_DIR,
     JOBS_DIR,
     append_model_call,
     append_log,
@@ -923,7 +924,9 @@ def finalize_numbered_output(job_id: str, title: str = "") -> dict[str, Any]:
     base_name = _official_video_base_name(job, job_id, safe_title)
     target = _write_to_official_output_dir(job, source, base_name)
     append_log(job_id, f"正式视频文件已输出到指定目录: {target}")
-    update_job(job_id, status="completed", stage="completed", official_video=str(target))
+    params = dict(job.get("template_params") or {})
+    params["official_output_dir"] = str(target.parent)
+    update_job(job_id, status="completed", stage="completed", official_video=str(target), template_params=params)
     return {"job": read_job(job_id), "artifacts": job_artifacts(job_id)}
 
 def _official_video_base_name(job: dict[str, Any], job_id: str, safe_title: str) -> str:
@@ -949,9 +952,7 @@ def _official_issue_number(job: dict[str, Any], job_id: str) -> int:
 
 def _write_to_official_output_dir(job: dict[str, Any], source: Path, base_name: str) -> Path:
     params = job.get("template_params") or {}
-    output_dir_text = str(params.get("official_output_dir") or "").strip()
-    if not output_dir_text:
-        raise ValueError("请先配置正式视频保存目录")
+    output_dir_text = str(params.get("official_output_dir") or DEFAULT_OFFICIAL_OUTPUT_DIR).strip()
     output_dir = Path(output_dir_text).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
     target = _available_video_path(output_dir, base_name)

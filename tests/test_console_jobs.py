@@ -14,7 +14,7 @@ from unittest.mock import patch
 from src.console import jobs as console_jobs
 from src.console.jobs import create_hotlist_job, finalize_numbered_output, generate_candidates, job_detail, prepare_plan, regenerate_candidates, regenerate_script, render_video, reset_video_for_regeneration, save_script, save_selection, validate_plan
 from src.console.server import open_job_folder, start_candidates_job, start_prepare_plan_job, start_render_job, start_save_script_job
-from src.console.store import create_job, next_job_id, read_json, read_log, update_job, write_json
+from src.console.store import DEFAULT_OFFICIAL_OUTPUT_DIR, create_job, next_job_id, read_json, read_log, update_job, write_json
 from src.console.background import JobCancelled, cancel_requested, is_active, raise_if_cancelled, request_cancel, start_async_job
 
 
@@ -2641,6 +2641,31 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertTrue(final.exists())
                 self.assertFalse((jobs_dir / job["id"] / published.name).exists())
 
+    def test_finalize_uses_default_output_dir_for_legacy_job_without_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            default_dir = Path(tmp) / "default-published"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.DEFAULT_OFFICIAL_OUTPUT_DIR", str(default_dir)),
+            ):
+                job = create_job("GH-HOTLIST-20990101-LEGACY", {"title": "旧任务"})
+                params = dict(job["template_params"])
+                params.pop("official_output_dir", None)
+                update_job(job["id"], template_params=params)
+                final = jobs_dir / job["id"] / "final.mp4"
+                final.write_bytes(b"video")
+                update_job(job["id"], status="running", stage="post_processing")
+
+                result = finalize_numbered_output(job["id"], "旧任务")
+                official = Path(result["job"]["official_video"])
+
+                self.assertEqual(official, default_dir / "GH-HOTLIST-20990101-第001期-旧任务.mp4")
+                self.assertEqual(result["job"]["template_params"]["official_output_dir"], str(default_dir))
+                self.assertTrue(final.exists())
+                self.assertFalse((jobs_dir / job["id"] / official.name).exists())
+
     def test_video_versions_sort_by_version_when_timestamps_match(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
@@ -2742,7 +2767,7 @@ class ConsoleJobsTest(unittest.TestCase):
             self.assertEqual(job["template_params"]["style"], "sspai_editorial")
             self.assertEqual(job["template_params"]["render_engine"], "hyperframes")
             self.assertEqual(job["template_params"]["orientation"], "vertical")
-            self.assertEqual(job["template_params"]["official_output_dir"], "/Users/leohang/Movies/GitHub热榜视频")
+            self.assertEqual(job["template_params"]["official_output_dir"], DEFAULT_OFFICIAL_OUTPUT_DIR)
             saved = read_json(jobs_dir / job["id"] / "task.json", {})
             self.assertEqual(saved["template_params"], job["template_params"])
 
