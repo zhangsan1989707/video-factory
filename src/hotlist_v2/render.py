@@ -85,6 +85,8 @@ async def render_hotlist_v2_from_projects(
     stage_callback: Callable[[str, str], None] | None = None,
     limit: int = 10,
     issue_number: int | None = None,
+    voice: str | None = None,
+    rate: str | None = None,
 ) -> Path:
     """Render a hotlist v2 video from already selected console project data."""
     data = _data_from_projects(projects, issue_number=issue_number)
@@ -96,6 +98,8 @@ async def render_hotlist_v2_from_projects(
         narration_segments=narration_segments,
         stage_callback=stage_callback,
         limit=limit,
+        voice=voice,
+        rate=rate,
     )
 
 
@@ -137,6 +141,8 @@ async def render_hotlist_v2_from_data(
     narration_segments: list[dict] | None = None,
     stage_callback: Callable[[str, str], None] | None = None,
     limit: int = 10,
+    voice: str | None = None,
+    rate: str | None = None,
 ) -> Path:
     """Render a hotlist v2 video from normalized template data."""
     out = output_path or OUTPUT_DIR / "final.mp4"
@@ -151,7 +157,7 @@ async def render_hotlist_v2_from_data(
     script = _build_script_from_timeline(timeline)
     script_path = work_dir / "script.json"
     shutil.rmtree(work_dir / "audio", ignore_errors=True)
-    await generate_all_audio(script, work_dir)
+    await generate_all_audio(script, work_dir, voice=voice, rate=rate)
     audio_dir = work_dir / "audio"
     segment_durations = _audio_segment_durations(script, audio_dir)
     timeline = _timeline_context(data, durations, narration_segments, segment_durations=segment_durations, limit=limit)

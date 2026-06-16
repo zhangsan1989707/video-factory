@@ -806,6 +806,8 @@ async def render_video(job_id: str) -> dict[str, Any]:
                 narration_segments=narration_segments,
                 stage_callback=on_pipeline_stage,
                 issue_number=_issue_number(job),
+                voice=_tts_voice(job),
+                rate=_tts_rate(job),
             )
             _write_video_spec_report(job_id)
             raise_if_cancelled(job_id)

@@ -1441,6 +1441,83 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(len(render_calls), 1)
                 self.assertEqual(render_calls[0]["style"], "apple_minimal")
 
+    def test_render_video_passes_tts_voice_and_rate_to_hyperframes(self) -> None:
+        async def pipeline(**kwargs):
+            calls.append(kwargs)
+            return Path(kwargs["from_plan"])
+
+        async def hyperframes(projects, output_path=None, **kwargs):
+            render_calls.append({"projects": projects, "output_path": output_path, **kwargs})
+            Path(output_path).write_bytes(b"video")
+            return Path(output_path)
+
+        calls = []
+        render_calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.run_pipeline", side_effect=pipeline),
+                patch("src.console.jobs.render_hotlist_v2_from_projects", side_effect=hyperframes),
+                patch("src.console.jobs.post_process_video", return_value=None),
+            ):
+                job = create_job("GH-HOTLIST-20990101-HF-TTS", {
+                    "project_count": 2,
+                    "template_params": _with_output_dir(tmp, {
+                        "tts_voice": "zh-CN-YunxiNeural",
+                        "tts_rate": "+30%",
+                        "bgm": "none",
+                    }),
+                })
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+
+                asyncio.run(render_video(job["id"]))
+
+                self.assertEqual(len(render_calls), 1)
+                self.assertEqual(render_calls[0]["voice"], "zh-CN-YunxiNeural")
+                self.assertEqual(render_calls[0]["rate"], "+30%")
+
+    def test_render_video_passes_default_tts_voice_and_rate_to_hyperframes(self) -> None:
+        async def pipeline(**kwargs):
+            calls.append(kwargs)
+            return Path(kwargs["from_plan"])
+
+        async def hyperframes(projects, output_path=None, **kwargs):
+            render_calls.append({"projects": projects, "output_path": output_path, **kwargs})
+            Path(output_path).write_bytes(b"video")
+            return Path(output_path)
+
+        calls = []
+        render_calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.run_pipeline", side_effect=pipeline),
+                patch("src.console.jobs.render_hotlist_v2_from_projects", side_effect=hyperframes),
+                patch("src.console.jobs.post_process_video", return_value=None),
+            ):
+                job = create_job("GH-HOTLIST-20990101-HF-TTS-DEFAULT", {
+                    "project_count": 2,
+                    "template_params": _with_output_dir(tmp, {"bgm": "none"}),
+                })
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+
+                asyncio.run(render_video(job["id"]))
+
+                self.assertEqual(len(render_calls), 1)
+                from src.utils.config import TTS_VOICE, TTS_RATE
+                self.assertEqual(render_calls[0]["voice"], TTS_VOICE)
+                self.assertEqual(render_calls[0]["rate"], TTS_RATE)
+
     def test_render_video_passes_custom_bgm_path(self) -> None:
         async def pipeline(**kwargs):
             calls.append(kwargs)
