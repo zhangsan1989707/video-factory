@@ -77,6 +77,12 @@ DEFAULT_MODEL_ROUTING = {
 
 DEFAULT_GITHUB = {"token": "", "last_rate_limit": "未检测"}
 
+DEFAULT_LARK = {
+    "enabled": False,
+    "base_token": "",
+    "table_id": "",
+}
+
 DEFAULT_SCHEDULER = {
     "enabled": False,
     "mode": "candidates_only",
@@ -101,6 +107,7 @@ CONFIG_FILES = {
     "providers": "providers.json",
     "model-routing": "model-routing.json",
     "github": "github.json",
+    "lark": "lark.json",
     "templates": "templates.json",
     "scheduler": "scheduler.json",
 }
@@ -113,6 +120,7 @@ def ensure_storage() -> None:
     _ensure_json("providers.json", DEFAULT_PROVIDERS)
     _ensure_json("model-routing.json", DEFAULT_MODEL_ROUTING)
     _ensure_json("github.json", DEFAULT_GITHUB)
+    _ensure_json("lark.json", DEFAULT_LARK)
     _ensure_json("templates.json", DEFAULT_TEMPLATES)
     _ensure_json("scheduler.json", DEFAULT_SCHEDULER)
 
@@ -165,6 +173,7 @@ def config_snapshot() -> dict[str, Any]:
         "providers": _redacted_providers(),
         "model_routing": read_json(CONFIG_DIR / "model-routing.json", DEFAULT_MODEL_ROUTING),
         "github": _redacted_github(),
+        "lark": _redacted_lark(),
         "templates": _normalize_templates(read_json(CONFIG_DIR / "templates.json", DEFAULT_TEMPLATES)),
         "template_styles": list_template_styles(),
         "scheduler": _normalize_scheduler(read_json(CONFIG_DIR / "scheduler.json", DEFAULT_SCHEDULER)),
@@ -239,6 +248,8 @@ def _normalized_config_update(name: str, data: dict[str, Any]) -> tuple[str, dic
         data = _normalize_model_routing(data)
     if name == "github":
         data = _merge_github_secret(data)
+    if name == "lark":
+        data = _normalize_lark(data)
     if name == "scheduler":
         data = _normalize_scheduler(data)
     if name == "templates":
@@ -616,6 +627,16 @@ def _redacted_github() -> dict[str, Any]:
     }
 
 
+def _redacted_lark() -> dict[str, Any]:
+    data = _normalize_lark(read_json(CONFIG_DIR / "lark.json", DEFAULT_LARK))
+    return {
+        "enabled": data["enabled"],
+        "configured": bool(data["base_token"] and data["table_id"]),
+        "base_token_preview": _secret_preview(data["base_token"]),
+        "table_id": data["table_id"],
+    }
+
+
 def _redacted_providers() -> dict[str, Any]:
     data = read_json(CONFIG_DIR / "providers.json", DEFAULT_PROVIDERS)
     providers = []
@@ -691,6 +712,23 @@ def _merge_github_secret(data: dict[str, Any]) -> dict[str, Any]:
         data["token"] = current.get("token", "")
     data["last_rate_limit"] = current.get("last_rate_limit", "未检测")
     return data
+
+
+def _normalize_lark(data: dict[str, Any]) -> dict[str, Any]:
+    current = read_json(CONFIG_DIR / "lark.json", DEFAULT_LARK)
+    base_token = str(data.get("base_token") or "")
+    if not base_token or _is_redacted_secret(base_token, str(current.get("base_token") or "")):
+        base_token = str(current.get("base_token") or "")
+    return {
+        "enabled": bool_value(data.get("enabled")),
+        "base_token": base_token.strip(),
+        "table_id": str(data.get("table_id") or current.get("table_id") or "").strip(),
+    }
+
+
+def _secret_preview(value: str) -> str:
+    text = str(value or "")
+    return f"{text[:4]}...{text[-4:]}" if len(text) >= 8 else ""
 
 
 def _normalize_scheduler(data: dict[str, Any], preserve_last_run: bool = True) -> dict[str, Any]:

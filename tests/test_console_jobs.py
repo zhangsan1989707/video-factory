@@ -14,7 +14,7 @@ from unittest.mock import patch
 from src.console import jobs as console_jobs
 from src.console.jobs import create_hotlist_job, finalize_numbered_output, generate_candidates, job_detail, prepare_plan, regenerate_candidates, regenerate_script, render_video, reset_video_for_regeneration, save_script, save_selection, validate_plan
 from src.console.server import open_job_folder, start_candidates_job, start_prepare_plan_job, start_render_job, start_save_script_job
-from src.console.store import create_job, next_job_id, read_json, update_job, write_json
+from src.console.store import create_job, next_job_id, read_json, read_log, update_job, write_json
 from src.console.background import JobCancelled, cancel_requested, is_active, raise_if_cancelled, request_cancel, start_async_job
 
 
@@ -814,6 +814,23 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(selected[0]["stars"], 1520)
                 self.assertEqual(selected[0]["feature_extract"]["core_action"], "把 AI 流程接进具体开发步骤")
                 self.assertEqual(selection["segments"][1]["id"], "project-1")
+
+    def test_selection_continues_when_lark_sync_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.sync_selected_projects", side_effect=RuntimeError("lark down")),
+            ):
+                job = create_job("GH-HOTLIST-20990101-LARK-FAIL", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+
+                self.assertEqual(selection["job"]["stage"], "awaiting_script_confirmation")
+                self.assertTrue((jobs_dir / job["id"] / "selected_projects.json").exists())
+                self.assertIn("飞书多维表格同步失败，已继续生成口播", read_log(job["id"]))
 
     def test_selection_rejects_items_outside_candidate_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -1677,6 +1677,7 @@ function closeSettings() {
 function renderSettings(config) {
   if (!config) return;
   $("githubTokenInput").value = "";
+  renderLarkSettings(config.lark || {});
   const providers = config.providers.providers || [];
   $("providerEditor").innerHTML = providers.map((provider) => `
     <div class="provider-card" data-provider-id="${escapeAttr(provider.id)}">
@@ -1725,6 +1726,16 @@ function renderSettings(config) {
       <input data-field="model" value="${escapeAttr(value.model || "")}" placeholder="model">
     </div>
   `).join("");
+}
+
+function renderLarkSettings(lark) {
+  $("larkSyncEnabled").checked = Boolean(lark.enabled);
+  $("larkBaseTokenInput").value = "";
+  $("larkTableIdInput").value = lark.table_id || "";
+  const status = lark.configured
+    ? `已配置 ${lark.base_token_preview || "Base Token"} · ${lark.table_id || "Table"}`
+    : "未配置 Base Token 或 Table ID。";
+  $("larkSyncStatus").textContent = lark.enabled ? status : `未启用；${status}`;
 }
 
 function renderScheduler(schedule) {
@@ -1854,6 +1865,11 @@ async function saveSettings() {
     token: githubToken,
     last_rate_limit: current.github.last_rate_limit || "未检测",
   };
+  const larkPayload = {
+    enabled: $("larkSyncEnabled").checked,
+    base_token: $("larkBaseTokenInput").value.trim(),
+    table_id: $("larkTableIdInput").value.trim(),
+  };
 
   const providers = [...document.querySelectorAll(".provider-card")].map((card) => {
     const original = (current.providers.providers || []).find((item) => item.id === card.dataset.providerId) || {};
@@ -1882,6 +1898,7 @@ async function saveSettings() {
   try {
     await post("/api/config", {
       github: githubPayload,
+      lark: larkPayload,
       providers: { providers },
       "model-routing": routing,
       templates: templatePayload(current),

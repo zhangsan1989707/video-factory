@@ -13,6 +13,7 @@ from urllib.parse import urljoin, urlparse
 
 from src.console.background import JobCancelled, is_active, raise_if_cancelled
 from src.console.github_hotlist import ESTIMATED_GROWTH_NOTE, collect_candidates_with_meta
+from src.console.lark_sync import sync_selected_projects
 from src.console.model_router import chat_json_detail, route_snapshot
 from src.console.store import (
     JOBS_DIR,
@@ -182,7 +183,20 @@ def save_selection(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     _clear_script_metadata(job_id)
     write_json(JOBS_DIR / job_id / "selected_projects.json", {"items": selected})
     append_log(job_id, f"已确认 {len(selected)} 个入选项目。")
+    _sync_selection_to_lark(job_id, selected)
     return _generate_script_for_selection(job_id, selected)
+
+
+def _sync_selection_to_lark(job_id: str, selected: list[dict[str, Any]]) -> None:
+    try:
+        result = sync_selected_projects(read_job(job_id), selected)
+    except Exception as exc:
+        append_log(job_id, f"飞书多维表格同步失败，已继续生成口播: {exc}")
+        return
+    if result.get("status") == "synced":
+        append_log(job_id, f"飞书多维表格已同步 {result.get('count') or 0} 个选中项目。")
+    elif result.get("status") == "skipped":
+        append_log(job_id, f"飞书多维表格同步跳过，已继续生成口播: {result.get('error') or '配置不完整'}")
 
 def regenerate_script(job_id: str) -> dict[str, Any]:
     _require_regenerable_job(job_id)

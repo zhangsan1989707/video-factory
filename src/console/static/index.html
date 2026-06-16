@@ -457,6 +457,25 @@
       </section>
 
       <section class="settings-section">
+        <div class="section-title">飞书多维表格</div>
+        <label class="check-row">
+          <input id="larkSyncEnabled" type="checkbox" />
+          <span>确认项目后同步到飞书</span>
+        </label>
+        <div class="provider-grid">
+          <label>
+            <span>Base Token</span>
+            <input id="larkBaseTokenInput" type="password" placeholder="留空表示不修改已保存 Token" />
+          </label>
+          <label>
+            <span>Table ID</span>
+            <input id="larkTableIdInput" placeholder="tblxxxx 或表名" />
+          </label>
+        </div>
+        <p id="larkSyncStatus" class="hint">未配置。</p>
+      </section>
+
+      <section class="settings-section">
         <div class="section-title">模型供应商</div>
         <div id="providerEditor" class="provider-editor"></div>
       </section>

@@ -587,6 +587,7 @@ class ConsoleServerSmokeTest(unittest.TestCase):
                 try:
                     result = _post(base_url, "/api/config", {
                         "github": {"token": "ghp_batch", "last_rate_limit": "ok"},
+                        "lark": {"enabled": True, "base_token": "base_batch", "table_id": "tbl_batch"},
                         "providers": {
                             "providers": [
                                 {
@@ -628,12 +629,15 @@ class ConsoleServerSmokeTest(unittest.TestCase):
                     thread.join(timeout=1)
 
             github = read_json(config_dir / "github.json", {})
+            lark = read_json(config_dir / "lark.json", {})
             providers = read_json(config_dir / "providers.json", {})["providers"]
             scheduler = read_json(config_dir / "scheduler.json", {})
             templates = read_json(config_dir / "templates.json", {})
 
         self.assertTrue(result["github"]["configured"])
+        self.assertTrue(result["lark"]["configured"])
         self.assertEqual(github["token"], "ghp_batch")
+        self.assertEqual(lark["table_id"], "tbl_batch")
         self.assertEqual(providers[0]["api_key"], "sk-openai")
         self.assertIs(scheduler["enabled"], False)
         self.assertEqual(templates["github_hotlist_vertical_v1"]["style"], "sspai_editorial")

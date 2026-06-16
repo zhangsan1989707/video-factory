@@ -226,6 +226,30 @@ class ConsoleProvidersTest(unittest.TestCase):
             self.assertEqual(providers[0]["api_key"], "sk-secret")
             self.assertEqual(providers[0]["last_test"], "连接成功: ok")
 
+    def test_lark_config_preserves_base_token_and_redacts_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            with patch("src.console.store.CONFIG_DIR", config_dir), patch("src.console.store.JOBS_DIR", jobs_dir):
+                snapshot = update_config("lark", {
+                    "enabled": True,
+                    "base_token": "basesecrettoken",
+                    "table_id": "tbl123",
+                })
+                update_config("lark", {
+                    "enabled": False,
+                    "base_token": "",
+                    "table_id": "tbl456",
+                })
+                saved = read_json(config_dir / "lark.json", {})
+                redacted = config_snapshot()["lark"]
+
+            self.assertTrue(snapshot["lark"]["enabled"])
+            self.assertEqual(saved["base_token"], "basesecrettoken")
+            self.assertEqual(saved["table_id"], "tbl456")
+            self.assertFalse(redacted["enabled"])
+            self.assertEqual(redacted["base_token_preview"], "base...oken")
+
     def test_write_json_preserves_existing_file_when_replace_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
