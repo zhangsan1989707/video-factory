@@ -815,6 +815,64 @@ function testRenderHistoryJobsShowsOpenAndDeleteActions() {
   assert.match(nodes.historyList.innerHTML, /删除/);
 }
 
+function testRenderProgressHintRendersForRunningJobsOnly() {
+  const nodes = {
+    historyList: {
+      className: "",
+      innerHTML: "",
+      querySelectorAll() {
+        return [];
+      },
+    },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  // 配额等待：必须带 waiting_quota 样式 + 重置时间
+  renderHistoryJobs([
+    {
+      id: "GH-WAITING",
+      status: "running",
+      stage: "collecting_candidates",
+      progress_hint: { kind: "waiting_quota", text: "等待 GitHub 配额刷新…", reset_at: "09:45" },
+    },
+    {
+      id: "GH-ANALYZING",
+      status: "running",
+      stage: "analyzing_candidates",
+      progress_hint: { kind: "analyzing", text: "候选分析 / 排序进行中…" },
+    },
+    // 非 running 不应出现 hint
+    {
+      id: "GH-DONE",
+      status: "completed",
+      stage: "completed",
+      progress_hint: { kind: "done", text: "候选已就绪" },
+    },
+    // running 但没有 hint 字段
+    {
+      id: "GH-NO-HINT",
+      status: "running",
+      stage: "collecting_candidates",
+    },
+  ]);
+
+  const html = nodes.historyList.innerHTML;
+  assert.match(html, /class="history-hint waiting_quota"/);
+  assert.match(html, /等待 GitHub 配额刷新…/);
+  assert.match(html, /重置 09:45/);
+  assert.match(html, /class="history-hint analyzing"/);
+  assert.match(html, /候选分析 \/ 排序进行中…/);
+  // GH-DONE 的 hint 不应出现在 HTML 里
+  assert.doesNotMatch(html, /候选已就绪/);
+  // GH-NO-HINT 不能产生 span.history-hint
+  const occurrences = html.match(/<span class="history-hint/g) || [];
+  assert.equal(occurrences.length, 2, "应只渲染 2 个 running 任务的 hint");
+}
+
 function testRenderScheduleQueueShowsPendingAndFailedScheduledJobs() {
   const nodes = {
     scheduleQueue: {

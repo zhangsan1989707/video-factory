@@ -3172,6 +3172,113 @@ class TestRecoverHangingJobs(unittest.TestCase):
             finally:
                 store_mod.JOBS_DIR = Path(orig_jobs_dir)
 
+    def test_recover_scheduled_jobs_advances_last_run_date(self):
+        """恢复被调度器触发的 running 任务时，必须把 scheduler.last_run_date
+        推进到当前周期，避免恢复完成后调度器立刻再起一份新草稿。"""
+        from datetime import date
+        import tempfile
+        from src.console.store import CONFIG_DIR, DEFAULT_SCHEDULER, JOBS_DIR, read_json, recover_hanging_jobs, write_json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orig_jobs_dir = str(JOBS_DIR)
+            orig_config_dir = str(CONFIG_DIR)
+            try:
+                import src.console.store as store_mod
+                store_mod.JOBS_DIR = Path(tmpdir)
+                store_mod.CONFIG_DIR = Path(tmpdir) / "config"
+                store_mod.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                # 昨天跑过，重置 last_run_date 以确保本次"未跑"
+                write_json(store_mod.CONFIG_DIR / "scheduler.json", {**DEFAULT_SCHEDULER, "last_run_date": "2026-06-16"})
+
+                scheduled_id = "GH-RECOVER-SCHEDULED"
+                manual_id = "GH-RECOVER-MANUAL"
+                for jid, scheduled in [(scheduled_id, True), (manual_id, False)]:
+                    job_dir = Path(tmpdir) / jid
+                    job_dir.mkdir(parents=True)
+                    write_json(job_dir / "task.json", {
+                        "id": jid,
+                        "status": "running",
+                        "stage": "collecting_candidates",
+                        "title": jid,
+                        "scheduled": scheduled,
+                        "stage_history": [],
+                    })
+
+                recovered = recover_hanging_jobs()
+                self.assertIn(scheduled_id, recovered)
+                self.assertIn(manual_id, recovered)
+
+                scheduler = read_json(store_mod.CONFIG_DIR / "scheduler.json", {})
+                self.assertEqual(
+                    scheduler.get("last_run_date"),
+                    date.today().strftime("%Y-%m-%d"),
+                    "恢复调度任务后 last_run_date 必须推进到今天，否则调度器会再起一份",
+                )
+            finally:
+                store_mod.JOBS_DIR = Path(orig_jobs_dir)
+                store_mod.CONFIG_DIR = Path(orig_config_dir)
+
+    def test_recover_only_manual_jobs_keeps_last_run_date(self):
+        """只恢复非调度任务时，不应误推进 last_run_date。"""
+        import tempfile
+        from src.console.store import CONFIG_DIR, DEFAULT_SCHEDULER, JOBS_DIR, read_json, recover_hanging_jobs, write_json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orig_jobs_dir = str(JOBS_DIR)
+            orig_config_dir = str(CONFIG_DIR)
+            try:
+                import src.console.store as store_mod
+                store_mod.JOBS_DIR = Path(tmpdir)
+                store_mod.CONFIG_DIR = Path(tmpdir) / "config"
+                store_mod.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                write_json(store_mod.CONFIG_DIR / "scheduler.json", {**DEFAULT_SCHEDULER, "last_run_date": "2026-06-16"})
+
+                job_dir = Path(tmpdir) / "GH-RECOVER-MANUAL-ONLY"
+                job_dir.mkdir(parents=True)
+                write_json(job_dir / "task.json", {
+                    "id": "GH-RECOVER-MANUAL-ONLY",
+                    "status": "running",
+                    "stage": "collecting_candidates",
+                    "title": "manual",
+                    "scheduled": False,
+                    "stage_history": [],
+                })
+
+                recover_hanging_jobs()
+
+                scheduler = read_json(store_mod.CONFIG_DIR / "scheduler.json", {})
+                self.assertEqual(
+                    scheduler.get("last_run_date"),
+                    "2026-06-16",
+                    "只恢复非调度任务时，last_run_date 不应被推进",
+                )
+            finally:
+                store_mod.JOBS_DIR = Path(orig_jobs_dir)
+                store_mod.CONFIG_DIR = Path(orig_config_dir)
+
+
+class TestQuotaWaitingHint(unittest.TestCase):
+    """_quota_waiting_hint 解析 ``"remaining/total，重置 hh:mm"`` 格式。"""
+
+    def test_returns_reset_when_remaining_is_zero(self):
+        from src.console.jobs import _quota_waiting_hint
+        self.assertEqual(_quota_waiting_hint("0/30，重置 09:45"), "09:45")
+        # 全角逗号、半角冒号、单数字小时也要能匹配
+        self.assertEqual(_quota_waiting_hint("0/60,重置 9:05"), "9:05")
+        # 头尾空白要忽略
+        self.assertEqual(_quota_waiting_hint("  0/30 ， 重置 23:00  "), "23:00")
+
+    def test_returns_none_when_remaining_is_positive(self):
+        from src.console.jobs import _quota_waiting_hint
+        self.assertIsNone(_quota_waiting_hint("29/30，重置 09:45"))
+        self.assertIsNone(_quota_waiting_hint("1/30"))
+
+    def test_returns_none_for_unparseable(self):
+        from src.console.jobs import _quota_waiting_hint
+        self.assertIsNone(_quota_waiting_hint(""))
+        self.assertIsNone(_quota_waiting_hint("未检测"))
+        self.assertIsNone(_quota_waiting_hint("0/30"))
+
 
 if __name__ == "__main__":
     unittest.main()

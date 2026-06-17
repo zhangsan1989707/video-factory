@@ -900,10 +900,48 @@ textarea {
   border: 0;
   background: transparent;
   text-align: left;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
 .history-open:hover {
   background: transparent;
+}
+
+.history-hint {
+  display: inline-block;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-soft);
+  background: var(--surface-soft, #f4f1ea);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.history-hint.waiting_quota {
+  color: #8a5a00;
+  background: #fff4d6;
+  border-color: #f0c97a;
+}
+
+.history-hint.analyzing,
+.history-hint.ranking {
+  color: #1f4f7a;
+  background: #e6f1fb;
+  border-color: #9cc3e3;
+}
+
+.history-hint.failed {
+  color: var(--error);
+  background: #fde6e6;
+  border-color: #f1adad;
 }
 
 .history-delete {

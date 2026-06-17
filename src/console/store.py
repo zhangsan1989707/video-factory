@@ -142,10 +142,15 @@ def recover_hanging_jobs() -> list[str]:
 
     控制台关闭时后台线程被强制终止，running 任务会留在 running 状态。
     重启时自动恢复这些任务，让用户可以看到失败原因并重试。
+
+    如果恢复的 running 任务是被调度器触发的（``scheduled=True``），同时把
+    ``scheduler.last_run_date`` 推进到当前周期的 run_key，避免调度器在
+    恢复完成后立刻再起一份新草稿。
     """
     recovered: list[str] = []
     if not JOBS_DIR.exists():
         return recovered
+    scheduled_recovered = 0
     for task_path in sorted(JOBS_DIR.glob("*/task.json")):
         if task_path.is_symlink():
             continue
@@ -171,9 +176,27 @@ def recover_hanging_jobs() -> list[str]:
         job["stage_history"] = history[-80:]
         write_json(task_path, job)
         recovered.append(job_id)
+        if bool_value(job.get("scheduled")):
+            scheduled_recovered += 1
     if recovered:
         print(f"[recovery] 已将 {len(recovered)} 个悬挂任务标记为 failed: {', '.join(recovered)}")
+    if scheduled_recovered:
+        try:
+            update_scheduler_last_run(_scheduler_run_key_for_now())
+        except Exception as exc:  # noqa: BLE001 - 恢复链路要尽量不抛错到启动流程
+            print(f"[recovery] 更新 scheduler.last_run_date 失败: {exc}")
     return recovered
+
+
+def _scheduler_run_key_for_now() -> str:
+    """根据 scheduler.json 的 frequency 计算当前周期的 run_key。"""
+    schedule = read_json(CONFIG_DIR / "scheduler.json", DEFAULT_SCHEDULER)
+    frequency = str(schedule.get("frequency") or "daily")
+    now = datetime.now()
+    if frequency == "weekly":
+        year, week, _ = now.isocalendar()
+        return f"{year}-W{week:02d}"
+    return now.strftime("%Y-%m-%d")
 
 
 def _ensure_json(name: str, default: dict[str, Any]) -> None:

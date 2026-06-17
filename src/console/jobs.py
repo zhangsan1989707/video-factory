@@ -125,6 +125,7 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_
     else:
         _clear_candidate_artifacts(job_id)
     update_job(job_id, status="running", stage="collecting_candidates", failed_stage="", error="")
+    _set_progress_hint(job_id, kind="pending", text=f"正在拉取 {job.get('time_window', 'weekly')} 候选项目…")
     append_log(job_id, f"开始拉取 {job.get('time_window', 'weekly')} 候选项目。"
                + ("（跳过缓存）" if force_refresh else ""))
     try:
@@ -145,7 +146,11 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_
         else:
             append_log(job_id, f"GitHub API 额度: {result.get('rate_limit') or '未检测'}。")
         append_log(job_id, ESTIMATED_GROWTH_NOTE)
+        quota_hint = _quota_waiting_hint(str(result.get("rate_limit") or ""))
+        if quota_hint and result.get("cache_status") != "hit":
+            _set_progress_hint(job_id, kind="waiting_quota", text="等待 GitHub 配额刷新…", reset_at=quota_hint)
         update_job(job_id, status="running", stage="analyzing_candidates")
+        _set_progress_hint(job_id, kind="analyzing", text="候选分析 / 排序进行中…")
         _update_candidate_source(job_id, {
             "cache_status": str(result.get("cache_status") or "fresh"),
             "cache_label": _candidate_cache_label(str(result.get("cache_status") or "fresh")),
@@ -155,15 +160,18 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_
             "ranking_label": "排序进行中",
         })
         candidates = _analyze_candidates(job_id, candidates)
+        _set_progress_hint(job_id, kind="ranking", text="候选排序中…")
         candidates = _rank_candidates(job_id, candidates)
         write_json(JOBS_DIR / job_id / "candidates.json", {"items": candidates})
         append_log(job_id, f"候选项目拉取完成，共 {len(candidates)} 个。")
         update_job(job_id, status="awaiting_input", stage="awaiting_project_confirmation")
+        _set_progress_hint(job_id, kind="done", text="候选已就绪，请确认项目。")
         return {"job": read_job(job_id), "candidates": candidates}
     except Exception as exc:
         append_log(job_id, f"候选项目拉取失败: {exc}")
         failed_stage = str(read_job(job_id).get("stage") or "collecting_candidates")
         update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc))
+        _set_progress_hint(job_id, kind="failed", text=f"失败：{_short_text(str(exc), 120)}")
         raise
 
 def save_selection(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2210,6 +2218,30 @@ def _update_candidate_source(job_id: str, patch: dict[str, Any]) -> None:
         if value
     ])
     update_job(job_id, candidate_source=source)
+
+
+def _set_progress_hint(job_id: str, *, kind: str, text: str, reset_at: str | None = None) -> None:
+    """在任务上记录一个简短的进度提示，让 UI 即便没有 stage 切换也能让用户看到在做什么。
+
+    ``kind`` 取值：``pending / waiting_quota / analyzing / ranking / done / failed``。
+    ``reset_at`` 用于配额等待场景，UI 可直接展示 ``"重置 hh:mm"``。
+    """
+    hint = {"kind": str(kind or "pending"), "text": str(text or "")}
+    if reset_at:
+        hint["reset_at"] = str(reset_at)
+    update_job(job_id, progress_hint=hint)
+
+
+def _quota_waiting_hint(rate_limit_label: str) -> str | None:
+    """如果 rate_limit 文案里 ``remaining == 0``，返回 ``"hh:mm"`` 重置时间；否则返回 None。"""
+    label = str(rate_limit_label or "")
+    match = re.match(r"\s*(\d+)\s*/\s*(\d+)\s*[,，]\s*重置\s*(\d{1,2}:\d{2})", label)
+    if not match:
+        return None
+    remaining = int(match.group(1))
+    if remaining > 0:
+        return None
+    return match.group(3)
 
 def _candidate_cache_label(status: str) -> str:
     labels = {

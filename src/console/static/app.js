@@ -313,6 +313,19 @@ function scheduleRecentLabel(job) {
   return labels[status] || scheduleQueueLabel(job);
 }
 
+function renderProgressHint(job) {
+  if (!job) return "";
+  if (job.status !== "running") return "";
+  const hint = job.progress_hint;
+  if (!hint || typeof hint !== "object") return "";
+  const text = String(hint.text || "").trim();
+  if (!text) return "";
+  const kind = String(hint.kind || "pending");
+  const resetAt = String(hint.reset_at || "").trim();
+  const suffix = resetAt ? ` · 重置 ${escapeHtml(resetAt)}` : "";
+  return `<span class="history-hint ${escapeAttr(kind)}">${escapeHtml(text)}${suffix}</span>`;
+}
+
 function renderHistoryJobs(jobs) {
   const searchNode = $("historySearch");
   const searchTerm = searchNode ? (searchNode.value || "").trim().toLowerCase() : "";
@@ -336,6 +349,7 @@ function renderHistoryJobs(jobs) {
       <button class="history-open" data-job="${escapeAttr(job.id || "")}">
         <code>${escapeHtml(job.id || "")}</code>
         <span class="status ${escapeAttr(job.status || "")}">${escapeHtml(job.stage || "")}</span>
+        ${renderProgressHint(job)}
       </button>
       <button class="history-delete tiny" data-delete-job="${escapeAttr(job.id || "")}" title="删除历史任务">删除</button>
     </div>
