@@ -480,10 +480,37 @@ class HotlistV2RenderTest(unittest.TestCase):
         script = _build_script_from_timeline(timeline)
 
         self.assertEqual(timeline["intro_screen"]["duration"], 9.6)
-        self.assertEqual(timeline["detail_screens"][0]["duration"], 2.4)
-        self.assertEqual(timeline["detail_screens"][1]["duration"], 9.3)
+        # 没有 proof 音频时，rank 段要跟住真实音频 + 0.35s 尾缓冲，proof 段
+        # 退回到 1.0s 最小值。旧版 2.4s 上限会切掉 8.6s 的 rank 语音。
+        self.assertEqual(timeline["detail_screens"][0]["duration"], 11.4)
+        self.assertEqual(timeline["detail_screens"][1]["duration"], 1.0)
         self.assertEqual(timeline["list_screen"]["start"], 9.6)
         self.assertEqual(script.segments[2].timestamp, timeline["detail_screens"][0]["start"])
+
+    def test_split_detail_duration_visual_covers_actual_audio(self) -> None:
+        """回归测试：rank 音频长于旧的 2.4s 上限时，画面不能把语音切掉。"""
+        from src.hotlist_v2.render import _split_detail_duration
+
+        # 复现真实生产场景：rank ≈ 4.3s，proof ≈ 15.5s，总时长由 audio + 0.7 算出
+        rank_audio = 4.30
+        proof_audio = 15.53
+        duration = rank_audio + proof_audio + 0.7
+        rank_duration, proof_duration = _split_detail_duration(duration, rank_audio, proof_audio)
+
+        self.assertGreaterEqual(
+            rank_duration, rank_audio + 0.30,
+            f"rank visual {rank_duration}s 不能把 {rank_audio}s 的语音切掉",
+        )
+        self.assertGreaterEqual(
+            proof_duration, proof_audio + 0.30,
+            f"proof visual {proof_duration}s 不能把 {proof_audio}s 的语音切掉",
+        )
+        # rank + proof 必须填满总时长（首屏切到下一屏不会留真空）
+        self.assertAlmostEqual(rank_duration + proof_duration, duration, delta=0.2)
+
+        # 兜底：没有音频时仍然走启发式拆分
+        rank_d, proof_d = _split_detail_duration(5.0)
+        self.assertAlmostEqual(rank_d + proof_d, 5.0, delta=0.1)
 
     def test_missing_forks_render_as_unknown_instead_of_zero(self) -> None:
         data = _data_from_projects([

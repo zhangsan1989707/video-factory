@@ -1443,13 +1443,20 @@ def _detail_duration(target: str, visual_duration: float, audio_durations: dict[
 
 
 def _split_detail_duration(duration: float, rank_audio: float | None = None, proof_audio: float | None = None) -> tuple[float, float]:
+    """把 (rank + proof) 总时长切成 rank/proof 两段。
+
+    以「实测音频长度 + 0.35s 尾缓冲」为下界，**不再**用原来的 2.4s 上限卡死 rank 段。
+    旧实现里 ``min(2.4, rank_audio + 0.35)`` 会导致 TTS 实际语音长于画面，
+    rank 语音溢出到 proof 屏幕并和 proof 语音叠在一起。
+    """
     if rank_audio or proof_audio:
-        rank_duration = math.ceil(max(1.2, min(2.4, (rank_audio or 0) + 0.35)) * 10) / 10
+        rank_min = max(1.2, (rank_audio or 0) + 0.35)
+        proof_min = max(1.0, (proof_audio or 0) + 0.35)
+        rank_duration = math.ceil(rank_min * 10) / 10
+        # proof 段必须同时容纳自身音频 + 尾缓冲，并填满到总时长
+        proof_duration = math.ceil(max(proof_min, duration - rank_duration) * 10) / 10
     else:
         rank_duration = round(max(1.2, min(2.2, duration * 0.32)), 1)
-    if proof_audio:
-        proof_duration = math.ceil(max(1.0, duration - rank_duration, proof_audio + 0.35) * 10) / 10
-    else:
         proof_duration = round(max(1.0, duration - rank_duration), 1)
     return rank_duration, proof_duration
 
