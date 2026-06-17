@@ -629,21 +629,40 @@
 
 ### POST /api/scheduler/run-due
 
-手动触发到期的定时任务。
+手动触发到期的定时任务（等同"试跑"按钮，绕过 `enabled` 状态和到期检查）。
 
-**响应示例**:
+**请求体**（可选）：
 ```json
 {
-  "ok": true,
-  "triggered": [
-    {
-      "job_id": "GH-HOTLIST-20260610-004",
-      "frequency": "daily",
-      "scheduled_time": "09:30"
-    }
-  ]
+  "force": true
 }
 ```
+
+- `force`: 强制立即执行，跳过到期判断和 `enabled` 检查。省略或 `false` 表示按当前时间判断是否到期。
+
+**响应示例**（已启动）：
+```json
+{
+  "started": true,
+  "reason": "due",
+  "job": {
+    "id": "GH-HOTLIST-20260610-004",
+    "stage": "awaiting_project_confirmation",
+    "status": "awaiting_input",
+    "scheduled": true,
+    "schedule_mode": "candidates_only"
+  }
+}
+```
+
+**响应示例**（未启动）：
+```json
+{"started": false, "reason": "not_due", "job": null}
+{"started": false, "reason": "already_running", "job": null}
+```
+
+- `not_due`: 当前未到执行时间（仅在未传 `force=true` 时返回）
+- `already_running`: 同一周期已有任务在运行
 
 ## 错误响应
 
