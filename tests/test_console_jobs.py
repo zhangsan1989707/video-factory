@@ -2743,6 +2743,81 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertTrue(final.exists())
                 self.assertFalse((jobs_dir / job["id"] / official.name).exists())
 
+    def test_safe_filename_sanitizes_fullwidth_punctuation_and_trailing_dots(self) -> None:
+        from src.console.jobs import _safe_filename
+
+        # 复现真实失败案例：LLM 给出的标题带结尾 "..."，外加全角标点。
+        raw = "GitHub热榜：零数学基础学AI、Windows安全工具包等5个开源项..."
+        cleaned = _safe_filename(raw)
+        self.assertNotIn("：", cleaned)
+        self.assertNotIn("、", cleaned)
+        self.assertFalse(cleaned.endswith("."), f"filename should not end with '.': {cleaned!r}")
+        # 与 .mp4 拼接后也不会再出现 "....mp4"
+        self.assertNotIn("....mp4", f"{cleaned}.mp4")
+        self.assertLessEqual(len(cleaned), 40)
+
+        # ASCII 标点 / 反斜杠 / 控制字符
+        self.assertEqual(_safe_filename("a/b\\c:d*e?f\"g<h>i|j"), "a-b-c-d-e-f-g-h-i-j")
+        # 全角空格
+        self.assertEqual(_safe_filename("项目\u3000标题"), "项目-标题")
+        # 折叠连续分隔符
+        self.assertEqual(_safe_filename("项目   ---  标题"), "项目-标题")
+        # 截断后不能以分隔符/点结尾
+        long = "ABCDEFGHIJKLMNOPQRSTUVWXYZ中文一二三四五六七八九十"
+        truncated = _safe_filename(long)
+        self.assertLessEqual(len(truncated), 40)
+        self.assertFalse(truncated.endswith("-"))
+        self.assertFalse(truncated.endswith("."))
+        # 空值 / 纯标点
+        self.assertEqual(_safe_filename(""), "GitHub热榜视频")
+        self.assertEqual(_safe_filename(":::***???"), "GitHub热榜视频")
+
+    def test_copy_with_retry_recovers_from_transient_eperm(self) -> None:
+        from src.console.jobs import _copy_with_retry
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.mp4"
+            src.write_bytes(b"hello")
+            dst = Path(tmp) / "dst.mp4"
+
+            real_copy2 = console_jobs.shutil.copy2
+            calls = {"n": 0}
+
+            def flaky_copy2(source, target, *a, **kw):
+                calls["n"] += 1
+                if calls["n"] < 3:
+                    raise PermissionError(1, "Operation not permitted", str(target))
+                return real_copy2(source, target, *a, **kw)
+
+            with patch.object(console_jobs.shutil, "copy2", side_effect=flaky_copy2):
+                _copy_with_retry(src, dst, attempts=3)
+
+            self.assertEqual(calls["n"], 3)
+            self.assertTrue(dst.exists())
+            self.assertEqual(dst.read_bytes(), b"hello")
+
+    def test_write_to_official_output_dir_surfaces_actionable_error(self) -> None:
+        from src.console.jobs import _write_to_official_output_dir
+
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src.mp4"
+            src.write_bytes(b"hi")
+            job = {
+                "template_params": {"official_output_dir": tmp},
+            }
+
+            with patch.object(
+                console_jobs.shutil,
+                "copy2",
+                side_effect=PermissionError(1, "Operation not permitted", str(tmp)),
+            ):
+                with self.assertRaises(RuntimeError) as ctx:
+                    _write_to_official_output_dir(job, src, "stem")
+
+            message = str(ctx.exception)
+            self.assertIn("正式输出目录", message)
+            self.assertIn(tmp, message)
+
     def test_video_versions_sort_by_version_when_timestamps_match(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)

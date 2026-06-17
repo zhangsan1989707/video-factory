@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -970,13 +971,39 @@ def _official_issue_number(job: dict[str, Any], job_id: str) -> int:
             pass
     return 1
 
+def _copy_with_retry(source: Path, target: Path, attempts: int = 3) -> None:
+    """带退避的复制，规避 macOS 上偶发的 EPERM（如 TCC 提示/Spotlight/Time Machine）。"""
+    delay = 0.4
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            shutil.copy2(source, target)
+            return
+        except (PermissionError, OSError) as exc:
+            last_exc = exc
+            if attempt == attempts:
+                break
+            # EPERM 在 macOS 上多为瞬时（沙箱/索引器争抢文件锁），重试常常即可恢复
+            time.sleep(delay)
+            delay *= 2
+    assert last_exc is not None
+    raise last_exc
+
+
 def _write_to_official_output_dir(job: dict[str, Any], source: Path, base_name: str) -> Path:
     params = job.get("template_params") or {}
     output_dir_text = str(params.get("official_output_dir") or DEFAULT_OFFICIAL_OUTPUT_DIR).strip()
     output_dir = Path(output_dir_text).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
     target = _available_video_path(output_dir, base_name)
-    shutil.copy2(source, target)
+    try:
+        _copy_with_retry(source, target)
+    except Exception as exc:
+        raise RuntimeError(
+            f"无法将视频复制到正式输出目录: {target}（{exc}）。"
+            "请检查目标目录权限、磁盘空间，以及 macOS 是否在弹出"
+            "「允许访问文件夹」的系统对话框。"
+        ) from exc
     return target
 
 def _video_versions(job_id: str) -> list[dict[str, Any]]:
@@ -2472,9 +2499,30 @@ def _star_label(stars: int) -> str:
 def _safe_part(text: str) -> str:
     return text.replace(":", " ").replace("|", " ").replace(";", " ").strip()
 
+# 标点/控制字符 → "-"，覆盖 ASCII 与常见全角标点
+_FILENAME_SANITIZE_RE = re.compile(
+    r"[\\/:*?\"<>|\s\u3000-\u303f\uff00-\uffef\u3001\u3002\uff0c\uff1a\uff1b\uff1f\uff01]+"
+)
+
+
 def _safe_filename(text: str) -> str:
-    text = re.sub(r"[\\/:*?\"<>|\s]+", "-", text).strip("-")
-    return text[:40] or "GitHub热榜视频"
+    """生成稳定可移植的视频文件名片段。
+
+    规则：
+    - 把 ASCII 与全角标点统一替换为 ``-``，避免 macOS 路径解析/HFS+ 边界问题。
+    - 折叠连续 ``-``，去掉首尾的 ``-``、``.`` 和空白。
+    - 截断到 40 字符，必要时省略号收尾，且不再追加 ``...``，避免和 ``.mp4`` 拼出
+      ``....mp4`` 这种容易被某些工具误读的尾巴。
+    """
+    if not text:
+        return "GitHub热榜视频"
+    cleaned = _FILENAME_SANITIZE_RE.sub("-", text)
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-").strip().rstrip(".")
+    if not cleaned:
+        return "GitHub热榜视频"
+    if len(cleaned) > 40:
+        cleaned = cleaned[:40].rstrip("-").rstrip(".") or cleaned[:40]
+    return cleaned or "GitHub热榜视频"
 
 def _available_video_path(directory: Path, stem: str) -> Path:
     target = directory / f"{stem}.mp4"
