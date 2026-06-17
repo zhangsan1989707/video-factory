@@ -852,6 +852,235 @@ class ConsoleSchedulerTest(unittest.TestCase):
             self.assertEqual(result["job"]["template_params"]["render_engine"], "hyperframes")
             self.assertEqual(result["job"]["template_params"]["orientation"], "vertical")
 
+    # ----- weekly 模式 / catch-up 窗口 -----
+
+    def test_weekly_schedule_runs_on_monday_at_scheduled_time(self) -> None:
+        """weekly + 周一 9:01 → 触发。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "frequency": "weekly",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 5,
+                "template_params": {},
+                "last_run_date": "",
+            })
+
+            async def fake_generate(job_id: str) -> dict:
+                return {"job": {"id": job_id}, "candidates": []}
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+            ):
+                # 2099-01-05 是周一
+                result = run_due_scheduled_draft(datetime(2099, 1, 5, 9, 1))
+
+            self.assertTrue(result["started"])
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "2099-W02")
+
+    def test_weekly_schedule_not_due_on_monday_before_scheduled_time(self) -> None:
+        """weekly + 周一 8:00 → 不触发（时间未到）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "frequency": "weekly",
+                "time": "09:00",
+                "last_run_date": "",
+            })
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+            ):
+                # 2099-01-05 是周一
+                result = run_due_scheduled_draft(datetime(2099, 1, 5, 8, 59))
+
+            self.assertFalse(result["started"])
+            self.assertEqual(result["reason"], "not_due")
+
+    def test_weekly_schedule_catch_up_on_tuesday(self) -> None:
+        """weekly + 周二任意时间 → 触发（catch-up 窗口：周一宕机后补跑）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "frequency": "weekly",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 5,
+                "template_params": {},
+                "last_run_date": "",
+            })
+
+            async def fake_generate(job_id: str) -> dict:
+                return {"job": {"id": job_id}, "candidates": []}
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+            ):
+                # 2099-01-06 是周二
+                result = run_due_scheduled_draft(datetime(2099, 1, 6, 2, 0))
+
+            self.assertTrue(result["started"], "周二应在 catch-up 窗口内补跑")
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "2099-W02")
+
+    def test_weekly_schedule_not_due_on_wednesday_or_later(self) -> None:
+        """weekly + 周三及以后 → 不触发（catch-up 窗口已关闭）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "frequency": "weekly",
+                "time": "09:00",
+                "last_run_date": "",
+            })
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+            ):
+                # 2099-01-07 是周三
+                wed_result = run_due_scheduled_draft(datetime(2099, 1, 7, 10, 0))
+                # 2099-01-11 是周日
+                sun_result = run_due_scheduled_draft(datetime(2099, 1, 11, 10, 0))
+
+            self.assertEqual(wed_result["reason"], "not_due")
+            self.assertEqual(sun_result["reason"], "not_due")
+
+    def test_weekly_schedule_tuesday_skips_when_already_run_this_week(self) -> None:
+        """weekly + 周二 + 本周已跑 → 不再触发（避免周一、周二各跑一次）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "frequency": "weekly",
+                "time": "09:00",
+                "last_run_date": "2099-W02",
+            })
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+            ):
+                # 2099-01-06 是周二
+                result = run_due_scheduled_draft(datetime(2099, 1, 6, 10, 0))
+
+            self.assertFalse(result["started"])
+            self.assertEqual(result["reason"], "not_due")
+
+    def test_weekly_schedule_next_week_after_missed(self) -> None:
+        """weekly + 上一周漏跑 + 本周一时 → 触发（避免持续漏跑）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "frequency": "weekly",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 5,
+                "template_params": {},
+                "last_run_date": "2099-W01",  # 上一周已跑过
+            })
+
+            async def fake_generate(job_id: str) -> dict:
+                return {"job": {"id": job_id}, "candidates": []}
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+            ):
+                # 2099-01-12 是下周一
+                result = run_due_scheduled_draft(datetime(2099, 1, 12, 9, 1))
+
+            self.assertTrue(result["started"])
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "2099-W03")
+
+    def test_due_schedule_can_be_cancelled_mid_pipeline(self) -> None:
+        """auto_video pipeline 中途调用 request_cancel 应能中断，避免长任务跑完才生效。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "mode": "auto_video",
+                "frequency": "daily",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 5,
+                "template_params": {},
+                "last_run_date": "",
+            })
+            job_id_seen = []
+            cancel_after = []
+
+            async def fake_generate(job_id: str) -> dict:
+                job_id_seen.append(job_id)
+                # 在 generate 阶段触发取消
+                from src.console.background import request_cancel
+                request_cancel(job_id)
+                return {
+                    "job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_project_confirmation"},
+                    "candidates": [{"full_name": "demo/one"}],
+                }
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+            ):
+                with self.assertRaisesRegex(Exception, "取消|取消"):
+                    run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+
+            # 失败时不应推进 last_run_date
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "", "被取消的任务不应推进 last_run_date")
+
+    def test_update_scheduler_last_run_uses_file_lock(self) -> None:
+        """update_scheduler_last_run 在 macOS/Linux 下应通过 fcntl.flock 串行化写。"""
+        import fcntl
+        from unittest.mock import MagicMock, patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            config_dir.mkdir(parents=True, exist_ok=True)
+            write_json(config_dir / "scheduler.json", {"last_run_date": ""})
+
+            with patch("src.console.store.CONFIG_DIR", config_dir), patch("src.console.store.fcntl") as mock_fcntl:
+                mock_fcntl.LOCK_EX = fcntl.LOCK_EX
+                mock_fcntl.LOCK_UN = fcntl.LOCK_UN
+                lock_calls = MagicMock()
+                mock_fcntl.flock = lock_calls
+                # 标记 fcntl 可用
+                import src.console.store as store_mod
+                with patch.object(store_mod, "_HAS_FCNTL", True):
+                    from src.console.store import update_scheduler_last_run
+                    update_scheduler_last_run("2099-W01")
+
+                # flock 应该被加锁和解锁各调用一次
+                self.assertGreaterEqual(lock_calls.call_count, 2,
+                                        "update_scheduler_last_run 应对 scheduler.json 加 fcntl 文件锁")
+                saved = read_json(config_dir / "scheduler.json", {})
+                self.assertEqual(saved["last_run_date"], "2099-W01")
+
 
 if __name__ == "__main__":
     unittest.main()

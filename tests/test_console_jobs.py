@@ -3331,6 +3331,49 @@ class TestRecoverHangingJobs(unittest.TestCase):
                 store_mod.JOBS_DIR = Path(orig_jobs_dir)
                 store_mod.CONFIG_DIR = Path(orig_config_dir)
 
+    def test_recover_weekly_scheduled_jobs_keeps_last_run_date(self):
+        """weekly 模式下恢复调度任务时不应推进 last_run_date，
+        留给 catch-up 窗口（周二）补跑，避免漏跑一整周。"""
+        import tempfile
+        from src.console.store import CONFIG_DIR, DEFAULT_SCHEDULER, JOBS_DIR, read_json, recover_hanging_jobs, write_json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orig_jobs_dir = str(JOBS_DIR)
+            orig_config_dir = str(CONFIG_DIR)
+            try:
+                import src.console.store as store_mod
+                store_mod.JOBS_DIR = Path(tmpdir)
+                store_mod.CONFIG_DIR = Path(tmpdir) / "config"
+                store_mod.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                write_json(
+                    store_mod.CONFIG_DIR / "scheduler.json",
+                    {**DEFAULT_SCHEDULER, "frequency": "weekly", "last_run_date": ""},
+                )
+
+                job_dir = Path(tmpdir) / "GH-RECOVER-WEEKLY"
+                job_dir.mkdir(parents=True)
+                write_json(job_dir / "task.json", {
+                    "id": "GH-RECOVER-WEEKLY",
+                    "status": "running",
+                    "stage": "collecting_candidates",
+                    "title": "weekly scheduled",
+                    "scheduled": True,
+                    "stage_history": [],
+                })
+
+                recover_hanging_jobs()
+
+                scheduler = read_json(store_mod.CONFIG_DIR / "scheduler.json", {})
+                self.assertEqual(
+                    scheduler.get("last_run_date"),
+                    "",
+                    "weekly 模式下恢复调度任务不应 advance last_run_date，"
+                    "否则会错过周二 catch-up 窗口，导致整周漏跑",
+                )
+            finally:
+                store_mod.JOBS_DIR = Path(orig_jobs_dir)
+                store_mod.CONFIG_DIR = Path(orig_config_dir)
+
 
 class TestQuotaWaitingHint(unittest.TestCase):
     """_quota_waiting_hint 解析 ``"remaining/total，重置 hh:mm"`` 格式。"""

@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from typing import Any
 
-from src.console.background import active_job
+from src.console.background import active_job, raise_if_cancelled
 from src.console.jobs import create_hotlist_job, generate_candidates, prepare_plan, render_video, save_script, save_selection, validate_plan
 from src.console.store import CONFIG_DIR, DEFAULT_SCHEDULER, DEFAULT_TEMPLATES, bool_value, config_snapshot, normalize_project_count, normalize_time_window, read_json, update_job, update_scheduler_last_run
 from src.hotlist_v2.template import normalize_style
@@ -42,11 +42,15 @@ def run_due_scheduled_draft(now: datetime | None = None, force: bool = False) ->
         }
         job = create_hotlist_job(payload)
         with active_job(job["id"]):
-            result = asyncio.run(generate_candidates(job["id"]))
-            if schedule.get("mode") in {"auto_script", "auto_video"}:
-                result = _generate_scheduled_script(job["id"], result, normalize_project_count(schedule.get("project_count")))
-            if schedule.get("mode") == "auto_video":
-                result = _generate_scheduled_video(job["id"], result)
+            # 单一事件循环包整条 pipeline：避免 Playwright/httpx 等长生命周期资源
+            # 在 asyncio.run 边界被强制销毁，并保证取消信号能穿透到各阶段。
+            result = asyncio.run(
+                _run_scheduled_pipeline(
+                    job["id"],
+                    schedule,
+                    normalize_project_count(schedule.get("project_count")),
+                )
+            )
         _mark_schedule_run(run_key)
         merged_job = {**job, **(result.get("job") or {})}
         merged_job["scheduled"] = True
@@ -56,6 +60,22 @@ def run_due_scheduled_draft(now: datetime | None = None, force: bool = False) ->
     finally:
         with _LOCK:
             _RUNNING_KEYS.discard(run_key)
+
+
+async def _run_scheduled_pipeline(
+    job_id: str,
+    schedule: dict[str, Any],
+    project_count: int,
+) -> dict[str, Any]:
+    """在单一事件循环里串行跑完候选→脚本→计划→渲染。"""
+    raise_if_cancelled(job_id)
+    result = await generate_candidates(job_id)
+    if schedule.get("mode") in {"auto_script", "auto_video"}:
+        raise_if_cancelled(job_id)
+        result = _generate_scheduled_script(job_id, result, project_count)
+    if schedule.get("mode") == "auto_video":
+        result = await _generate_scheduled_video_async(job_id, result)
+    return result
 
 
 def start_scheduler_loop(interval_seconds: int = 60) -> bool:
@@ -87,9 +107,15 @@ def _is_due(schedule: dict[str, Any], now: datetime) -> bool:
         hour, minute = [int(part) for part in str(schedule.get("time") or "09:00").split(":", 1)]
     except ValueError:
         hour, minute = 9, 0
+    if schedule.get("frequency") == "weekly":
+        # weekly 模式只允许周一/周二触发。周一整天已过预定时间即可；周二不限制时间
+        # （周一已过，预定时间一定过），用于 catch-up 周一全天宕机的情况。
+        if now.weekday() == 0 and (now.hour, now.minute) < (hour, minute):
+            return False
+        if now.weekday() not in {0, 1}:
+            return False
+        return True
     if (now.hour, now.minute) < (hour, minute):
-        return False
-    if schedule.get("frequency") == "weekly" and now.weekday() != 0:
         return False
     return True
 
@@ -130,16 +156,20 @@ def _generate_scheduled_script(job_id: str, result: dict[str, Any], project_coun
     return save_selection(job_id, {"items": selected})
 
 
-def _generate_scheduled_video(job_id: str, result: dict[str, Any]) -> dict[str, Any]:
+async def _generate_scheduled_video_async(job_id: str, result: dict[str, Any]) -> dict[str, Any]:
     segments = result.get("segments") or []
     if not segments:
         raise RuntimeError("定时出片模式没有可用口播脚本")
+    raise_if_cancelled(job_id)
     scripted = save_script(job_id, {"segments": segments})
     if (scripted.get("job") or {}).get("stage") == "awaiting_script_confirmation":
         raise RuntimeError((scripted.get("job") or {}).get("error") or "定时出片模式被脚本质检阻断")
+    raise_if_cancelled(job_id)
     prepare_plan(job_id)
-    asyncio.run(validate_plan(job_id))
-    return asyncio.run(render_video(job_id))
+    raise_if_cancelled(job_id)
+    await validate_plan(job_id)
+    raise_if_cancelled(job_id)
+    return await render_video(job_id)
 
 
 def _mark_schedule_run(run_key: str) -> None:

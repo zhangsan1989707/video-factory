@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -9,10 +10,18 @@ import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from src.hotlist_v2.template import default_params_for_style, list_template_styles, normalize_style, render_engine_for_style
 from src.utils.config import BGM_VOLUME, OUTPUT_DIR, ROOT_DIR, TTS_RATE, TTS_VOICE
+
+try:
+    import fcntl as _fcntl_module  # noqa: F401 - 探测 fcntl 可用性
+    fcntl = _fcntl_module
+    _HAS_FCNTL = True
+except ImportError:  # pragma: no cover - 理论 Windows 场景
+    fcntl = None  # type: ignore[assignment]
+    _HAS_FCNTL = False
 
 # TTS 声音白名单：与 scripts/voice_preview.py 中的实际可用声音保持一致
 ALLOWED_TTS_VOICES = {
@@ -181,10 +190,14 @@ def recover_hanging_jobs() -> list[str]:
     if recovered:
         print(f"[recovery] 已将 {len(recovered)} 个悬挂任务标记为 failed: {', '.join(recovered)}")
     if scheduled_recovered:
-        try:
-            update_scheduler_last_run(_scheduler_run_key_for_now())
-        except Exception as exc:  # noqa: BLE001 - 恢复链路要尽量不抛错到启动流程
-            print(f"[recovery] 更新 scheduler.last_run_date 失败: {exc}")
+        # weekly 模式依赖 catch-up 窗口（周二补跑）恢复，跳过 advance，避免误判"本周已跑"。
+        # daily 模式仍需 advance，防止恢复后立刻重跑。
+        schedule = read_json(CONFIG_DIR / "scheduler.json", DEFAULT_SCHEDULER)
+        if str(schedule.get("frequency") or "daily") == "daily":
+            try:
+                update_scheduler_last_run(_scheduler_run_key_for_now())
+            except Exception as exc:  # noqa: BLE001 - 恢复链路要尽量不抛错到启动流程
+                print(f"[recovery] 更新 scheduler.last_run_date 失败: {exc}")
     return recovered
 
 
@@ -271,10 +284,33 @@ def update_github_rate_limit(last_rate_limit: str) -> None:
 
 def update_scheduler_last_run(last_run_date: str) -> dict[str, Any]:
     ensure_storage()
-    data = _normalize_scheduler(read_json(CONFIG_DIR / "scheduler.json", DEFAULT_SCHEDULER), preserve_last_run=False)
-    data["last_run_date"] = str(last_run_date or "")
-    write_json(CONFIG_DIR / "scheduler.json", data)
+    # 写操作加文件锁：防止控制台恢复（recover_hanging_jobs 在主线程）与
+    # scheduler 后台线程在极小时间窗内同时写入造成 last_run_date 丢失。
+    with _scheduler_write_lock():
+        data = _normalize_scheduler(read_json(CONFIG_DIR / "scheduler.json", DEFAULT_SCHEDULER), preserve_last_run=False)
+        data["last_run_date"] = str(last_run_date or "")
+        write_json(CONFIG_DIR / "scheduler.json", data)
     return config_snapshot()
+
+
+@contextlib.contextmanager
+def _scheduler_write_lock() -> Iterator[None]:
+    """scheduler.json 跨进程文件锁（macOS/Linux）。无 fcntl 时降级为无锁。"""
+    if not _HAS_FCNTL:  # pragma: no cover - 理论 Windows 场景
+        yield
+        return
+    lock_path = CONFIG_DIR / ".scheduler.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(fd)
 
 
 def update_config(name: str, data: dict[str, Any]) -> dict[str, Any]:
