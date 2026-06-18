@@ -597,6 +597,18 @@ td small {
   font-size: 12px;
 }
 
+.source-desc.stars-today {
+  color: var(--success);
+  font-weight: 600;
+  display: inline-block;
+  margin-top: 2px;
+}
+
+.source-desc.stars-today[data-source="search_api"] {
+  color: var(--muted);
+  font-weight: 500;
+}
+
 .panel-meta {
   margin-top: 6px;
   color: var(--soft);

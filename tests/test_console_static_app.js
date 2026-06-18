@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
 
 async function run() {
@@ -1131,6 +1131,46 @@ function testPublicCandidateTextHidesInternalTagQuality() {
     publicCandidateText("中：可用标签和仓库页做信息卡片"),
     "中：可用仓库页做信息卡片",
   );
+}
+
+function testRenderStarsTodayShowsTrendingData() {
+  // Trending primary source: shows real stars_today with trending marker.
+  const trending = renderStarsToday({
+    stars: 5378,
+    stars_today: 371,
+    data_source: "trending",
+    daily_growth: "估算日均 star 约 +179/天",
+  });
+  assert.match(trending, /今日 \+371 stars/);
+  assert.match(trending, /data-source="trending"/);
+  assert.match(trending, /class="source-desc stars-today"/);
+  assert.doesNotMatch(trending, /估算/);
+
+  // Search API fallback path: marker is dimmer and shows the 估算 label.
+  const fallback = renderStarsToday({
+    stars: 120,
+    stars_today: 5,
+    data_source: "search_api",
+    daily_growth: "估算日均 star 约 +4/天",
+  });
+  assert.match(fallback, /今日 \+5 stars \(估算\)/);
+  assert.match(fallback, /data-source="search_api"/);
+
+  // Missing stars_today: falls back to the estimated daily_growth text.
+  const empty = renderStarsToday({
+    stars: 0,
+    stars_today: 0,
+    daily_growth: "估算日均 star 暂无",
+  });
+  assert.match(empty, /估算日均 star 暂无/);
+  assert.doesNotMatch(empty, /stars-today/);
+
+  // stars_today absent entirely: same fallback to daily_growth.
+  const legacy = renderStarsToday({
+    stars: 100,
+    daily_growth: "估算日均 star 约 +3/天",
+  });
+  assert.match(legacy, /估算日均 star 约 \+3\/天/);
 }
 
 function testFormatHelpersForArtifactWorkbench() {

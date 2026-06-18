@@ -1229,7 +1229,7 @@ function renderCandidates() {
         <small class="source-desc">${escapeHtml(item.description || "无英文描述")}</small>
       </td>
       <td class="score">${item.score}</td>
-      <td>${Number(item.stars || 0).toLocaleString()}<small class="source-desc">${escapeHtml(item.daily_growth || "估算日均 star 暂无")}</small></td>
+      <td>${Number(item.stars || 0).toLocaleString()}${renderStarsToday(item)}</td>
       <td>${escapeHtml(item.language || "-")}</td>
       <td>${escapeHtml(publicCandidateText(item.recommendation || ""))}<small>${escapeHtml(publicCandidateText(item.ranking_reason || item.visual_potential || ""))}</small></td>
       <td>${escapeHtml(item.risk || "")}</td>
@@ -1242,6 +1242,16 @@ function renderCandidates() {
     input.addEventListener("change", updateSelectionState);
   });
   updateSelectionState();
+}
+
+function renderStarsToday(item) {
+  const today = Number(item && item.stars_today) || 0;
+  if (today > 0) {
+    const source = String(item.data_source || "");
+    const sourceTag = source === "search_api" ? "（估算）" : "";
+    return `<small class="source-desc stars-today" data-source="${escapeHtml(source || "trending")}">今日 +${today.toLocaleString()} stars ${escapeHtml(sourceTag)}</small>`;
+  }
+  return `<small class="source-desc">${escapeHtml((item && item.daily_growth) || "估算日均 star 暂无")}</small>`;
 }
 
 function publicCandidateText(value) {
@@ -2125,5 +2135,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }
