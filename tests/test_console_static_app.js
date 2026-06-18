@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, larkPayloadFromForm, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, larkPayloadFromForm, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
 
 async function run() {
@@ -61,6 +61,10 @@ async function run() {
   testLarkSettingsIdsArePresentInHtml();
   testRenderLarkSettingsPopulatesNewFields();
   testLarkPayloadFromFormCollectsNewFields();
+  testRenderCandidatesShowsAlreadyPublishedBadge();
+  testRenderCandidatesHidesBadgeWhenNotPublished();
+  testRenderLarkSyncHistoryShowsThreeSegments();
+  testRenderLarkSyncHistoryHandlesMissingSync();
 }
 
 async function testJsonSuccess() {
@@ -1825,6 +1829,124 @@ function testLarkPayloadFromFormCollectsNewFields() {
   assert.equal(payload.sync_all_data, true);
   assert.equal(payload.sync_selected_data, false);
   assert.equal(payload.table_id, "tblS");
+}
+
+function testRenderCandidatesShowsAlreadyPublishedBadge() {
+  const candidateRows = { innerHTML: "", querySelectorAll() { return []; } };
+  const nodes = {
+    candidateRows,
+    candidateSourceSummary: { textContent: "" },
+    projectCount: { value: "5" },
+    confirmSelectionBtn: { textContent: "", disabled: false },
+    nextActionBtn: { textContent: "", dataset: { action: "confirm-selection" }, disabled: false },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id] || null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+
+  state.candidates = [
+    { full_name: "demo/published", score: 80, stars: 100, language: "Python", _already_published: true },
+    { full_name: "demo/new", score: 70, stars: 50, language: "Go", _already_published: false },
+  ];
+  state.currentJob = { candidate_source: {} };
+
+  renderCandidates();
+
+  assert.match(candidateRows.innerHTML, /badge-already-published/);
+  assert.match(candidateRows.innerHTML, /已发过视频/);
+  // Badge should appear only for the published candidate
+  const badgeCount = (candidateRows.innerHTML.match(/badge-already-published/g) || []).length;
+  assert.equal(badgeCount, 1, "should have exactly one badge");
+}
+
+function testRenderCandidatesHidesBadgeWhenNotPublished() {
+  const candidateRows = { innerHTML: "", querySelectorAll() { return []; } };
+  const nodes = {
+    candidateRows,
+    candidateSourceSummary: { textContent: "" },
+    projectCount: { value: "5" },
+    confirmSelectionBtn: { textContent: "", disabled: false },
+    nextActionBtn: { textContent: "", dataset: { action: "confirm-selection" }, disabled: false },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id] || null;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  };
+
+  state.candidates = [
+    { full_name: "demo/no-badge", score: 60, stars: 30, language: "Rust" },
+  ];
+  state.currentJob = { candidate_source: {} };
+
+  renderCandidates();
+
+  assert.doesNotMatch(candidateRows.innerHTML, /badge-already-published/);
+  assert.doesNotMatch(candidateRows.innerHTML, /已发过视频/);
+}
+
+function testRenderLarkSyncHistoryShowsThreeSegments() {
+  const nodes = {
+    larkSyncHistory: { innerHTML: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  renderLarkSyncHistory({
+    lark_sync: {
+      all_data:    { status: "synced", count: 25, at: "2026-06-18T09:01:00Z" },
+      selected:    { status: "synced", count: 5,  at: "2026-06-18T09:05:00Z" },
+      publish_mark:{ status: "synced", count: 5,  at: "2026-06-18T09:30:00Z" },
+    },
+  });
+
+  const html = nodes.larkSyncHistory.innerHTML;
+  assert.match(html, /全量候选/);
+  assert.match(html, /已选项目/);
+  assert.match(html, /已发布/);
+  assert.match(html, /synced/);
+  assert.match(html, /25 条/);
+  assert.match(html, /5 条/);
+}
+
+function testRenderLarkSyncHistoryHandlesMissingSync() {
+  const nodes = {
+    larkSyncHistory: { innerHTML: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  // Job without lark_sync should clear the container
+  renderLarkSyncHistory({});
+  assert.equal(nodes.larkSyncHistory.innerHTML, "");
+
+  // Job with null lark_sync
+  renderLarkSyncHistory({ lark_sync: null });
+  assert.equal(nodes.larkSyncHistory.innerHTML, "");
+
+  // Job with partial lark_sync should show "未同步" for missing segments
+  renderLarkSyncHistory({
+    lark_sync: {
+      all_data: { status: "synced", count: 10, at: "2026-06-18T09:00:00Z" },
+    },
+  });
+  const html = nodes.larkSyncHistory.innerHTML;
+  assert.match(html, /全量候选/);
+  assert.match(html, /未同步/);
 }
 
 run().catch((error) => {

@@ -831,6 +831,31 @@ function stopPollingCurrentJob() {
   state.pollTimer = null;
 }
 
+function renderLarkSyncHistory(job) {
+  const container = $("larkSyncHistory");
+  if (!container) return;
+  const segments = [
+    { key: "all_data", label: "全量候选" },
+    { key: "selected", label: "已选项目" },
+    { key: "publish_mark", label: "已发布" },
+  ];
+  const sync = (job && job.lark_sync) || {};
+  if (!Object.keys(sync).length) {
+    container.innerHTML = "";
+    return;
+  }
+  const html = segments.map(seg => {
+    const s = sync[seg.key] || { status: "未同步" };
+    return `<div class="lark-sync-seg">
+      <strong>${seg.label}</strong>: ${s.status}
+      ${s.count != null ? `(${s.count} 条)` : ""}
+      ${s.at ? ` · ${s.at}` : ""}
+      ${s.error ? ` · <span class="err">${s.error}</span>` : ""}
+    </div>`;
+  }).join("");
+  container.innerHTML = html;
+}
+
 function renderJob(job) {
   if (!job) return;
   state.currentJob = job;
@@ -848,6 +873,7 @@ function renderJob(job) {
   renderNarrationSourceSummary(job.narration_source || {});
   renderJobError(job.error || "");
   renderRecoveryHint(job);
+  renderLarkSyncHistory(job);
   if (job.status !== "failed") renderDiagnostics({});
   if (Array.isArray(job.stage_history)) renderStageTimeline(job.stage_history);
   applyTemplateParams(job.template_params || {});
@@ -1235,7 +1261,7 @@ function renderCandidates() {
       <td><input type="checkbox" data-index="${index}" ${candidateChecked(item, index) ? "checked" : ""}></td>
       <td><input class="order-input" type="number" min="1" max="30" data-order-index="${index}" value="${candidateOrder(item, index)}" aria-label="选择顺序"></td>
       <td>
-        <strong>${escapeHtml(item.full_name || item.name)}</strong>
+        <strong>${escapeHtml(item.full_name || item.name)}${item._already_published ? ' <span class="badge-already-published">已发过视频</span>' : ""}</strong>
         <small>${escapeHtml(item.description_zh || "需要打开仓库确认用途")}</small>
         <small class="source-desc">${escapeHtml(item.description || "无英文描述")}</small>
       </td>
@@ -2160,5 +2186,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, larkPayloadFromForm, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, larkPayloadFromForm, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

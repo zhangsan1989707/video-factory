@@ -1243,6 +1243,20 @@ textarea {
   color: var(--muted);
 }
 
+/* 已发过视频徽章 */
+.badge-already-published {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--warn);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 /* 键盘快捷键提示 */
 .kbd-hint {
   display: inline-block;
@@ -1254,4 +1268,21 @@ textarea {
   color: var(--muted);
   font-family: inherit;
   vertical-align: middle;
+}
+
+/* 飞书同步历史 */
+.lark-sync-history {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.lark-sync-seg {
+  padding: 2px 0;
+}
+
+.lark-sync-seg .err {
+  color: var(--error);
 }
