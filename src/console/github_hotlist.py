@@ -13,17 +13,21 @@ from typing import Any
 
 import httpx
 
+from src.scraper.github_trending import fetch_trending_html
 from src.utils.config import OUTPUT_DIR
 
 GITHUB_SEARCH_API = "https://api.github.com/search/repositories"
+GITHUB_REPO_API = "https://api.github.com/repos"
 CACHE_DIR = OUTPUT_DIR / "cache" / "github-hotlist"
 CACHE_TTL_SECONDS = {
-    "daily": 15 * 60,
+    "daily": 30 * 60,
     "weekly": 2 * 60 * 60,
-    "monthly": 12 * 60 * 60,
+    "monthly": 6 * 60 * 60,
 }
-CACHE_SCHEMA_VERSION = 5
+CACHE_SCHEMA_VERSION = 6
 ESTIMATED_GROWTH_NOTE = "热度口径：估算日均 star 由当前总 stars 和仓库创建时间折算，不是真实新增 star。"
+TRENDING_SOURCE = "trending"
+SEARCH_API_SOURCE = "search_api"
 
 
 def created_after(time_window: str) -> str:
@@ -37,9 +41,18 @@ async def collect_candidates(
     token: str = "",
     limit: int = 30,
     force_refresh: bool = True,
+    language: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Collect recent repositories using GitHub Search API."""
-    return (await collect_candidates_with_meta(time_window, token=token, limit=limit, force_refresh=force_refresh))["items"]
+    """Collect recent repositories using GitHub Trending (with Search API fallback)."""
+    return (
+        await collect_candidates_with_meta(
+            time_window,
+            token=token,
+            limit=limit,
+            force_refresh=force_refresh,
+            language=language,
+        )
+    )["items"]
 
 
 async def collect_candidates_with_meta(
@@ -49,24 +62,21 @@ async def collect_candidates_with_meta(
     force_refresh: bool = True,
     enrich_with_llm: bool = True,
     llm_limit: int = 10,
+    language: str | None = None,
 ) -> dict[str, Any]:
     """Collect recent repositories and return GitHub response metadata.
 
     Flow:
-    1. Fetch up to 2x the requested limit from GitHub Search API
-    2. Fetch README for items without description
-    3. Compute completeness score for each project (0-100, base 0)
-    4. Filter out low-quality / cold projects
-    5. Enrich remaining top N with LLM translation (if enabled)
-    6. Return the final candidates sorted by score
+    1. Try to fetch GitHub Trending HTML (primary source for real "stars today")
+    2. Optionally enrich each trending repo with full metadata via /repos/{full_name}
+    3. If Trending fails, fall back to the GitHub Search API
+    4. Apply scoring / filtering / LLM enrichment
+    5. Return the final candidates sorted by score
     """
-    # Step 1: Fetch a larger pool from GitHub so we have room to filter
-    fetch_limit = min(max(limit * 2, 20), 100)
     params = {
-        "q": f"created:>={created_after(time_window)} stars:>10 archived:false",
-        "sort": "stars",
-        "order": "desc",
-        "per_page": fetch_limit,
+        "time_window": time_window,
+        "limit": limit,
+        "language": (language or "").strip().lower(),
     }
     cache_key = _cache_key(time_window, limit, params)
     cached = _read_cache(cache_key)
@@ -81,24 +91,57 @@ async def collect_candidates_with_meta(
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
+    source: str = TRENDING_SOURCE
+    degraded = False
+    degraded_reason = ""
+    fetch_attempt: dict[str, Any] = {}
+
+    try:
+        fetch_attempt = await _fetch_via_trending(
+            time_window=time_window,
+            language=language,
+            headers=headers,
+            limit=limit,
+        )
+    except Exception as exc:  # noqa: BLE001 - 降级路径要吃掉所有异常
+        degraded = True
+        degraded_reason = str(exc)
+        try:
+            fetch_attempt = await _fetch_via_search_api(
+                time_window=time_window,
+                headers=headers,
+                limit=limit,
+            )
+            source = SEARCH_API_SOURCE
+        except Exception as exc2:  # noqa: BLE001
+            # Search API may be rate-limited; if we have a cached payload, serve it
+            # as stale so the caller (job) can still proceed.
+            if cached and "rate limit" in str(exc2).lower():
+                stale = _cache_result(cached, "stale_rate_limit")
+                stale["degraded"] = True
+                stale["degraded_reason"] = f"trending={exc}; search_api={exc2}"
+                stale["data_source"] = SEARCH_API_SOURCE
+                return stale
+            raise ValueError(
+                f"Trending 抓取失败且 Search API 兜底也失败: trending={exc}; search_api={exc2}"
+            ) from exc2
+
+    raw_items: list[dict[str, Any]] = fetch_attempt["raw_items"]
+    rate_limit: str = fetch_attempt["rate_limit"]
+    trending_meta: dict[str, dict[str, Any]] = fetch_attempt.get("trending_meta", {})
+
+    # Step 2: Parallel fetch README for items missing description
+    async def _fetch_readme_for_item(
+        client: httpx.AsyncClient, item: dict[str, Any]
+    ) -> dict[str, Any]:
+        description = item.get("description") or ""
+        readme = "" if description else await _fetch_readme_excerpt(client, headers, item)
+        return {**item, "readme_excerpt": readme}
+
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(GITHUB_SEARCH_API, headers=headers, params=params)
-        if response.status_code >= 400:
-            if cached and _is_rate_limited(response):
-                return _cache_result(cached, "stale_rate_limit")
-            raise ValueError(_github_error_message(response))
-        data = response.json()
-        rate_limit = _rate_limit_label(response.headers)
-
-        # Step 2: Parallel fetch README for items missing description
-        raw_items = data.get("items", [])
-
-        async def _fetch_one(item: dict[str, Any]) -> dict[str, Any]:
-            description = item.get("description") or ""
-            readme = "" if description else await _fetch_readme_excerpt(client, headers, item)
-            return {**item, "readme_excerpt": readme}
-
-        enriched_items = await asyncio.gather(*[_fetch_one(item) for item in raw_items])
+        enriched_items = await asyncio.gather(
+            *[_fetch_readme_for_item(client, item) for item in raw_items]
+        )
 
     # Step 3: Compute scores + filter
     scored = []
@@ -107,16 +150,14 @@ async def collect_candidates_with_meta(
         is_ok, status_label = _candidate_status(item)
         scored.append({"item": item, "score": score, "is_ok": is_ok, "status": status_label})
 
-    # Filter: keep only eligible items, then sort by score desc
     eligible = [s for s in scored if s["is_ok"]]
     eligible.sort(key=lambda s: s["score"], reverse=True)
 
-    # If everything got filtered (shouldn't normally happen), fall back to highest-scored items
     if not eligible:
         fallback = sorted(scored, key=lambda s: s["score"], reverse=True)[:limit]
         eligible = fallback
 
-    # Step 5: Enrich top N projects with LLM (if enabled and available)
+    # Step 4: Enrich top N projects with LLM (if enabled and available)
     top_candidates = eligible[:limit]
     enriched_results = []
     llm_success = 0
@@ -129,9 +170,13 @@ async def collect_candidates_with_meta(
         description = item.get("description") or ""
         readme_excerpt = item.get("readme_excerpt") or ""
         name = item.get("name", "")
-        language = item.get("language") or ""
+        full_name = item.get("full_name", "")
+        item_language = item.get("language") or ""
         topics = item.get("topics") or []
         homepage = item.get("homepage") or ""
+
+        trending_info = trending_meta.get(full_name, {})
+        stars_today = int(trending_info.get("stars_today") or 0)
 
         # --- LLM enrichment (optional) ---
         description_zh = ""
@@ -139,7 +184,6 @@ async def collect_candidates_with_meta(
         enriched = False
 
         if enrich_with_llm and score >= 30:
-            # Only enrich projects that already pass the basic quality bar
             try:
                 from src.utils.llm_translate import enrich_description
                 llm_total += 1
@@ -147,7 +191,7 @@ async def collect_candidates_with_meta(
                     name=name,
                     description=description,
                     readme_excerpt=readme_excerpt,
-                    language=language,
+                    language=item_language,
                     topics=topics,
                     task="candidate_analysis",
                 )
@@ -159,7 +203,6 @@ async def collect_candidates_with_meta(
             except Exception:
                 pass
 
-        # Fallback: use keyword-based description (was already sufficient for display)
         if not description_zh:
             description_zh = _localized_description(item)
             enrichment_source = "keyword"
@@ -174,9 +217,9 @@ async def collect_candidates_with_meta(
 
         enriched_results.append({
             "rank": len(enriched_results) + 1,
-            "full_name": item.get("full_name", ""),
+            "full_name": full_name,
             "name": name,
-            "owner": owner.get("login", ""),
+            "owner": owner.get("login", "") if isinstance(owner, dict) else str(owner),
             "description": description,
             "description_zh": description_zh,
             "description_source": description_source,
@@ -184,11 +227,13 @@ async def collect_candidates_with_meta(
             "repo_description_missing": not bool(description),
             "readme_excerpt": readme_excerpt,
             "stars": item.get("stargazers_count", 0),
+            "stars_today": stars_today,
+            "data_source": source,
             "daily_growth": _estimated_daily_growth(item),
             "growth_note": ESTIMATED_GROWTH_NOTE,
             "forks": item.get("forks_count", 0),
             "issues": item.get("open_issues_count", 0),
-            "language": language,
+            "language": item_language,
             "topics": topics,
             "homepage": homepage,
             "created_at": item.get("created_at", ""),
@@ -205,6 +250,9 @@ async def collect_candidates_with_meta(
         "items": enriched_results,
         "rate_limit": rate_limit,
         "cache_status": "fresh",
+        "data_source": source,
+        "degraded": degraded,
+        "degraded_reason": degraded_reason,
         "total_fetched": len(raw_items),
         "total_eligible": len(eligible),
         "llm_called": enrich_with_llm,
@@ -213,6 +261,145 @@ async def collect_candidates_with_meta(
     }
     _write_cache(cache_key, result)
     return result
+
+
+async def _fetch_via_trending(
+    *,
+    time_window: str,
+    language: str | None,
+    headers: dict[str, str],
+    limit: int,
+) -> dict[str, Any]:
+    """Primary path: scrape GitHub Trending and enrich with /repos/{full_name}."""
+    trending_repos = await fetch_trending_html(language=language, since=time_window)
+    # Trending returns ~25 repos; cap to limit to keep the API enrichment bounded.
+    selected = trending_repos[: max(limit, 25)]
+    if not selected:
+        raise ValueError("GitHub Trending returned an empty list")
+
+    api_headers = {
+        **headers,
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "github-video-console",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    raw_items: list[dict[str, Any]] = []
+    rate_limit = "未检测"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        results = await asyncio.gather(
+            *[_enrich_trending_repo(client, api_headers, repo) for repo in selected],
+            return_exceptions=True,
+        )
+        for repo, outcome in zip(selected, results):
+            if isinstance(outcome, BaseException):
+                # If a single repo enrichment fails, still keep the trending data
+                raw_items.append(_trending_repo_to_item(repo, None))
+                continue
+            raw_items.append(_trending_repo_to_item(repo, outcome))
+            # Capture rate limit label from the first successful response
+            if outcome and isinstance(outcome, dict) and outcome.get("__rate_limit"):
+                rate_limit = outcome["__rate_limit"]
+
+    return {
+        "raw_items": raw_items,
+        "rate_limit": rate_limit,
+        "trending_meta": {repo["full_name"]: repo for repo in selected},
+    }
+
+
+async def _fetch_via_search_api(
+    *,
+    time_window: str,
+    headers: dict[str, str],
+    limit: int,
+) -> dict[str, Any]:
+    """Fallback path: GitHub Search API (existing behaviour, recreated for clarity)."""
+    fetch_limit = min(max(limit * 2, 20), 100)
+    params = {
+        "q": f"created:>={created_after(time_window)} stars:>10 archived:false",
+        "sort": "stars",
+        "order": "desc",
+        "per_page": fetch_limit,
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(GITHUB_SEARCH_API, headers=headers, params=params)
+        if response.status_code >= 400:
+            if _is_rate_limited(response):
+                raise ValueError(
+                    f"GitHub API 限流: HTTP {response.status_code} {_github_error_message(response)}"
+                )
+            raise ValueError(_github_error_message(response))
+        data = response.json()
+        rate_limit = _rate_limit_label(response.headers)
+        raw_items = data.get("items", [])
+
+    return {
+        "raw_items": raw_items,
+        "rate_limit": rate_limit,
+        "trending_meta": {},
+    }
+
+
+async def _enrich_trending_repo(
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    trending_repo: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Fetch full metadata for a single trending repo via /repos/{full_name}."""
+    full_name = trending_repo.get("full_name") or ""
+    if not full_name or "/" not in full_name:
+        return None
+    try:
+        response = await client.get(f"{GITHUB_REPO_API}/{full_name}", headers=headers)
+    except httpx.HTTPError:
+        return None
+    if response.status_code >= 400:
+        return None
+    try:
+        payload = response.json()
+    except ValueError:
+        return None
+    payload["__rate_limit"] = _rate_limit_label(response.headers)
+    return payload
+
+
+def _trending_repo_to_item(
+    trending_repo: dict[str, Any],
+    enriched: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Map a trending repo (+ optional enriched payload) to a Search-API-shaped item."""
+    full_name = trending_repo.get("full_name", "")
+    owner_login, _, name = full_name.partition("/")
+    if enriched:
+        # Prefer the API payload; fill missing fields from trending.
+        item = dict(enriched)
+        item.pop("__rate_limit", None)
+        item.setdefault("full_name", full_name)
+        item.setdefault("name", name or item.get("name", ""))
+        owner = item.get("owner")
+        if not isinstance(owner, dict):
+            item["owner"] = {"login": owner_login}
+        item.setdefault("description", trending_repo.get("description") or "")
+        item.setdefault("language", trending_repo.get("language") or "")
+        item.setdefault("html_url", trending_repo.get("repo_url") or f"https://github.com/{full_name}")
+    else:
+        item = {
+            "full_name": full_name,
+            "name": name,
+            "owner": {"login": owner_login},
+            "description": trending_repo.get("description") or "",
+            "language": trending_repo.get("language") or "",
+            "html_url": trending_repo.get("repo_url") or f"https://github.com/{full_name}",
+            "stargazers_count": 0,
+            "forks_count": 0,
+            "open_issues_count": 0,
+            "topics": [],
+            "homepage": "",
+            "created_at": "",
+            "updated_at": "",
+        }
+    return item
 
 
 def _cache_key(time_window: str, limit: int, params: dict[str, Any]) -> str:
@@ -241,6 +428,11 @@ def _write_cache(cache_key: str, result: dict[str, Any]) -> None:
         "created_at": datetime.now(timezone.utc).isoformat(),
         "items": result.get("items") or [],
         "rate_limit": result.get("rate_limit") or "未检测",
+        "data_source": result.get("data_source") or TRENDING_SOURCE,
+        "degraded": bool(result.get("degraded")),
+        "degraded_reason": result.get("degraded_reason") or "",
+        "total_fetched": result.get("total_fetched") or 0,
+        "total_eligible": result.get("total_eligible") or 0,
     }
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -265,6 +457,11 @@ def _cache_result(payload: dict[str, Any], status: str) -> dict[str, Any]:
         "items": payload.get("items") or [],
         "rate_limit": payload.get("rate_limit") or "未检测",
         "cache_status": status,
+        "data_source": payload.get("data_source") or TRENDING_SOURCE,
+        "degraded": bool(payload.get("degraded")),
+        "degraded_reason": payload.get("degraded_reason") or "",
+        "total_fetched": int(payload.get("total_fetched") or 0),
+        "total_eligible": int(payload.get("total_eligible") or 0),
     }
 
 

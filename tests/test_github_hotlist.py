@@ -73,10 +73,17 @@ class GithubHotlistTest(unittest.TestCase):
             first = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=True, cache_dir=cache_dir))
             second = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), cache_dir=cache_dir))
 
-        self.assertEqual(calls, 2)
+        # Each invocation now hits GitHub twice: trending HTML + Search API fallback.
+        self.assertEqual(calls, 4)
         self.assertEqual(first["cache_status"], "fresh")
         self.assertEqual(second["cache_status"], "fresh")
         self.assertEqual(second["items"][0]["full_name"], "demo/alpha")
+        # Both calls fell back to Search API because the mock transport cannot
+        # serve the GitHub Trending HTML page.
+        self.assertEqual(first["data_source"], "search_api")
+        self.assertTrue(first["degraded"])
+        self.assertEqual(second["data_source"], "search_api")
+        self.assertTrue(second["degraded"])
 
     def test_collect_candidates_can_reuse_fresh_cache_when_requested(self) -> None:
         calls = 0
@@ -91,7 +98,9 @@ class GithubHotlistTest(unittest.TestCase):
             asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=True, cache_dir=cache_dir))
             result = asyncio.run(_collect_with_transport("", httpx.MockTransport(handler), force_refresh=False, cache_dir=cache_dir))
 
-        self.assertEqual(calls, 1)
+        # First call hits GitHub twice (trending + fallback); the cached second
+        # call does not touch the network.
+        self.assertEqual(calls, 2)
         self.assertEqual(result["cache_status"], "hit")
         self.assertEqual(result["items"][0]["full_name"], "demo/alpha")
 
@@ -173,6 +182,208 @@ class GithubHotlistTest(unittest.TestCase):
         self.assertIn("简介未填写", item["risk"])
         self.assertNotIn("建议跳过", item["description_zh"])
 
+    def test_collect_candidates_uses_trending_as_primary_source(self) -> None:
+        from tests.test_github_trending import SAMPLE_HTML
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "github.com":
+                return httpx.Response(200, text=SAMPLE_HTML)
+            if request.url.path == "/repos/DeusData/codebase-memory-mcp":
+                return httpx.Response(
+                    200,
+                    json={
+                        "full_name": "DeusData/codebase-memory-mcp",
+                        "name": "codebase-memory-mcp",
+                        "owner": {"login": "DeusData"},
+                        "description": "Trending primary description",
+                        "stargazers_count": 12345,
+                        "forks_count": 678,
+                        "open_issues_count": 12,
+                        "language": "C",
+                        "topics": ["mcp", "agent"],
+                        "html_url": "https://github.com/DeusData/codebase-memory-mcp",
+                        "homepage": "https://example.com",
+                        "created_at": "2025-12-01T00:00:00Z",
+                        "updated_at": "2026-01-15T00:00:00Z",
+                    },
+                    headers={
+                        "x-ratelimit-remaining": "4990",
+                        "x-ratelimit-limit": "5000",
+                        "x-ratelimit-reset": "1893456000",
+                    },
+                )
+            return httpx.Response(404, text="not found")
+
+        result = asyncio.run(_collect_with_transport(
+            "ghp_test",
+            httpx.MockTransport(handler),
+            force_refresh=True,
+            enrich_with_llm=False,
+        ))
+
+        self.assertEqual(result["data_source"], "trending")
+        self.assertFalse(result["degraded"])
+        # The first trending repo is enriched with the /repos response.
+        first = result["items"][0]
+        self.assertEqual(first["full_name"], "DeusData/codebase-memory-mcp")
+        self.assertEqual(first["stars_today"], 371)
+        self.assertEqual(first["stars"], 12345)
+        self.assertEqual(first["language"], "C")
+        self.assertEqual(first["data_source"], "trending")
+
+    def test_collect_candidates_falls_back_to_search_api_when_trending_fails(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "github.com":
+                return httpx.Response(503, text="Service Unavailable")
+            return _github_response()
+
+        result = asyncio.run(_collect_with_transport(
+            "",
+            httpx.MockTransport(handler),
+            force_refresh=True,
+            enrich_with_llm=False,
+        ))
+
+        self.assertEqual(result["data_source"], "search_api")
+        self.assertTrue(result["degraded"])
+        self.assertIn("503", result["degraded_reason"])
+        self.assertEqual(result["items"][0]["full_name"], "demo/alpha")
+
+    def test_collect_candidates_trending_data_survives_enrichment_failure(self) -> None:
+        from tests.test_github_trending import SAMPLE_HTML
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "github.com":
+                return httpx.Response(200, text=SAMPLE_HTML)
+            if "/repos/" in request.url.path:
+                return httpx.Response(403, text="rate limit")
+            return httpx.Response(404, text="not found")
+
+        result = asyncio.run(_collect_with_transport(
+            "",
+            httpx.MockTransport(handler),
+            force_refresh=True,
+            enrich_with_llm=False,
+        ))
+
+        self.assertEqual(result["data_source"], "trending")
+        # Even though /repos enrichment failed, stars_today from trending still flows through.
+        first = result["items"][0]
+        self.assertEqual(first["full_name"], "DeusData/codebase-memory-mcp")
+        self.assertEqual(first["stars_today"], 371)
+        # stars_total is 0 because /repos enrichment did not succeed.
+        self.assertEqual(first["stars"], 0)
+
+    def test_collect_candidates_accepts_language_filter(self) -> None:
+        seen_urls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_urls.append(str(request.url))
+            if request.url.host == "github.com":
+                return httpx.Response(200, text="<html></html>")
+            return _github_response()
+
+        asyncio.run(_collect_with_transport(
+            "",
+            httpx.MockTransport(handler),
+            force_refresh=True,
+            enrich_with_llm=False,
+        ))
+        # The fallback Search API call should still go out (we did not pass a
+        # language filter here, so the URL keeps `time_window=weekly` only).
+
+    def test_collect_candidates_passes_language_to_trending(self) -> None:
+        from tests.test_github_trending import SAMPLE_HTML
+
+        seen_urls: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_urls.append(str(request.url))
+            if request.url.host == "github.com" and request.url.path == "/trending/python":
+                return httpx.Response(200, text=SAMPLE_HTML)
+            if "/repos/DeusData/codebase-memory-mcp" in request.url.path:
+                return httpx.Response(
+                    200,
+                    json={
+                        "full_name": "DeusData/codebase-memory-mcp",
+                        "name": "codebase-memory-mcp",
+                        "owner": {"login": "DeusData"},
+                        "description": "x",
+                        "stargazers_count": 1,
+                        "forks_count": 0,
+                        "open_issues_count": 0,
+                        "language": "C",
+                        "topics": [],
+                        "html_url": "https://github.com/DeusData/codebase-memory-mcp",
+                        "homepage": "",
+                        "created_at": "2025-12-01T00:00:00Z",
+                        "updated_at": "2026-01-15T00:00:00Z",
+                    },
+                )
+            return httpx.Response(404, text="not found")
+
+        result = asyncio.run(_collect_with_transport(
+            "",
+            httpx.MockTransport(handler),
+            force_refresh=True,
+            enrich_with_llm=False,
+            language="python",
+        ))
+
+        # Language filter must round-trip into the trending URL.
+        self.assertTrue(any("/trending/python" in u for u in seen_urls), seen_urls)
+        self.assertEqual(result["data_source"], "trending")
+        self.assertEqual(result["items"][0]["stars_today"], 371)
+
+    def test_collect_candidates_cache_persists_data_source(self) -> None:
+        from tests.test_github_trending import SAMPLE_HTML
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "github.com":
+                return httpx.Response(200, text=SAMPLE_HTML)
+            if "/repos/DeusData/codebase-memory-mcp" in request.url.path:
+                return httpx.Response(
+                    200,
+                    json={
+                        "full_name": "DeusData/codebase-memory-mcp",
+                        "name": "codebase-memory-mcp",
+                        "owner": {"login": "DeusData"},
+                        "description": "x",
+                        "stargazers_count": 1,
+                        "forks_count": 0,
+                        "open_issues_count": 0,
+                        "language": "C",
+                        "topics": [],
+                        "html_url": "https://github.com/DeusData/codebase-memory-mcp",
+                        "homepage": "",
+                        "created_at": "2025-12-01T00:00:00Z",
+                        "updated_at": "2026-01-15T00:00:00Z",
+                    },
+                )
+            return httpx.Response(404, text="not found")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = Path(tmp)
+            first = asyncio.run(_collect_with_transport(
+                "",
+                httpx.MockTransport(handler),
+                force_refresh=True,
+                enrich_with_llm=False,
+                cache_dir=cache_dir,
+            ))
+            second = asyncio.run(_collect_with_transport(
+                "",
+                httpx.MockTransport(handler),
+                force_refresh=False,
+                enrich_with_llm=False,
+                cache_dir=cache_dir,
+            ))
+
+        self.assertEqual(first["data_source"], "trending")
+        self.assertEqual(second["cache_status"], "hit")
+        self.assertEqual(second["data_source"], "trending")
+        self.assertEqual(second["items"][0]["stars_today"], 371)
+
 
 async def _collect_with_transport(
     token: str,
@@ -180,6 +391,7 @@ async def _collect_with_transport(
     force_refresh: bool = True,
     cache_dir: Path | None = None,
     enrich_with_llm: bool = True,
+    language: str | None = None,
 ):
     original = httpx.AsyncClient
 
@@ -193,7 +405,14 @@ async def _collect_with_transport(
         stack.enter_context(patch("src.console.github_hotlist.CACHE_DIR", cache_dir))
         httpx.AsyncClient = client_factory
         try:
-            return await github_hotlist.collect_candidates_with_meta("weekly", token=token, limit=1, force_refresh=force_refresh, enrich_with_llm=enrich_with_llm)
+            return await github_hotlist.collect_candidates_with_meta(
+                "weekly",
+                token=token,
+                limit=1,
+                force_refresh=force_refresh,
+                enrich_with_llm=enrich_with_llm,
+                language=language,
+            )
         finally:
             httpx.AsyncClient = original
 
