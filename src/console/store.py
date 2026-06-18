@@ -100,6 +100,10 @@ DEFAULT_LARK = {
     "enabled": False,
     "base_token": "",
     "table_id": "",
+    "all_data_table_id": "",
+    "selected_data_table_id": "",
+    "sync_all_data": True,
+    "sync_selected_data": True,
 }
 
 DEFAULT_SCHEDULER = {
@@ -737,13 +741,17 @@ def _redacted_github() -> dict[str, Any]:
     }
 
 
-def _redacted_lark() -> dict[str, Any]:
-    data = _normalize_lark(read_json(CONFIG_DIR / "lark.json", DEFAULT_LARK))
+def _redacted_lark(data: dict[str, Any] | None = None) -> dict[str, Any]:
+    norm = _normalize_lark(data) if data is not None else _normalize_lark(read_json(CONFIG_DIR / "lark.json", DEFAULT_LARK))
     return {
-        "enabled": data["enabled"],
-        "configured": bool(data["base_token"] and data["table_id"]),
-        "base_token_preview": _secret_preview(data["base_token"]),
-        "table_id": data["table_id"],
+        "enabled": norm["enabled"],
+        "configured": bool(norm["base_token"] and (norm["table_id"] or norm["all_data_table_id"] or norm["selected_data_table_id"])),
+        "base_token_preview": _secret_preview(norm["base_token"]),
+        "table_id": norm["table_id"],
+        "all_data_table_id": norm["all_data_table_id"],
+        "selected_data_table_id": norm["selected_data_table_id"],
+        "sync_all_data": norm["sync_all_data"],
+        "sync_selected_data": norm["sync_selected_data"],
     }
 
 
@@ -824,15 +832,37 @@ def _merge_github_secret(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
-def _normalize_lark(data: dict[str, Any]) -> dict[str, Any]:
+def _normalize_lark(data: dict[str, Any] | None) -> dict[str, Any]:
+    # 传入 None 时返回全部默认值
+    if data is None:
+        data = {}
     current = read_json(CONFIG_DIR / "lark.json", DEFAULT_LARK)
     base_token = str(data.get("base_token") or "")
     if not base_token or _is_redacted_secret(base_token, str(current.get("base_token") or "")):
         base_token = str(current.get("base_token") or "")
+    # 新字段：2 个表 ID + 2 个开关
+    all_data_table_id = str(data.get("all_data_table_id") or current.get("all_data_table_id") or "").strip()
+    selected_data_table_id = str(data.get("selected_data_table_id") or current.get("selected_data_table_id") or "").strip()
+    sync_all_data = bool_value(data.get("sync_all_data") if data.get("sync_all_data") is not None else current.get("sync_all_data", True))
+    sync_selected_data = bool_value(data.get("sync_selected_data") if data.get("sync_selected_data") is not None else current.get("sync_selected_data", True))
+    # 向后兼容：旧 table_id 优先级高于 current 中的 selected_data_table_id
+    table_id = str(data.get("table_id") or current.get("table_id") or "").strip()
+    if table_id and not data.get("selected_data_table_id"):
+        # 用户传入了 table_id 但没传 selected_data_table_id，用 table_id 覆盖
+        selected_data_table_id = table_id
+    elif not selected_data_table_id and table_id:
+        # current 中有 table_id 但没有 selected_data_table_id，做迁移
+        selected_data_table_id = table_id
+    # table_id 保持与 selected_data_table_id 同步
+    table_id = selected_data_table_id
     return {
         "enabled": bool_value(data.get("enabled")),
         "base_token": base_token.strip(),
-        "table_id": str(data.get("table_id") or current.get("table_id") or "").strip(),
+        "table_id": table_id,
+        "all_data_table_id": all_data_table_id,
+        "selected_data_table_id": selected_data_table_id,
+        "sync_all_data": sync_all_data,
+        "sync_selected_data": sync_selected_data,
     }
 
 
