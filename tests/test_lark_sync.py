@@ -277,6 +277,70 @@ class LarkSyncScanPublishedTest(unittest.TestCase):
                 self.assertEqual(result, set())
 
 
+class SyncSelectionGateTest(unittest.TestCase):
+    """测试 _sync_selection_to_lark 对手动任务的门控"""
+
+    def test_sync_selection_to_lark_skips_manual_job(self) -> None:
+        """手动任务不同步已选到飞书"""
+        from src.console import jobs, store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with (
+                patch("src.console.jobs.JOBS_DIR", tmp_path),
+                patch("src.console.store.JOBS_DIR", tmp_path),
+            ):
+                job_id = "TEST-MANUAL"
+                job_dir = tmp_path / job_id
+                job_dir.mkdir(parents=True, exist_ok=True)
+                (job_dir / "task.json").write_text(json.dumps({
+                    "id": job_id, "scheduled": False, "status": "selected", "lark_sync": {}
+                }))
+
+                sync_calls = []
+
+                def fake_sync(*args, **kwargs):
+                    sync_calls.append(args)
+                    return {"status": "synced"}
+
+                with patch("src.console.jobs.sync_selected_projects", side_effect=fake_sync):
+                    jobs._sync_selection_to_lark(job_id, [{"full_name": "a/b"}])
+
+                self.assertEqual(len(sync_calls), 0, "手动任务不应调用 sync_selected_projects")
+
+                task = json.loads((job_dir / "task.json").read_text())
+                self.assertEqual(task["lark_sync"]["selected"]["status"], "skipped")
+                self.assertEqual(task["lark_sync"]["selected"]["reason"], "manual")
+
+    def test_sync_selection_to_lark_runs_for_scheduled_job(self) -> None:
+        """调度任务正常同步已选到飞书"""
+        from src.console import jobs, store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with (
+                patch("src.console.jobs.JOBS_DIR", tmp_path),
+                patch("src.console.store.JOBS_DIR", tmp_path),
+            ):
+                job_id = "TEST-SCHED"
+                job_dir = tmp_path / job_id
+                job_dir.mkdir(parents=True, exist_ok=True)
+                (job_dir / "task.json").write_text(json.dumps({
+                    "id": job_id, "scheduled": True, "status": "selected", "lark_sync": {}
+                }))
+
+                sync_calls = []
+
+                def fake_sync(*args, **kwargs):
+                    sync_calls.append(1)
+                    return {"status": "synced", "count": 1, "error": ""}
+
+                with patch("src.console.jobs.sync_selected_projects", side_effect=fake_sync):
+                    jobs._sync_selection_to_lark(job_id, [{"full_name": "a/b"}])
+
+                self.assertEqual(len(sync_calls), 1, "调度任务应调用 sync_selected_projects")
+
+
 class MarkPublishedTest(unittest.TestCase):
     def test_mark_published_updates_published_flag(self) -> None:
         from subprocess import CompletedProcess
@@ -340,6 +404,35 @@ class MarkPublishedTest(unittest.TestCase):
             published_at="t", base_token="", table_id="",
         )
         self.assertEqual(result["status"], "skipped")
+
+
+class ReadLarkConfigTest(unittest.TestCase):
+    def test_read_lark_config_normalizes(self) -> None:
+        from src.console import lark_sync, store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "lark.json").write_text(json.dumps({
+                "enabled": True, "base_token": "bt", "table_id": "tblLegacy"
+            }))
+            with patch.object(store, "CONFIG_DIR", tmp_path):
+                cfg = lark_sync.read_lark_config()
+            assert cfg["enabled"] is True
+            assert cfg["selected_data_table_id"] == "tblLegacy"  # backward compat
+            assert cfg["all_data_table_id"] == ""
+            assert cfg["sync_all_data"] is True
+
+    def test_read_lark_config_returns_defaults_when_missing(self) -> None:
+        from src.console import lark_sync, store
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with patch.object(store, "CONFIG_DIR", tmp_path):
+                cfg = lark_sync.read_lark_config()
+            assert cfg["enabled"] is False
+            assert cfg["base_token"] == ""
+            assert cfg["all_data_table_id"] == ""
+            assert cfg["selected_data_table_id"] == ""
 
 
 if __name__ == "__main__":

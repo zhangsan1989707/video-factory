@@ -10,6 +10,24 @@ from typing import Any
 from src.console.store import CONFIG_DIR, DEFAULT_LARK, JOBS_DIR, read_json
 
 
+def read_lark_config():
+    """读取 lark.json 配置并归一化"""
+    from .store import CONFIG_DIR, _normalize_lark, read_json
+
+    path = CONFIG_DIR / "lark.json"
+    if not path.exists():
+        return {
+            "enabled": False,
+            "base_token": "",
+            "all_data_table_id": "",
+            "selected_data_table_id": "",
+            "sync_all_data": True,
+            "sync_selected_data": True,
+        }
+    raw = read_json(path, DEFAULT_LARK)
+    return _normalize_lark(raw)
+
+
 def sync_selected_projects(job: dict[str, Any], projects: list[dict[str, Any]]) -> dict[str, Any]:
     config = read_json(CONFIG_DIR / "lark.json", DEFAULT_LARK)
     if not config.get("enabled"):
