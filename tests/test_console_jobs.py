@@ -823,7 +823,7 @@ class ConsoleJobsTest(unittest.TestCase):
                 patch("src.console.jobs.JOBS_DIR", jobs_dir),
                 patch("src.console.jobs.sync_selected_projects", side_effect=RuntimeError("lark down")),
             ):
-                job = create_job("GH-HOTLIST-20990101-LARK-FAIL", {"project_count": 2})
+                job = create_job("GH-HOTLIST-20990101-LARK-FAIL", {"project_count": 2, "scheduled": True})
                 _mark_awaiting_project_confirmation(job["id"])
 
                 selection = save_selection(job["id"], {"items": _sample_projects()})
