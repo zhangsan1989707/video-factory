@@ -231,6 +231,75 @@ def _chunks(lst: list, n: int):
         yield lst[i : i + n]
 
 
+def mark_published_in_lark(
+    *,
+    job: dict[str, Any],
+    selected: list[dict[str, Any]],
+    published_at: str,
+    base_token: str,
+    table_id: str,
+    identity: str = "user",
+) -> dict[str, Any]:
+    """把已选表对应 record 标记为已发布。
+
+    job.fetch_time 必须与 selected 同步时的抓取时间一致。
+    """
+    if not base_token or not table_id:
+        return {"status": "skipped", "reason": "missing config", "updated": 0, "missing": [], "errors": []}
+
+    fetch_time = job.get("fetch_time", "")
+    updated = 0
+    missing: list[str] = []
+    errors: list[dict[str, Any]] = []
+
+    for s in selected:
+        full_name = s.get("full_name", "")
+        if not full_name:
+            continue
+        try:
+            filter_expr = _build_filter(
+                {"项目全名": full_name, "抓取时间": fetch_time},
+                ("项目全名", "抓取时间"),
+            )
+            list_cmd = [
+                "lark-cli", "base", "+record-list",
+                "--base-token", base_token, "--table-id", table_id,
+                "--filter", filter_expr,
+                "--as", identity,
+            ]
+            proc = subprocess.run(list_cmd, capture_output=True, text=True, check=True, timeout=30)
+            data = json.loads(proc.stdout or "{}")
+            items = (data.get("data") or {}).get("items") or []
+            if not items:
+                missing.append(full_name)
+                continue
+            record_id = items[0]["record_id"]
+            fields = {
+                "已发布": True,
+                "发布时间": published_at,
+                "视频路径": s.get("official_video", ""),
+                "视频标题": s.get("video_title", ""),
+            }
+            upd_cmd = [
+                "lark-cli", "base", "+record-update",
+                "--base-token", base_token, "--table-id", table_id,
+                "--record-id", record_id,
+                "--json", json.dumps(fields, ensure_ascii=False),
+                "--as", identity,
+            ]
+            subprocess.run(upd_cmd, capture_output=True, text=True, check=True, timeout=30)
+            updated += 1
+        except Exception as e:
+            errors.append({"full_name": full_name, "error": str(e)})
+
+    return {
+        "status": "synced" if not errors and not missing else ("partial" if updated else "failed"),
+        "updated": updated,
+        "missing": missing,
+        "errors": errors,
+    }
+
+
 def scan_published_full_names() -> set[str]:
     """扫 JOBS_DIR，返回已发布项目的 full_name 集合（status=completed && official_video 非空）"""
     published: set[str] = set()
