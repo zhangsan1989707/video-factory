@@ -277,5 +277,70 @@ class LarkSyncScanPublishedTest(unittest.TestCase):
                 self.assertEqual(result, set())
 
 
+class MarkPublishedTest(unittest.TestCase):
+    def test_mark_published_updates_published_flag(self) -> None:
+        from subprocess import CompletedProcess
+
+        from src.console.lark_sync import mark_published_in_lark
+
+        update_calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            if "+record-list" in cmd:
+                return CompletedProcess(cmd, 0, '{"data":{"items":[{"record_id":"recExisting"}]}}', "")
+            if "+record-update" in cmd:
+                update_calls.append(cmd)
+                return CompletedProcess(cmd, 0, '{"data":{}}', "")
+            return CompletedProcess(cmd, 0, "{}", "")
+
+        with patch("src.console.lark_sync.subprocess.run", side_effect=fake_run):
+            job = {"id": "X", "fetch_time": "2026-06-18 09:00"}
+            selected = [
+                {"full_name": "a/b", "video_title": "T", "official_video": "/path/to/v.mp4"},
+            ]
+            result = mark_published_in_lark(
+                job=job, selected=selected, published_at="2026-06-18 12:00",
+                base_token="bt", table_id="tblS",
+            )
+
+        self.assertEqual(result["updated"], 1)
+        self.assertEqual(result["missing"], [])
+        # 检查 update 命令的 json payload
+        update_cmd = update_calls[0]
+        json_idx = update_cmd.index("--json")
+        payload = json.loads(update_cmd[json_idx + 1])
+        self.assertTrue(payload["已发布"] is True)
+        self.assertEqual(payload["发布时间"], "2026-06-18 12:00")
+        self.assertEqual(payload["视频路径"], "/path/to/v.mp4")
+        self.assertEqual(payload["视频标题"], "T")
+
+    def test_mark_published_logs_missing_records(self) -> None:
+        from subprocess import CompletedProcess
+
+        from src.console.lark_sync import mark_published_in_lark
+
+        with patch(
+            "src.console.lark_sync.subprocess.run",
+            side_effect=lambda *a, **k: CompletedProcess(a[0], 0, '{"data":{"items":[]}}', ""),
+        ):
+            job = {"id": "X", "fetch_time": "t"}
+            result = mark_published_in_lark(
+                job=job, selected=[{"full_name": "x/y"}], published_at="t",
+                base_token="bt", table_id="tblS",
+            )
+
+        self.assertEqual(result["updated"], 0)
+        self.assertIn("x/y", result["missing"])
+
+    def test_mark_published_skips_when_no_config(self) -> None:
+        from src.console.lark_sync import mark_published_in_lark
+
+        result = mark_published_in_lark(
+            job={"id": "X", "fetch_time": "t"}, selected=[{"full_name": "a/b"}],
+            published_at="t", base_token="", table_id="",
+        )
+        self.assertEqual(result["status"], "skipped")
+
+
 if __name__ == "__main__":
     unittest.main()
