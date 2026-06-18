@@ -138,7 +138,7 @@ class HotlistV2RenderTest(unittest.TestCase):
         ]
         stages = []
 
-        async def fake_tts(script, work_dir):
+        async def fake_tts(script, work_dir, voice=None, rate=None):
             (work_dir / "audio").mkdir(parents=True, exist_ok=True)
 
         def fake_render_composition(render_data, html_path, durations=None, style=DEFAULT_STYLE):
@@ -187,7 +187,7 @@ class HotlistV2RenderTest(unittest.TestCase):
             }
         ]
 
-        async def fake_tts(script, work_dir):
+        async def fake_tts(script, work_dir, voice=None, rate=None):
             (work_dir / "audio").mkdir(parents=True, exist_ok=True)
 
         def fake_render_composition(render_data, html_path, durations=None, style=DEFAULT_STYLE):

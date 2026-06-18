@@ -142,6 +142,9 @@ def test_provider(provider_id: str, model: str = "", provider_config: dict[str, 
         return False, str(exc)
 
 
+test_provider.__test__ = False
+
+
 def _openai_client(provider_id: str, provider_config: dict[str, Any] | None = None) -> OpenAI | None:
     provider = provider_config or _provider_config(provider_id)
     if not provider or not bool_value(provider.get("enabled")):
