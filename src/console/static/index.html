@@ -492,7 +492,23 @@
             <span>Table ID</span>
             <input id="larkTableIdInput" placeholder="tblxxxx 或表名" />
           </label>
+          <label>
+            <span>全量候选表 ID</span>
+            <input id="larkAllDataTableIdInput" placeholder="tblAllC..." />
+          </label>
+          <label>
+            <span>已选项目表 ID</span>
+            <input id="larkSelectedDataTableIdInput" placeholder="tblSel..." />
+          </label>
         </div>
+        <label class="check-row">
+          <input type="checkbox" id="larkSyncAllDataEnabled" checked />
+          <span>启用全量同步</span>
+        </label>
+        <label class="check-row">
+          <input type="checkbox" id="larkSyncSelectedDataEnabled" checked />
+          <span>启用已选同步</span>
+        </label>
         <p id="larkSyncStatus" class="hint">未配置。</p>
       </section>
 

@@ -1,3 +1,14 @@
+const LARK_SETTINGS_IDS = Object.freeze([
+  "larkSyncEnabled",
+  "larkBaseTokenInput",
+  "larkTableIdInput",
+  "larkAllDataTableIdInput",
+  "larkSelectedDataTableIdInput",
+  "larkSyncAllDataEnabled",
+  "larkSyncSelectedDataEnabled",
+  "larkSyncStatus",
+]);
+
 const state = {
   currentJobId: "",
   currentJob: null,
@@ -1835,13 +1846,19 @@ function renderSettings(config) {
 }
 
 function renderLarkSettings(lark) {
+  if (!lark) return;
   $("larkSyncEnabled").checked = Boolean(lark.enabled);
   $("larkBaseTokenInput").value = "";
-  $("larkTableIdInput").value = lark.table_id || "";
-  const status = lark.configured
-    ? `已配置 ${lark.base_token_preview || "Base Token"} · ${lark.table_id || "Table"}`
-    : "未配置 Base Token 或 Table ID。";
-  $("larkSyncStatus").textContent = lark.enabled ? status : `未启用；${status}`;
+  $("larkAllDataTableIdInput").value = lark.all_data_table_id || "";
+  $("larkSelectedDataTableIdInput").value = lark.selected_data_table_id || "";
+  $("larkTableIdInput").value = lark.selected_data_table_id || ""; // backward compat
+  $("larkSyncAllDataEnabled").checked = lark.sync_all_data !== false;
+  $("larkSyncSelectedDataEnabled").checked = lark.sync_selected_data !== false;
+
+  const parts = [];
+  parts.push(lark.all_data_table_id ? `全量表：${lark.all_data_table_id}` : "全量表：未配置");
+  parts.push(lark.selected_data_table_id ? `已选表：${lark.selected_data_table_id}` : "已选表：未配置");
+  $("larkSyncStatus").textContent = lark.enabled ? parts.join(" · ") : `未启用；${parts.join(" · ")}`;
 }
 
 function renderScheduler(schedule) {
@@ -1963,6 +1980,18 @@ async function refreshScheduleView() {
   }
 }
 
+function larkPayloadFromForm() {
+  return {
+    enabled: $("larkSyncEnabled").checked,
+    base_token: $("larkBaseTokenInput").value.trim(),
+    all_data_table_id: $("larkAllDataTableIdInput").value.trim(),
+    selected_data_table_id: $("larkSelectedDataTableIdInput").value.trim(),
+    sync_all_data: $("larkSyncAllDataEnabled").checked,
+    sync_selected_data: $("larkSyncSelectedDataEnabled").checked,
+    table_id: $("larkSelectedDataTableIdInput").value.trim(), // backward compat
+  };
+}
+
 async function saveSettings() {
   const current = state.config;
   if (!current) return;
@@ -1971,11 +2000,7 @@ async function saveSettings() {
     token: githubToken,
     last_rate_limit: current.github.last_rate_limit || "未检测",
   };
-  const larkPayload = {
-    enabled: $("larkSyncEnabled").checked,
-    base_token: $("larkBaseTokenInput").value.trim(),
-    table_id: $("larkTableIdInput").value.trim(),
-  };
+  const larkPayload = larkPayloadFromForm();
 
   const providers = [...document.querySelectorAll(".provider-card")].map((card) => {
     const original = (current.providers.providers || []).find((item) => item.id === card.dataset.providerId) || {};
@@ -2135,5 +2160,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, larkPayloadFromForm, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
 }

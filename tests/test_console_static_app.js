@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, larkPayloadFromForm, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
 const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
 
 async function run() {
@@ -58,6 +58,9 @@ async function run() {
   testRenderHistoryJobsWithSearchNoMatch();
   testRenderLogsAutoScrollsToBottom();
   testRenderLogsKeepsScrollPositionWhenNotAtBottom();
+  testLarkSettingsIdsArePresentInHtml();
+  testRenderLarkSettingsPopulatesNewFields();
+  testLarkPayloadFromFormCollectsNewFields();
 }
 
 async function testJsonSuccess() {
@@ -1744,6 +1747,84 @@ function testRenderLogsKeepsScrollPositionWhenNotAtBottom() {
   // User was not at bottom (scrollTop=200, scrollHeight=500, clientHeight=200, diff=100 >= 60)
   // so scrollTop should not change
   assert.equal(box.scrollTop, initialScrollTop);
+}
+
+function testLarkSettingsIdsArePresentInHtml() {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const html = fs.readFileSync(
+    path.join(__dirname, "../src/console/static/index.html"),
+    "utf-8",
+  );
+  for (const id of LARK_SETTINGS_IDS) {
+    assert.match(
+      html,
+      new RegExp(`id=["']${id}["']`),
+      `index.html 缺少 id="${id}"`,
+    );
+  }
+}
+
+function testRenderLarkSettingsPopulatesNewFields() {
+  const nodes = {
+    larkSyncEnabled: { checked: false },
+    larkBaseTokenInput: { value: "" },
+    larkTableIdInput: { value: "" },
+    larkAllDataTableIdInput: { value: "" },
+    larkSelectedDataTableIdInput: { value: "" },
+    larkSyncAllDataEnabled: { checked: false },
+    larkSyncSelectedDataEnabled: { checked: false },
+    larkSyncStatus: { textContent: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  renderLarkSettings({
+    enabled: true,
+    base_token: "bt-secret-value",
+    all_data_table_id: "tblAllX",
+    selected_data_table_id: "tblSelY",
+    sync_all_data: true,
+    sync_selected_data: false,
+    table_id: "tblSelY",
+  });
+
+  assert.equal(nodes.larkAllDataTableIdInput.value, "tblAllX");
+  assert.equal(nodes.larkSelectedDataTableIdInput.value, "tblSelY");
+  assert.equal(nodes.larkSyncAllDataEnabled.checked, true);
+  assert.equal(nodes.larkSyncSelectedDataEnabled.checked, false);
+  assert.equal(nodes.larkTableIdInput.value, "tblSelY");
+  assert.match(nodes.larkSyncStatus.textContent, /全量表：tblAllX/);
+  assert.match(nodes.larkSyncStatus.textContent, /已选表：tblSelY/);
+}
+
+function testLarkPayloadFromFormCollectsNewFields() {
+  const nodes = {
+    larkSyncEnabled: { checked: true },
+    larkBaseTokenInput: { value: "bt" },
+    larkTableIdInput: { value: "" },
+    larkAllDataTableIdInput: { value: "tblA" },
+    larkSelectedDataTableIdInput: { value: "tblS" },
+    larkSyncAllDataEnabled: { checked: true },
+    larkSyncSelectedDataEnabled: { checked: false },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  const payload = larkPayloadFromForm();
+  assert.equal(payload.enabled, true);
+  assert.equal(payload.base_token, "bt");
+  assert.equal(payload.all_data_table_id, "tblA");
+  assert.equal(payload.selected_data_table_id, "tblS");
+  assert.equal(payload.sync_all_data, true);
+  assert.equal(payload.sync_selected_data, false);
+  assert.equal(payload.table_id, "tblS");
 }
 
 run().catch((error) => {
