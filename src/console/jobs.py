@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import time
+from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -166,6 +167,16 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_
         candidates = _rank_candidates(job_id, candidates)
         write_json(JOBS_DIR / job_id / "candidates.json", {"items": candidates})
         append_log(job_id, f"候选项目拉取完成，共 {len(candidates)} 个。")
+        # 任务级统一时间戳，供飞书同步和后续已选/发布标记使用
+        fetch_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+        job["fetch_time"] = fetch_time
+        update_job(job_id, fetch_time=fetch_time)
+        result_meta = {
+            "cache_status": str(result.get("cache_status") or "fresh"),
+            "data_source": str(result.get("data_source") or "trending"),
+            "time_window": str(job.get("time_window") or "daily"),
+        }
+        _sync_all_candidates_to_lark(job_id, job, candidates, result_meta, fetch_time)
         update_job(job_id, status="awaiting_input", stage="awaiting_project_confirmation")
         _set_progress_hint(job_id, kind="done", text="候选已就绪，请确认项目。")
         return {"job": read_job(job_id), "candidates": candidates}
@@ -222,6 +233,25 @@ def _sync_selection_to_lark(job_id: str, selected: list[dict[str, Any]]) -> None
         append_log(job_id, f"飞书多维表格已同步 {result.get('count') or 0} 个选中项目。")
     elif result.get("status") == "skipped":
         append_log(job_id, f"飞书多维表格同步跳过，已继续生成口播: {result.get('error') or '配置不完整'}")
+
+def _sync_all_candidates_to_lark(job_id: str, job: dict[str, Any], candidates: list[dict[str, Any]], result_meta: dict[str, Any], fetch_time: str) -> None:
+    """全量候选同步到飞书"""
+    from .lark_sync import sync_all_candidates, read_lark_config
+    cfg = read_lark_config()
+    if not cfg.get("enabled") or not cfg.get("sync_all_data") or not cfg.get("all_data_table_id"):
+        _write_lark_sync_status(job_id, "all_data", {"status": "disabled"})
+        return
+    try:
+        result = sync_all_candidates(
+            job=job, candidates=candidates, result_meta=result_meta,
+            fetch_time=fetch_time,
+            base_token=cfg["base_token"], table_id=cfg["all_data_table_id"],
+        )
+        _write_lark_sync_status(job_id, "all_data", result)
+    except Exception as e:
+        append_log(job_id, f"全量同步失败: {e}")
+        _write_lark_sync_status(job_id, "all_data", {"status": "failed", "error": str(e)})
+
 
 def regenerate_script(job_id: str) -> dict[str, Any]:
     _require_regenerable_job(job_id)
