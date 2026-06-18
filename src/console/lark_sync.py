@@ -7,7 +7,7 @@ import subprocess
 from datetime import datetime
 from typing import Any
 
-from src.console.store import CONFIG_DIR, DEFAULT_LARK, read_json
+from src.console.store import CONFIG_DIR, DEFAULT_LARK, JOBS_DIR, read_json
 
 
 def sync_selected_projects(job: dict[str, Any], projects: list[dict[str, Any]]) -> dict[str, Any]:
@@ -151,6 +151,71 @@ def upsert_records(
     return {"created": created, "updated": updated, "errors": errors}
 
 
+def sync_all_candidates(
+    *,
+    job: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    result_meta: dict[str, Any],
+    fetch_time: str,
+    base_token: str,
+    table_id: str,
+    identity: str = "user",
+) -> dict[str, Any]:
+    """把全量候选 upsert 到"每日全量候选"表。
+
+    fetch_time: 任务级统一时间戳字符串。
+    """
+    if not base_token or not table_id:
+        return {"status": "skipped", "reason": "missing config", "created": 0, "updated": 0, "records_count": 0}
+
+    scheduled = bool(job.get("scheduled"))
+    time_window = result_meta.get("time_window", "daily")
+    data_source = result_meta.get("data_source", "trending")
+    cache_status = result_meta.get("cache_status", "fresh")
+    fetch_mode = "调度" if scheduled else "手动"
+
+    records = []
+    for c in candidates:
+        records.append({
+            "抓取时间": fetch_time,
+            "项目全名": c.get("full_name", ""),
+            "时间窗口": time_window,
+            "数据源": data_source,
+            "排名": c.get("rank", 0),
+            "抓取任务ID": job.get("id", ""),
+            "仓库URL": c.get("html_url", ""),
+            "项目名": c.get("name", ""),
+            "描述原文": c.get("description", ""),
+            "描述中文": c.get("description_zh", ""),
+            "Stars": c.get("stargazers_count", 0),
+            "Daily Growth": c.get("growth_text", ""),
+            "语言": c.get("language", ""),
+            "Topics": ", ".join(c.get("topics", []) or []),
+            "推荐理由": c.get("rationale", ""),
+            "风险": c.get("risk", ""),
+            "受众": c.get("audience", ""),
+            "评分": c.get("score", 0),
+            "是否有主页": bool(c.get("has_homepage", False)),
+            "缓存状态": cache_status,
+            "抓取方式": fetch_mode,
+        })
+
+    result = upsert_records(
+        base_token=base_token,
+        table_id=table_id,
+        records=records,
+        key_fields=("项目全名", "抓取时间"),
+        identity=identity,
+    )
+    return {
+        "status": "synced" if not result["errors"] else "partial",
+        "created": result["created"],
+        "updated": result["updated"],
+        "errors": result["errors"],
+        "records_count": len(records),
+    }
+
+
 def _build_filter(record: dict[str, Any], key_fields: tuple[str, ...]) -> str:
     """构造飞书 filter 表达式"""
     parts = []
@@ -164,3 +229,37 @@ def _chunks(lst: list, n: int):
     """将列表按 n 大小分块"""
     for i in range(0, len(lst), n):
         yield lst[i : i + n]
+
+
+def scan_published_full_names() -> set[str]:
+    """扫 JOBS_DIR，返回已发布项目的 full_name 集合（status=completed && official_video 非空）"""
+    published: set[str] = set()
+    if not JOBS_DIR.exists():
+        return published
+    for task_path in JOBS_DIR.glob("*/task.json"):
+        try:
+            task = read_json(task_path, {})
+        except Exception:
+            continue
+        if not isinstance(task, dict):
+            continue
+        if task.get("status") != "completed":
+            continue
+        if not task.get("official_video"):
+            continue
+        sel_path = task_path.parent / "selected_projects.json"
+        if not sel_path.exists():
+            continue
+        try:
+            sel = read_json(sel_path, {})
+        except Exception:
+            continue
+        if not isinstance(sel, dict):
+            continue
+        for item in sel.get("items", []):
+            if not isinstance(item, dict):
+                continue
+            full = item.get("full_name")
+            if full:
+                published.add(full)
+    return published
