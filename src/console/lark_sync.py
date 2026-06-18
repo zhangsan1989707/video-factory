@@ -72,3 +72,95 @@ def _number_or_none(value: Any) -> int | float | None:
     except (TypeError, ValueError):
         return None
     return int(number) if number.is_integer() else number
+
+
+def upsert_records(
+    base_token: str,
+    table_id: str,
+    records: list[dict[str, Any]],
+    key_fields: tuple[str, ...],
+    *,
+    identity: str = "user",
+) -> dict[str, Any]:
+    """按 (key_fields) 复合键 upsert records 到指定表。
+
+    对每条 record：先 +record-list 查重，找到则 +record-update，否则 +record-batch-create。
+    Returns: {"created": int, "updated": int, "errors": list}
+    """
+    if not records:
+        return {"created": 0, "updated": 0, "errors": []}
+
+    to_create: list[dict[str, Any]] = []
+    to_update: list[tuple[str, dict[str, Any]]] = []  # (record_id, fields)
+    errors: list[dict[str, Any]] = []
+
+    for record in records:
+        try:
+            filter_expr = _build_filter(record, key_fields)
+            list_cmd = [
+                "lark-cli", "base", "+record-list",
+                "--base-token", base_token,
+                "--table-id", table_id,
+                "--filter", filter_expr,
+                "--as", identity,
+            ]
+            proc = subprocess.run(list_cmd, capture_output=True, text=True, check=True, timeout=30)
+            data = json.loads(proc.stdout or "{}")
+            items = (data.get("data") or {}).get("items") or []
+            if items:
+                record_id = items[0].get("record_id")
+                to_update.append((record_id, record))
+            else:
+                to_create.append(record)
+        except Exception as e:
+            errors.append({"record": record, "error": str(e)})
+
+    created = 0
+    if to_create:
+        for chunk in _chunks(to_create, 200):
+            cmd = [
+                "lark-cli", "base", "+record-batch-create",
+                "--base-token", base_token,
+                "--table-id", table_id,
+                "--json", json.dumps(chunk, ensure_ascii=False),
+                "--as", identity,
+            ]
+            try:
+                subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
+                created += len(chunk)
+            except Exception as e:
+                for r in chunk:
+                    errors.append({"record": r, "error": f"batch-create: {e}"})
+
+    updated = 0
+    for record_id, fields in to_update:
+        cmd = [
+            "lark-cli", "base", "+record-update",
+            "--base-token", base_token,
+            "--table-id", table_id,
+            "--record-id", record_id,
+            "--json", json.dumps(fields, ensure_ascii=False),
+            "--as", identity,
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
+            updated += 1
+        except Exception as e:
+            errors.append({"record": fields, "error": f"update: {e}"})
+
+    return {"created": created, "updated": updated, "errors": errors}
+
+
+def _build_filter(record: dict[str, Any], key_fields: tuple[str, ...]) -> str:
+    """构造飞书 filter 表达式"""
+    parts = []
+    for f in key_fields:
+        val = record.get(f, "")
+        parts.append(f'{f}="{val}"')
+    return "AND(" + ",".join(parts) + ")"
+
+
+def _chunks(lst: list, n: int):
+    """将列表按 n 大小分块"""
+    for i in range(0, len(lst), n):
+        yield lst[i : i + n]

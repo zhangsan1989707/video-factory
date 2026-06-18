@@ -49,5 +49,69 @@ class LarkSyncTest(unittest.TestCase):
         self.assertIn("--as", calls[0][0])
 
 
+class LarkSyncUpsertTest(unittest.TestCase):
+    def test_upsert_records_creates_when_missing(self) -> None:
+        from subprocess import CompletedProcess
+
+        from src.console.lark_sync import upsert_records
+
+        create_calls = []
+
+        def fake_run(cmd, *args, **kwargs):
+            if "+record-list" in cmd:
+                return CompletedProcess(cmd, 0, '{"data":{"items":[]}}', "")
+            if "+record-batch-create" in cmd:
+                create_calls.append(cmd)
+                return CompletedProcess(cmd, 0, '{"data":{"record_ids":["recNew"]}}', "")
+            if "+record-update" in cmd:
+                return CompletedProcess(cmd, 0, '{"data":{}}', "")
+            return CompletedProcess(cmd, 0, "{}", "")
+
+        with patch("src.console.lark_sync.subprocess.run", side_effect=fake_run):
+            records = [
+                {"项目全名": "a/b", "抓取时间": "2026-06-18 09:00", "Stars": 100},
+            ]
+            result = upsert_records(
+                base_token="bt",
+                table_id="tblA",
+                records=records,
+                key_fields=("项目全名", "抓取时间"),
+            )
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["updated"], 0)
+        self.assertEqual(len(create_calls), 1)
+
+    def test_upsert_records_updates_when_existing(self) -> None:
+        from subprocess import CompletedProcess
+
+        from src.console.lark_sync import upsert_records
+
+        def fake_run(cmd, *args, **kwargs):
+            if "+record-list" in cmd:
+                return CompletedProcess(
+                    cmd,
+                    0,
+                    '{"data":{"items":[{"record_id":"recX","fields":{"项目全名":"a/b","抓取时间":"2026-06-18 09:00"}}]}}',
+                    "",
+                )
+            if "+record-update" in cmd:
+                return CompletedProcess(cmd, 0, '{"data":{"record":{}}}', "")
+            return CompletedProcess(cmd, 0, "{}", "")
+
+        with patch("src.console.lark_sync.subprocess.run", side_effect=fake_run):
+            records = [{"项目全名": "a/b", "抓取时间": "2026-06-18 09:00", "Stars": 200}]
+            result = upsert_records("bt", "tblA", records, key_fields=("项目全名", "抓取时间"))
+        self.assertEqual(result["created"], 0)
+        self.assertEqual(result["updated"], 1)
+
+    def test_upsert_records_empty_list(self) -> None:
+        from src.console.lark_sync import upsert_records
+
+        result = upsert_records("bt", "tblA", [], key_fields=("项目全名",))
+        self.assertEqual(result["created"], 0)
+        self.assertEqual(result["updated"], 0)
+        self.assertEqual(result["errors"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
