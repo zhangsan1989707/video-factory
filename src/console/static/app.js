@@ -1890,6 +1890,7 @@ function renderLarkSettings(lark) {
 function renderScheduler(schedule) {
   $("scheduleEnabled").checked = Boolean(schedule.enabled);
   $("scheduleMode").value = schedule.mode || "candidates_only";
+  $("scheduleAutoConfirm").checked = Boolean(schedule.auto_confirm);
   $("scheduleFrequency").value = schedule.frequency || "daily";
   $("scheduleTime").value = schedule.time || "09:00";
   $("scheduleWindow").value = schedule.time_window || "daily";
@@ -1913,11 +1914,16 @@ function scheduleModeLabel(mode) {
 function scheduleStatusText(schedule) {
   const mode = schedule.mode || "candidates_only";
   const lastRun = schedule.last_run_date ? `上次运行: ${schedule.last_run_date}` : "尚未运行";
-  const modeText = mode === "auto_video"
-    ? "定时任务会自动确认项目、确认口播、校验计划并生成正式 mp4；质检阻断时不会自动忽略。"
-    : mode === "auto_script"
-      ? "定时任务会自动确认前 N 个候选并生成口播草稿，但不会自动渲染。"
-      : "定时任务只生成候选草稿，不会自动确认或渲染。";
+  let modeText;
+  if (schedule.auto_confirm) {
+    modeText = "定时任务会自动确认前 N 个候选、确认口播、校验计划并生成正式 mp4；质检阻断时自动忽略。";
+  } else if (mode === "auto_video") {
+    modeText = "定时任务会自动确认项目、确认口播、校验计划并生成正式 mp4；质检阻断时不会自动忽略。";
+  } else if (mode === "auto_script") {
+    modeText = "定时任务会自动确认前 N 个候选并生成口播草稿，但不会自动渲染。";
+  } else {
+    modeText = "定时任务只生成候选草稿，不会自动确认或渲染。";
+  }
   return `${modeText}${lastRun}`;
 }
 
@@ -1931,6 +1937,7 @@ function schedulerPayloadFromForm(current) {
   return {
     enabled: $("scheduleEnabled").checked,
     mode: $("scheduleMode").value,
+    auto_confirm: $("scheduleAutoConfirm").checked,
     frequency: $("scheduleFrequency").value,
     time: $("scheduleTime").value || "09:00",
     time_window: $("scheduleWindow").value,

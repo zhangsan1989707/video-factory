@@ -109,6 +109,7 @@ DEFAULT_LARK = {
 DEFAULT_SCHEDULER = {
     "enabled": False,
     "mode": "candidates_only",
+    "auto_confirm": False,
     "frequency": "daily",
     "time": "09:00",
     "time_window": "daily",
@@ -877,6 +878,7 @@ def _normalize_scheduler(data: dict[str, Any], preserve_last_run: bool = True) -
     item["enabled"] = bool_value(item.get("enabled"))
     if item.get("mode") not in {"candidates_only", "auto_script", "auto_video"}:
         item["mode"] = DEFAULT_SCHEDULER["mode"]
+    item["auto_confirm"] = bool_value(item.get("auto_confirm", DEFAULT_SCHEDULER["auto_confirm"]))
     if item.get("frequency") not in {"daily", "weekly"}:
         item["frequency"] = DEFAULT_SCHEDULER["frequency"]
     item["time_window"] = normalize_time_window(item.get("time_window"), DEFAULT_SCHEDULER["time_window"])

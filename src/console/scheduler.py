@@ -35,6 +35,7 @@ def run_due_scheduled_draft(now: datetime | None = None, force: bool = False) ->
             "title": "GitHub 定时热榜视频" if schedule.get("mode") == "auto_video" else "GitHub 定时热榜草稿",
             "scheduled": True,
             "schedule_mode": schedule.get("mode") or "candidates_only",
+            "auto_confirm": bool(schedule.get("auto_confirm")),
             "time_window": schedule.get("time_window") or "daily",
             "project_count": normalize_project_count(schedule.get("project_count")),
             "template": _active_template_name(),
@@ -55,7 +56,8 @@ def run_due_scheduled_draft(now: datetime | None = None, force: bool = False) ->
         merged_job = {**job, **(result.get("job") or {})}
         merged_job["scheduled"] = True
         merged_job["schedule_mode"] = schedule.get("mode") or "candidates_only"
-        update_job(job["id"], scheduled=True, schedule_mode=merged_job["schedule_mode"])
+        merged_job["auto_confirm"] = bool(schedule.get("auto_confirm"))
+        update_job(job["id"], scheduled=True, schedule_mode=merged_job["schedule_mode"], auto_confirm=merged_job["auto_confirm"])
         return {"started": True, "reason": "due", "job": merged_job}
     finally:
         with _LOCK:
@@ -70,11 +72,14 @@ async def _run_scheduled_pipeline(
     """在单一事件循环里串行跑完候选→脚本→计划→渲染。"""
     raise_if_cancelled(job_id)
     result = await generate_candidates(job_id)
-    if schedule.get("mode") in {"auto_script", "auto_video"}:
+    auto_confirm = bool(schedule.get("auto_confirm"))
+    mode = schedule.get("mode") or "candidates_only"
+    if auto_confirm or mode in {"auto_script", "auto_video"}:
+        # auto_confirm=true 时强制把"待确认项目"也消化掉；否则按 mode 跳过。
         raise_if_cancelled(job_id)
         result = _generate_scheduled_script(job_id, result, project_count)
-    if schedule.get("mode") == "auto_video":
-        result = await _generate_scheduled_video_async(job_id, result)
+    if auto_confirm or mode == "auto_video":
+        result = await _generate_scheduled_video_async(job_id, result, auto_confirm=auto_confirm)
     return result
 
 
@@ -156,12 +161,13 @@ def _generate_scheduled_script(job_id: str, result: dict[str, Any], project_coun
     return save_selection(job_id, {"items": selected})
 
 
-async def _generate_scheduled_video_async(job_id: str, result: dict[str, Any]) -> dict[str, Any]:
+async def _generate_scheduled_video_async(job_id: str, result: dict[str, Any], auto_confirm: bool = False) -> dict[str, Any]:
     segments = result.get("segments") or []
     if not segments:
         raise RuntimeError("定时出片模式没有可用口播脚本")
     raise_if_cancelled(job_id)
-    scripted = save_script(job_id, {"segments": segments})
+    # auto_confirm=true 时把脚本质检视为可忽略项，确保出片不被阻断。
+    scripted = save_script(job_id, {"segments": segments, "ignore_quality_risk": auto_confirm})
     if (scripted.get("job") or {}).get("stage") == "awaiting_script_confirmation":
         raise RuntimeError((scripted.get("job") or {}).get("error") or "定时出片模式被脚本质检阻断")
     raise_if_cancelled(job_id)

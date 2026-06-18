@@ -39,7 +39,9 @@ async function run() {
   testRenderPublishActionsShowsCopyButtons();
   testRenderSchedulerShowsAutoScriptMode();
   testRenderSchedulerShowsAutoVideoMode();
+  testRenderSchedulerAutoConfirmHintsFullAuto();
   testSchedulerPayloadUsesScheduleVideoParams();
+  testSchedulerPayloadIncludesAutoConfirm();
   testSchedulerPayloadUsesDefaultOfficialOutputDirWhenEmpty();
   testRenderScheduleRecentJobsIncludesCompletedScheduledJobs();
   testScheduleRecentLabelShowsCompletedAndRunningState();
@@ -1302,6 +1304,60 @@ function testRenderSchedulerShowsAutoVideoMode() {
   assert.equal(nodes.scheduleOfficialOutputDir.value, DEFAULT_OFFICIAL_OUTPUT_DIR);
 }
 
+function testRenderSchedulerAutoConfirmHintsFullAuto() {
+  const nodes = scheduleNodes();
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+  state.config = { templates: { active_template: "github_hotlist_vertical_v1", github_hotlist_vertical_v1: { style: "tech_hotspot" } } };
+
+  renderScheduler({
+    enabled: true,
+    mode: "candidates_only",
+    auto_confirm: true,
+    frequency: "daily",
+    time: "09:00",
+    time_window: "weekly",
+    project_count: 5,
+    template_params: {},
+    last_run_date: "2099-01-02",
+  });
+
+  assert.equal(nodes.scheduleAutoConfirm.checked, true);
+  assert.equal(
+    nodes.scheduleStatus.textContent.includes("自动确认前 N 个候选"),
+    true,
+  );
+  assert.equal(
+    nodes.scheduleStatus.textContent.includes("质检阻断时自动忽略"),
+    true,
+  );
+}
+
+function testSchedulerPayloadIncludesAutoConfirm() {
+  const nodes = scheduleNodes();
+  nodes.scheduleEnabled.checked = true;
+  nodes.scheduleMode.value = "candidates_only";
+  nodes.scheduleAutoConfirm.checked = true;
+  nodes.scheduleFrequency.value = "daily";
+  nodes.scheduleTime.value = "08:15";
+  nodes.scheduleWindow.value = "weekly";
+  nodes.scheduleProjectCount.value = "4";
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  const payload = schedulerPayloadFromForm({ scheduler: { last_run_date: "2099-01-02" } });
+
+  assert.equal(payload.mode, "candidates_only");
+  assert.equal(payload.auto_confirm, true);
+  assert.equal(payload.last_run_date, "2099-01-02");
+}
+
 function testSchedulerPayloadUsesScheduleVideoParams() {
   const nodes = scheduleNodes();
   nodes.scheduleEnabled.checked = true;
@@ -1407,6 +1463,7 @@ function scheduleNodes() {
   return {
     scheduleEnabled: { checked: false },
     scheduleMode: { value: "" },
+    scheduleAutoConfirm: { checked: false },
     scheduleFrequency: { value: "" },
     scheduleTime: { value: "" },
     scheduleWindow: { value: "" },

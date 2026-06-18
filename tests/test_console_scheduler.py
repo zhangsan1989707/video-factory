@@ -1012,6 +1012,173 @@ class ConsoleSchedulerTest(unittest.TestCase):
             saved = read_json(config_dir / "scheduler.json", {})
             self.assertEqual(saved["last_run_date"], "2099-W03")
 
+    def test_auto_confirm_candidates_only_runs_to_completion(self) -> None:
+        """auto_confirm=true + mode=candidates_only 应一路跑完，不停在「待确认项目」。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "mode": "candidates_only",
+                "auto_confirm": True,
+                "frequency": "daily",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 5,
+                "template_params": {},
+                "last_run_date": "",
+            })
+            calls = []
+
+            async def fake_generate(job_id: str) -> dict:
+                calls.append("generate")
+                return {
+                    "job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_project_confirmation"},
+                    "candidates": [
+                        {"full_name": "demo/one"},
+                        {"full_name": "demo/two"},
+                        {"full_name": "demo/three"},
+                    ],
+                }
+
+            def fake_save_selection(job_id: str, payload: dict) -> dict:
+                calls.append(("selection", [item["full_name"] for item in payload["items"]]))
+                return {
+                    "job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_script_confirmation"},
+                    "segments": [{"id": "intro", "label": "开场", "text": "hello"}],
+                }
+
+            def fake_save_script(job_id: str, payload: dict) -> dict:
+                calls.append(("script", payload.get("ignore_quality_risk")))
+                return {"job": {"id": job_id, "status": "awaiting_render", "stage": "preparing_plan"}}
+
+            def fake_prepare_plan(job_id: str) -> dict:
+                calls.append("prepare")
+                return {"job": {"id": job_id, "status": "awaiting_validation", "stage": "preparing_plan"}}
+
+            async def fake_validate_plan(job_id: str) -> dict:
+                calls.append("validate")
+                return {"job": {"id": job_id, "status": "ready_to_render", "stage": "preparing_plan"}}
+
+            async def fake_render_video(job_id: str) -> dict:
+                calls.append("render")
+                return {"job": {"id": job_id, "status": "completed", "stage": "completed", "official_video": str(jobs_dir / job_id / "formal.mp4")}}
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+                patch("src.console.scheduler.save_selection", side_effect=fake_save_selection),
+                patch("src.console.scheduler.save_script", side_effect=fake_save_script),
+                patch("src.console.scheduler.prepare_plan", side_effect=fake_prepare_plan),
+                patch("src.console.scheduler.validate_plan", side_effect=fake_validate_plan),
+                patch("src.console.scheduler.render_video", side_effect=fake_render_video),
+            ):
+                result = run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+
+            self.assertTrue(result["started"])
+            self.assertEqual(result["job"]["stage"], "completed")
+            self.assertEqual(result["job"]["auto_confirm"], True)
+            self.assertEqual(calls, [
+                "generate",
+                ("selection", ["demo/one", "demo/two", "demo/three"]),
+                ("script", True),  # auto_confirm=true 透传到 save_script
+                "prepare",
+                "validate",
+                "render",
+            ])
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "2099-01-02")
+
+    def test_auto_confirm_auto_video_ignores_quality_block(self) -> None:
+        """auto_confirm=true + auto_video：即使 save_script 返回 awaiting_script_confirmation，也会被
+        scheduler 当作可忽略项继续出片（不抛错）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            write_json(config_dir / "scheduler.json", {
+                "enabled": True,
+                "mode": "auto_video",
+                "auto_confirm": True,
+                "frequency": "daily",
+                "time": "09:00",
+                "time_window": "weekly",
+                "project_count": 1,
+                "template_params": {},
+                "last_run_date": "",
+            })
+
+            async def fake_generate(job_id: str) -> dict:
+                return {
+                    "job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_project_confirmation"},
+                    "candidates": [{"full_name": "demo/one"}],
+                }
+
+            def fake_save_selection(job_id: str, payload: dict) -> dict:
+                return {
+                    "job": {"id": job_id, "status": "awaiting_input", "stage": "awaiting_script_confirmation"},
+                    "segments": [{"id": "intro", "label": "开场", "text": "hello"}],
+                }
+
+            def fake_save_script(job_id: str, payload: dict) -> dict:
+                # 即便 quality 阻断，因为 ignore_quality_risk=True 也应继续
+                self.assertTrue(payload.get("ignore_quality_risk"))
+                return {"job": {"id": job_id, "status": "awaiting_render", "stage": "preparing_plan"}}
+
+            def fake_prepare_plan(job_id: str) -> dict:
+                return {"job": {"id": job_id, "status": "ready_to_render", "stage": "preparing_plan"}}
+
+            async def fake_validate_plan(job_id: str) -> dict:
+                return {"job": {"id": job_id, "status": "ready_to_render", "stage": "preparing_plan"}}
+
+            async def fake_render_video(job_id: str) -> dict:
+                return {"job": {"id": job_id, "status": "completed", "stage": "completed"}}
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.scheduler.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
+                patch("src.console.scheduler.save_selection", side_effect=fake_save_selection),
+                patch("src.console.scheduler.save_script", side_effect=fake_save_script),
+                patch("src.console.scheduler.prepare_plan", side_effect=fake_prepare_plan),
+                patch("src.console.scheduler.validate_plan", side_effect=fake_validate_plan),
+                patch("src.console.scheduler.render_video", side_effect=fake_render_video),
+            ):
+                result = run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+
+            self.assertTrue(result["started"])
+            self.assertEqual(result["job"]["stage"], "completed")
+            self.assertTrue(result["job"]["auto_confirm"])
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertEqual(saved["last_run_date"], "2099-01-02")
+
+    def test_scheduler_config_normalizes_auto_confirm_field(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+            ):
+                update_config("scheduler", {
+                    "enabled": True,
+                    "mode": "candidates_only",
+                    "auto_confirm": "true",  # 字符串形式也应被规范成 True
+                    "frequency": "daily",
+                    "time": "09:00",
+                    "time_window": "weekly",
+                    "project_count": 5,
+                    "template_params": {},
+                    "last_run_date": "",
+                })
+
+            saved = read_json(config_dir / "scheduler.json", {})
+            self.assertIs(saved["auto_confirm"], True)
+
     def test_due_schedule_can_be_cancelled_mid_pipeline(self) -> None:
         """auto_video pipeline 中途调用 request_cancel 应能中断，避免长任务跑完才生效。"""
         with tempfile.TemporaryDirectory() as tmp:
