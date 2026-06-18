@@ -175,3 +175,147 @@ def test_generate_candidates_sync_failure_does_not_break_job(monkeypatch, tmp_pa
     assert result is not None
     task = json.loads((job_dir / "task.json").read_text())
     assert task.get("lark_sync", {}).get("all_data", {}).get("status") == "failed"
+
+
+def test_finalize_triggers_mark_published(monkeypatch, tmp_path):
+    """视频输出完成后触发已发布标记"""
+    import src.console.store as store_mod
+    from src.console import jobs
+
+    monkeypatch.setattr(store_mod, "JOBS_DIR", tmp_path)
+    monkeypatch.setattr(jobs, "JOBS_DIR", tmp_path)
+
+    job_id = "J1"
+    job_dir = tmp_path / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "task.json").write_text(json.dumps({
+        "id": job_id, "scheduled": True, "type": "github_hotlist",
+        "status": "running", "stage": "post_processing",
+        "fetch_time": "2026-06-18 09:00",
+    }))
+    (job_dir / "selected_projects.json").write_text(json.dumps({
+        "items": [{"full_name": "a/b", "video_title": "T", "official_video": "/v/a.mp4"}]
+    }))
+
+    # 创建 final.mp4 存根
+    (job_dir / "final.mp4").write_bytes(b"\x00\x00\x00")
+
+    # mock _write_to_official_output_dir 避免真实文件复制
+    fake_target = tmp_path / "output" / "official.mp4"
+    fake_target.parent.mkdir(parents=True, exist_ok=True)
+    fake_target.write_bytes(b"\x00")
+    monkeypatch.setattr(jobs, "_write_to_official_output_dir",
+                        lambda job, source, base_name: fake_target)
+
+    # mock mark_published_in_lark
+    mark_calls = []
+
+    def fake_mark(**kwargs):
+        mark_calls.append(kwargs)
+        return {"status": "synced", "updated": 1, "missing": [], "errors": []}
+
+    monkeypatch.setattr("src.console.lark_sync.mark_published_in_lark", fake_mark)
+
+    # mock read_lark_config
+    monkeypatch.setattr("src.console.lark_sync.read_lark_config",
+                        lambda: {"enabled": True, "base_token": "bt",
+                                 "selected_data_table_id": "tblS", "sync_selected_data": True})
+
+    result = jobs.finalize_numbered_output(job_id)
+
+    # mark_published_in_lark 应被调用
+    assert len(mark_calls) == 1
+    assert mark_calls[0]["base_token"] == "bt"
+    assert mark_calls[0]["table_id"] == "tblS"
+    # task.json 应有 lark_sync.publish_mark 状态
+    task = json.loads((job_dir / "task.json").read_text())
+    assert task.get("lark_sync", {}).get("publish_mark", {}).get("status") == "synced"
+
+
+def test_finalize_skips_mark_published_when_lark_disabled(monkeypatch, tmp_path):
+    """飞书同步关闭时 finalize 不触发已发布标记"""
+    import src.console.store as store_mod
+    from src.console import jobs
+
+    monkeypatch.setattr(store_mod, "JOBS_DIR", tmp_path)
+    monkeypatch.setattr(jobs, "JOBS_DIR", tmp_path)
+
+    job_id = "J2"
+    job_dir = tmp_path / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "task.json").write_text(json.dumps({
+        "id": job_id, "scheduled": True, "type": "github_hotlist",
+        "status": "running", "stage": "post_processing",
+        "fetch_time": "2026-06-18 09:00",
+    }))
+    (job_dir / "selected_projects.json").write_text(json.dumps({
+        "items": [{"full_name": "a/b", "video_title": "T", "official_video": "/v/a.mp4"}]
+    }))
+    (job_dir / "final.mp4").write_bytes(b"\x00\x00\x00")
+
+    fake_target = tmp_path / "output" / "official.mp4"
+    fake_target.parent.mkdir(parents=True, exist_ok=True)
+    fake_target.write_bytes(b"\x00")
+    monkeypatch.setattr(jobs, "_write_to_official_output_dir",
+                        lambda job, source, base_name: fake_target)
+
+    mark_calls = []
+    monkeypatch.setattr("src.console.lark_sync.mark_published_in_lark",
+                        lambda **kwargs: mark_calls.append(kwargs))
+
+    # lark disabled
+    monkeypatch.setattr("src.console.lark_sync.read_lark_config",
+                        lambda: {"enabled": False, "base_token": "",
+                                 "selected_data_table_id": "", "sync_selected_data": False})
+
+    result = jobs.finalize_numbered_output(job_id)
+
+    assert len(mark_calls) == 0
+    task = json.loads((job_dir / "task.json").read_text())
+    assert task.get("lark_sync", {}).get("publish_mark", {}).get("status") == "disabled"
+
+
+def test_finalize_mark_published_failure_does_not_break_job(monkeypatch, tmp_path):
+    """已发布标记失败不影响视频输出主流程"""
+    import src.console.store as store_mod
+    from src.console import jobs
+
+    monkeypatch.setattr(store_mod, "JOBS_DIR", tmp_path)
+    monkeypatch.setattr(jobs, "JOBS_DIR", tmp_path)
+
+    job_id = "J3"
+    job_dir = tmp_path / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "task.json").write_text(json.dumps({
+        "id": job_id, "scheduled": True, "type": "github_hotlist",
+        "status": "running", "stage": "post_processing",
+        "fetch_time": "2026-06-18 09:00",
+    }))
+    (job_dir / "selected_projects.json").write_text(json.dumps({
+        "items": [{"full_name": "a/b", "video_title": "T", "official_video": "/v/a.mp4"}]
+    }))
+    (job_dir / "final.mp4").write_bytes(b"\x00\x00\x00")
+
+    fake_target = tmp_path / "output" / "official.mp4"
+    fake_target.parent.mkdir(parents=True, exist_ok=True)
+    fake_target.write_bytes(b"\x00")
+    monkeypatch.setattr(jobs, "_write_to_official_output_dir",
+                        lambda job, source, base_name: fake_target)
+
+    def fake_mark(**kwargs):
+        raise RuntimeError("lark-cli error")
+
+    monkeypatch.setattr("src.console.lark_sync.mark_published_in_lark", fake_mark)
+    monkeypatch.setattr("src.console.lark_sync.read_lark_config",
+                        lambda: {"enabled": True, "base_token": "bt",
+                                 "selected_data_table_id": "tblS", "sync_selected_data": True})
+
+    # finalize 不应抛出异常
+    result = jobs.finalize_numbered_output(job_id)
+    assert result is not None
+
+    # 主流程应正常完成
+    task = json.loads((job_dir / "task.json").read_text())
+    assert task.get("status") == "completed"
+    # 标记状态应为 failed
+    assert task.get("lark_sync", {}).get("publish_mark", {}).get("status") == "failed"

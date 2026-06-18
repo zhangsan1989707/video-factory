@@ -253,6 +253,32 @@ def _sync_all_candidates_to_lark(job_id: str, job: dict[str, Any], candidates: l
         _write_lark_sync_status(job_id, "all_data", {"status": "failed", "error": str(e)})
 
 
+def _mark_published_in_lark(job_id: str) -> None:
+    """标记已选项目为已发布"""
+    from .lark_sync import mark_published_in_lark, read_lark_config
+    cfg = read_lark_config()
+    if not cfg.get("enabled") or not cfg.get("sync_selected_data") or not cfg.get("selected_data_table_id"):
+        _write_lark_sync_status(job_id, "publish_mark", {"status": "disabled"})
+        return
+    job = read_job(job_id)
+    sel_path = JOBS_DIR / job_id / "selected_projects.json"
+    if not sel_path.exists():
+        _write_lark_sync_status(job_id, "publish_mark", {"status": "skipped", "reason": "no selection"})
+        return
+    sel = read_json(sel_path, {})
+    published_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    try:
+        result = mark_published_in_lark(
+            job=job, selected=sel.get("items", []),
+            published_at=published_at,
+            base_token=cfg["base_token"], table_id=cfg["selected_data_table_id"],
+        )
+        _write_lark_sync_status(job_id, "publish_mark", result)
+    except Exception as e:
+        append_log(job_id, f"标记已发布失败: {e}")
+        _write_lark_sync_status(job_id, "publish_mark", {"status": "failed", "error": str(e)})
+
+
 def regenerate_script(job_id: str) -> dict[str, Any]:
     _require_regenerable_job(job_id)
     selected = read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items") or []
@@ -993,6 +1019,7 @@ def finalize_numbered_output(job_id: str, title: str = "") -> dict[str, Any]:
     params = dict(job.get("template_params") or {})
     params["official_output_dir"] = str(target.parent)
     update_job(job_id, status="completed", stage="completed", official_video=str(target), template_params=params)
+    _mark_published_in_lark(job_id)
     return {"job": read_job(job_id), "artifacts": job_artifacts(job_id)}
 
 def _official_video_base_name(job: dict[str, Any], job_id: str, safe_title: str) -> str:
