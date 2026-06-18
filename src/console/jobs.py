@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlparse
 
 from src.console.background import JobCancelled, is_active, raise_if_cancelled
 from src.console.github_hotlist import ESTIMATED_GROWTH_NOTE, collect_candidates_with_meta
-from src.console.lark_sync import sync_selected_projects
+from src.console.lark_sync import scan_published_full_names, sync_selected_projects
 from src.console.model_router import chat_json_detail, route_snapshot
 from src.console.store import (
     DEFAULT_OFFICIAL_OUTPUT_DIR,
@@ -165,6 +165,8 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_
         candidates = _analyze_candidates(job_id, candidates)
         _set_progress_hint(job_id, kind="ranking", text="候选排序中…")
         candidates = _rank_candidates(job_id, candidates)
+        # 标注已发布状态，供前端展示
+        _annotate_already_published(candidates)
         write_json(JOBS_DIR / job_id / "candidates.json", {"items": candidates})
         append_log(job_id, f"候选项目拉取完成，共 {len(candidates)} 个。")
         # 任务级统一时间戳，供飞书同步和后续已选/发布标记使用
@@ -506,6 +508,13 @@ def _selected_from_candidate_snapshot(job_id: str, items: list[dict[str, Any]]) 
 
 def _candidate_key(item: dict[str, Any]) -> str:
     return str(item.get("full_name") or item.get("repo_url") or "").strip()
+
+def _annotate_already_published(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """为候选列表标注 _already_published 标志，供前端展示"""
+    published = scan_published_full_names()
+    for c in candidates:
+        c["_already_published"] = c.get("full_name") in published
+    return candidates
 
 def _clear_candidate_artifacts(job_id: str) -> None:
     job_dir = JOBS_DIR / job_id
@@ -1169,7 +1178,7 @@ def job_detail(job_id: str) -> dict[str, Any]:
     model_calls = job.get("model_calls") or []
     return {
         "job": job,
-        "candidates": read_json(JOBS_DIR / job_id / "candidates.json", {}).get("items", []),
+        "candidates": _annotate_already_published(read_json(JOBS_DIR / job_id / "candidates.json", {}).get("items", [])),
         "selected": read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items", []),
         "segments": read_json(JOBS_DIR / job_id / "narration.json", {}).get("segments", []),
         "hook": read_json(JOBS_DIR / job_id / "hook.json", {}),

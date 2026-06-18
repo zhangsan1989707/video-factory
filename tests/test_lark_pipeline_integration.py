@@ -319,3 +319,76 @@ def test_finalize_mark_published_failure_does_not_break_job(monkeypatch, tmp_pat
     assert task.get("status") == "completed"
     # 标记状态应为 failed
     assert task.get("lark_sync", {}).get("publish_mark", {}).get("status") == "failed"
+
+
+def test_generate_candidates_annotates_already_published(monkeypatch, tmp_path):
+    """候选列表标注已发过视频的项目"""
+    import src.console.store as store_mod
+    import src.console.lark_sync as lark_sync_mod
+    from src.console import jobs
+
+    monkeypatch.setattr(store_mod, "JOBS_DIR", tmp_path)
+    monkeypatch.setattr(jobs, "JOBS_DIR", tmp_path)
+    monkeypatch.setattr(lark_sync_mod, "JOBS_DIR", tmp_path)
+
+    # 创建一个已完成的任务，包含已发布项目
+    old_dir = tmp_path / "J-OLD"
+    old_dir.mkdir(parents=True, exist_ok=True)
+    (old_dir / "task.json").write_text(json.dumps({
+        "id": "J-OLD", "status": "completed", "official_video": "/v/old.mp4",
+    }))
+    (old_dir / "selected_projects.json").write_text(json.dumps({
+        "items": [{"full_name": "old/repo"}]
+    }))
+
+    # 当前任务
+    job_id = "J-NEW"
+    job_dir = tmp_path / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    (job_dir / "task.json").write_text(json.dumps({
+        "id": job_id, "scheduled": True, "type": "github_hotlist",
+        "status": "draft_pending", "stage": "draft_pending",
+        "time_window": "daily",
+    }))
+
+    # mock collect_candidates_with_meta 返回包含已发布项目的候选
+    fake_candidates = [
+        {"full_name": "old/repo", "name": "Old", "html_url": "u",
+         "stargazers_count": 10, "rank": 1, "topics": []},
+        {"full_name": "new/repo", "name": "New", "html_url": "u",
+         "stargazers_count": 5, "rank": 2, "topics": []},
+    ]
+
+    async def fake_collect(*a, **k):
+        return {"items": fake_candidates, "cache_status": "fresh",
+                "data_source": "trending", "time_window": "daily", "rate_limit": "60/60"}
+
+    monkeypatch.setattr("src.console.jobs.collect_candidates_with_meta", fake_collect)
+    monkeypatch.setattr("src.console.lark_sync.read_lark_config",
+                        lambda: {"enabled": False, "base_token": "",
+                                 "all_data_table_id": "", "sync_all_data": False})
+    monkeypatch.setattr(jobs, "_analyze_candidates", lambda jid, cands: cands)
+    monkeypatch.setattr(jobs, "_rank_candidates", lambda jid, cands: cands)
+    monkeypatch.setattr("src.console.jobs.read_github_token", lambda: "fake-token")
+    monkeypatch.setattr("src.console.jobs.update_github_rate_limit", lambda x: None)
+
+    import asyncio
+    result = asyncio.get_event_loop().run_until_complete(
+        jobs._generate_candidates_snapshot(
+            job_id,
+            {"id": job_id, "scheduled": True, "time_window": "daily"},
+            force_refresh=False,
+        )
+    )
+
+    # 验证返回的候选列表包含 _already_published 标注
+    items = result.get("candidates", [])
+    by_name = {i.get("full_name"): i.get("_already_published") for i in items}
+    assert by_name.get("old/repo") is True
+    assert by_name.get("new/repo") is False
+
+    # 验证写入磁盘的 candidates.json 也包含标注
+    saved = json.loads((job_dir / "candidates.json").read_text())
+    saved_by_name = {i.get("full_name"): i.get("_already_published") for i in saved.get("items", [])}
+    assert saved_by_name.get("old/repo") is True
+    assert saved_by_name.get("new/repo") is False
