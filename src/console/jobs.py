@@ -21,6 +21,7 @@ from src.console.store import (
     JOBS_DIR,
     append_model_call,
     append_log,
+    bool_value,
     create_job,
     job_artifacts,
     next_job_id,
@@ -197,9 +198,23 @@ def save_selection(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return _generate_script_for_selection(job_id, selected)
 
 
+def _write_lark_sync_status(job_id: str, segment: str, payload: dict[str, Any]) -> None:
+    """写入 job.lark_sync.{segment} 状态"""
+    from datetime import datetime, timezone
+    job = read_job(job_id)
+    lark_sync = dict(job.get("lark_sync") or {})
+    lark_sync[segment] = {**payload, "at": datetime.now(timezone.utc).isoformat()}
+    update_job(job_id, lark_sync=lark_sync)
+
+
 def _sync_selection_to_lark(job_id: str, selected: list[dict[str, Any]]) -> None:
+    job = read_job(job_id)
+    if not bool_value(job.get("scheduled")):
+        append_log(job_id, "手动选入不同步到飞书已选表")
+        _write_lark_sync_status(job_id, "selected", {"status": "skipped", "reason": "manual"})
+        return
     try:
-        result = sync_selected_projects(read_job(job_id), selected)
+        result = sync_selected_projects(job, selected)
     except Exception as exc:
         append_log(job_id, f"飞书多维表格同步失败，已继续生成口播: {exc}")
         return
