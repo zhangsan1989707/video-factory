@@ -873,6 +873,9 @@ async def render_video(job_id: str) -> dict[str, Any]:
             job = read_job(job_id)
         raise_if_cancelled(job_id)
 
+        # 提前校验 BGM 路径，避免渲染完成后才发现文件不存在导致视频被删
+        _ = _bgm_path(job)
+
         append_log(job_id, "开始生成最终视频。这个阶段会生成语音并合成 mp4。")
         update_job(job_id, status="running", failed_stage="", error="", cancel_requested=False)
 
@@ -1379,7 +1382,10 @@ def _bgm_path(job: dict[str, Any]) -> str | None:
     params = job.get("template_params") or {}
     if params.get("bgm") != "custom":
         return None
-    path = Path(str(params.get("bgm_path") or "")).expanduser()
+    bgm_path_str = str(params.get("bgm_path") or "").strip()
+    if not bgm_path_str:
+        raise ValueError("已选择自定义 BGM 但未提供文件路径")
+    path = Path(bgm_path_str).expanduser()
     if not path.exists() or not path.is_file():
         raise ValueError(f"自定义 BGM 文件不存在: {path}")
     if path.suffix.lower() not in {".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac"}:
@@ -1388,8 +1394,11 @@ def _bgm_path(job: dict[str, Any]) -> str | None:
 
 def _bgm_volume(job: dict[str, Any]) -> float:
     params = job.get("template_params") or {}
+    raw = params.get("bgm_volume", BGM_VOLUME)
+    if isinstance(raw, bool):
+        return BGM_VOLUME
     try:
-        volume = float(params.get("bgm_volume", BGM_VOLUME))
+        volume = float(raw)
     except (TypeError, ValueError):
         return BGM_VOLUME
     return min(1.0, max(0.0, volume))

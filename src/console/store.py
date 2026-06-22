@@ -973,6 +973,8 @@ def _normalize_template_param_patch(params: Any) -> dict[str, Any]:
 
 
 def _normalize_bgm_volume(value: Any) -> float:
+    if isinstance(value, bool):
+        return BGM_VOLUME
     try:
         volume = float(value)
     except (TypeError, ValueError):

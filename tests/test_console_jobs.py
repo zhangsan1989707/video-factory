@@ -318,6 +318,12 @@ class ConsoleJobsTest(unittest.TestCase):
         self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": -1}}), 0.0)
         self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": "loud"}}), 0.065)
 
+    def test_bgm_volume_boolean_intercepted(self) -> None:
+        """布尔值 True/False 不应被 float() 转为 1.0/0.0，应回落到默认值"""
+        from src.utils.config import BGM_VOLUME
+        self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": True}}), BGM_VOLUME)
+        self.assertEqual(console_jobs._bgm_volume({"template_params": {"bgm_volume": False}}), BGM_VOLUME)
+
     def test_save_single_project_script_runs_quality_and_publish_pack_without_deleting_plan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
@@ -1586,6 +1592,36 @@ class ConsoleJobsTest(unittest.TestCase):
                 detail = job_detail(job["id"])
                 self.assertEqual(detail["job"]["status"], "failed")
                 self.assertIn("自定义 BGM 文件不存在", detail["job"]["error"])
+
+    def test_render_video_fails_for_empty_custom_bgm_path(self) -> None:
+        """选择自定义 BGM 但 bgm_path 为空字符串时应在渲染前失败，而非渲染后删视频"""
+        async def hyperframes(projects, output_path=None, **kwargs):
+            Path(output_path).write_bytes(b"video")
+            return Path(output_path)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.render_hotlist_v2_from_projects", side_effect=hyperframes),
+            ):
+                job = create_job("GH-HOTLIST-20990101-BGM-EMPTY", {
+                    "project_count": 2,
+                    "template_params": {"bgm": "custom", "bgm_path": ""},
+                })
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+                asyncio.run(validate_plan(job["id"]))
+
+                with self.assertRaises(ValueError):
+                    asyncio.run(render_video(job["id"]))
+
+                detail = job_detail(job["id"])
+                self.assertEqual(detail["job"]["status"], "failed")
+                self.assertIn("未提供文件路径", detail["job"]["error"])
 
     def test_render_video_records_preflight_failure(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
