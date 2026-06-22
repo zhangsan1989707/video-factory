@@ -841,17 +841,19 @@ def _normalize_lark(data: dict[str, Any] | None) -> dict[str, Any]:
     if not base_token or _is_redacted_secret(base_token, str(current.get("base_token") or "")):
         base_token = str(current.get("base_token") or "")
     # 新字段：2 个表 ID + 2 个开关
-    all_data_table_id = str(data.get("all_data_table_id") or current.get("all_data_table_id") or "").strip()
-    selected_data_table_id = str(data.get("selected_data_table_id") or current.get("selected_data_table_id") or "").strip()
+    # 使用 "key in data" 区分"未传入"和"传入空字符串"，否则用户无法清空字段
+    all_data_table_id = str(data["all_data_table_id"] if "all_data_table_id" in data else (current.get("all_data_table_id") or "")).strip()
+    selected_data_table_id = str(data["selected_data_table_id"] if "selected_data_table_id" in data else (current.get("selected_data_table_id") or "")).strip()
     sync_all_data = bool_value(data.get("sync_all_data") if data.get("sync_all_data") is not None else current.get("sync_all_data", True))
     sync_selected_data = bool_value(data.get("sync_selected_data") if data.get("sync_selected_data") is not None else current.get("sync_selected_data", True))
     # 向后兼容：旧 table_id 优先级高于 current 中的 selected_data_table_id
     table_id = str(data.get("table_id") or current.get("table_id") or "").strip()
-    if table_id and not data.get("selected_data_table_id"):
+    user_provided_selected = "selected_data_table_id" in data
+    if table_id and not user_provided_selected:
         # 用户传入了 table_id 但没传 selected_data_table_id，用 table_id 覆盖
         selected_data_table_id = table_id
-    elif not selected_data_table_id and table_id:
-        # current 中有 table_id 但没有 selected_data_table_id，做迁移
+    elif not user_provided_selected and not selected_data_table_id and table_id:
+        # 用户未传 selected_data_table_id 且当前值为空，做迁移
         selected_data_table_id = table_id
     # table_id 保持与 selected_data_table_id 同步
     table_id = selected_data_table_id

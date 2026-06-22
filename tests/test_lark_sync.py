@@ -281,7 +281,7 @@ class SyncSelectionGateTest(unittest.TestCase):
     """测试 _sync_selection_to_lark 对手动任务的门控"""
 
     def test_sync_selection_to_lark_skips_manual_job(self) -> None:
-        """手动任务不同步已选到飞书"""
+        """手动任务也同步已选到飞书（行为变更：不再跳过手动任务）"""
         from src.console import jobs, store
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -301,16 +301,12 @@ class SyncSelectionGateTest(unittest.TestCase):
 
                 def fake_sync(*args, **kwargs):
                     sync_calls.append(args)
-                    return {"status": "synced"}
+                    return {"status": "synced", "count": 1, "error": ""}
 
                 with patch("src.console.jobs.sync_selected_projects", side_effect=fake_sync):
                     jobs._sync_selection_to_lark(job_id, [{"full_name": "a/b"}])
 
-                self.assertEqual(len(sync_calls), 0, "手动任务不应调用 sync_selected_projects")
-
-                task = json.loads((job_dir / "task.json").read_text())
-                self.assertEqual(task["lark_sync"]["selected"]["status"], "skipped")
-                self.assertEqual(task["lark_sync"]["selected"]["reason"], "manual")
+                self.assertEqual(len(sync_calls), 1, "手动任务也应调用 sync_selected_projects")
 
     def test_sync_selection_to_lark_runs_for_scheduled_job(self) -> None:
         """调度任务正常同步已选到飞书"""
@@ -352,7 +348,7 @@ class MarkPublishedTest(unittest.TestCase):
         def fake_run(cmd, *args, **kwargs):
             if "+record-list" in cmd:
                 return CompletedProcess(cmd, 0, '{"data":{"items":[{"record_id":"recExisting"}]}}', "")
-            if "+record-update" in cmd:
+            if "+record-upsert" in cmd:
                 update_calls.append(cmd)
                 return CompletedProcess(cmd, 0, '{"data":{}}', "")
             return CompletedProcess(cmd, 0, "{}", "")

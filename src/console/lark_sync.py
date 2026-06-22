@@ -102,7 +102,8 @@ def upsert_records(
 ) -> dict[str, Any]:
     """按 (key_fields) 复合键 upsert records 到指定表。
 
-    对每条 record：先 +record-list 查重，找到则 +record-update，否则 +record-batch-create。
+    对每条 record：先 +record-list --filter-json 查重，找到则 +record-upsert 更新，
+    否则 +record-batch-create 批量新增。
     Returns: {"created": int, "updated": int, "errors": list}
     """
     if not records:
@@ -119,14 +120,15 @@ def upsert_records(
                 "lark-cli", "base", "+record-list",
                 "--base-token", base_token,
                 "--table-id", table_id,
-                "--filter", filter_expr,
+                "--filter-json", filter_expr,
+                "--format", "json",
                 "--as", identity,
             ]
             proc = subprocess.run(list_cmd, capture_output=True, text=True, check=True, timeout=30)
             data = json.loads(proc.stdout or "{}")
             items = (data.get("data") or {}).get("items") or []
-            if items:
-                record_id = items[0].get("record_id")
+            record_id = items[0].get("record_id") if items else None
+            if record_id:
                 to_update.append((record_id, record))
             else:
                 to_create.append(record)
@@ -140,7 +142,7 @@ def upsert_records(
                 "lark-cli", "base", "+record-batch-create",
                 "--base-token", base_token,
                 "--table-id", table_id,
-                "--json", json.dumps(chunk, ensure_ascii=False),
+                "--json", _records_to_batch_json(chunk),
                 "--as", identity,
             ]
             try:
@@ -153,7 +155,7 @@ def upsert_records(
     updated = 0
     for record_id, fields in to_update:
         cmd = [
-            "lark-cli", "base", "+record-update",
+            "lark-cli", "base", "+record-upsert",
             "--base-token", base_token,
             "--table-id", table_id,
             "--record-id", record_id,
@@ -235,12 +237,30 @@ def sync_all_candidates(
 
 
 def _build_filter(record: dict[str, Any], key_fields: tuple[str, ...]) -> str:
-    """构造飞书 filter 表达式"""
-    parts = []
+    """构造飞书 view-filter JSON（同 +record-list --filter-json 语法）。
+
+    形如：{"logic":"and","conditions":[["项目全名","==","a/b"],["抓取时间","==","t"]]}
+    """
+    conditions = []
     for f in key_fields:
         val = record.get(f, "")
-        parts.append(f'{f}="{val}"')
-    return "AND(" + ",".join(parts) + ")"
+        conditions.append([f, "==", val])
+    return json.dumps({"logic": "and", "conditions": conditions}, ensure_ascii=False)
+
+
+def _records_to_batch_json(records: list[dict[str, Any]]) -> str:
+    """把 record 列表转成 +record-batch-create 需要的 {"fields":[...],"rows":[...]} 格式。
+
+    字段顺序取所有 record 键的首次出现顺序；缺失字段用 null 填充。
+    单批最多 200 行（由调用方分块）。
+    """
+    field_order: list[str] = []
+    for r in records:
+        for k in r.keys():
+            if k not in field_order:
+                field_order.append(k)
+    rows = [[r.get(f) for f in field_order] for r in records]
+    return json.dumps({"fields": field_order, "rows": rows}, ensure_ascii=False)
 
 
 def _chunks(lst: list, n: int):
@@ -282,7 +302,8 @@ def mark_published_in_lark(
             list_cmd = [
                 "lark-cli", "base", "+record-list",
                 "--base-token", base_token, "--table-id", table_id,
-                "--filter", filter_expr,
+                "--filter-json", filter_expr,
+                "--format", "json",
                 "--as", identity,
             ]
             proc = subprocess.run(list_cmd, capture_output=True, text=True, check=True, timeout=30)
@@ -299,7 +320,7 @@ def mark_published_in_lark(
                 "视频标题": s.get("video_title", ""),
             }
             upd_cmd = [
-                "lark-cli", "base", "+record-update",
+                "lark-cli", "base", "+record-upsert",
                 "--base-token", base_token, "--table-id", table_id,
                 "--record-id", record_id,
                 "--json", json.dumps(fields, ensure_ascii=False),

@@ -22,7 +22,6 @@ from src.console.store import (
     JOBS_DIR,
     append_model_call,
     append_log,
-    bool_value,
     create_job,
     job_artifacts,
     next_job_id,
@@ -221,20 +220,22 @@ def _write_lark_sync_status(job_id: str, segment: str, payload: dict[str, Any]) 
 
 
 def _sync_selection_to_lark(job_id: str, selected: list[dict[str, Any]]) -> None:
+    """已选项目同步到飞书已选表。手动与调度任务均同步。"""
     job = read_job(job_id)
-    if not bool_value(job.get("scheduled")):
-        append_log(job_id, "手动选入不同步到飞书已选表")
-        _write_lark_sync_status(job_id, "selected", {"status": "skipped", "reason": "manual"})
-        return
     try:
         result = sync_selected_projects(job, selected)
     except Exception as exc:
         append_log(job_id, f"飞书多维表格同步失败，已继续生成口播: {exc}")
+        _write_lark_sync_status(job_id, "selected", {"status": "failed", "error": str(exc)})
         return
     if result.get("status") == "synced":
         append_log(job_id, f"飞书多维表格已同步 {result.get('count') or 0} 个选中项目。")
+        _write_lark_sync_status(job_id, "selected", result)
     elif result.get("status") == "skipped":
         append_log(job_id, f"飞书多维表格同步跳过，已继续生成口播: {result.get('error') or '配置不完整'}")
+        _write_lark_sync_status(job_id, "selected", result)
+    elif result.get("status") == "disabled":
+        _write_lark_sync_status(job_id, "selected", result)
 
 def _sync_all_candidates_to_lark(job_id: str, job: dict[str, Any], candidates: list[dict[str, Any]], result_meta: dict[str, Any], fetch_time: str) -> None:
     """全量候选同步到飞书"""

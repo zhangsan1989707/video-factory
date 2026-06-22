@@ -115,9 +115,9 @@ while True:
         break
     if status == 'awaiting_validation':
         print('   Validating plan...')
-        result = api(f'/api/jobs/{job_id}/validate-plan', 'POST')
-        print(f'   Plan validated, status={result["job"]["status"]}')
-        break
+        api(f'/api/jobs/{job_id}/validate-plan', 'POST')
+        # Don't break — keep polling until validation completes
+        continue
     if status == 'failed':
         print(f'   FAILED! Error: {job.get("error", "")}')
         exit(1)
