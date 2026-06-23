@@ -6,6 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.console.model_router import chat_text, route_snapshot, test_provider
+
+# `test_provider` 是被测代码里的函数（不是测试），但名字以 test_ 开头会被
+# pytest 当作测试收集。这里显式关闭收集，避免 "fixture 'provider_id' not found"。
+test_provider.__test__ = False
+
 from src.console.store import (
     DEFAULT_MODEL_ROUTING,
     DEFAULT_PROVIDERS,
