@@ -16,16 +16,21 @@ from src.console.store import (
     DEFAULT_PROVIDERS,
     DEFAULT_TEMPLATES,
     append_log,
+    batch_delete_jobs,
     config_snapshot,
     create_job,
+    delete_preset,
     job_artifacts,
     list_jobs,
+    list_presets,
     provider_connection_matches_saved,
     read_job,
     read_json,
     read_log,
+    save_preset,
     update_config,
     update_configs,
+    update_job,
     update_provider_test_result,
     write_json,
 )
@@ -1292,6 +1297,84 @@ class ConsoleProvidersTest(unittest.TestCase):
 
             self.assertFalse((jobs_dir / ".." / "outside").exists())
             self.assertFalse((outside_dir / "logs.txt").exists())
+
+    def test_batch_delete_jobs_removes_non_running_and_skips_running_and_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with patch("src.console.store.JOBS_DIR", jobs_dir), \
+                 patch("src.console.store.is_active", lambda jid: jid == "GH-HOTLIST-20990101-RUNNING"):
+                running = create_job("GH-HOTLIST-20990101-RUNNING", {})
+                update_job(running["id"], status="running", stage="collecting_candidates")
+                deletable = create_job("GH-HOTLIST-20990101-DELETABLE", {})
+                result = batch_delete_jobs([deletable["id"], running["id"], "GH-MISSING"])
+
+            self.assertTrue((jobs_dir / running["id"]).exists())
+            self.assertFalse((jobs_dir / deletable["id"]).exists())
+        self.assertEqual(result["deleted"], [deletable["id"]])
+        self.assertEqual(sorted(result["skipped"]), sorted([running["id"], "GH-MISSING"]))
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(result["deleted_count"], 1)
+
+    def test_batch_delete_jobs_rejects_empty_and_oversized_lists(self) -> None:
+        with self.assertRaises(ValueError):
+            batch_delete_jobs([])
+        with self.assertRaises(ValueError):
+            batch_delete_jobs([f"GH-{i}" for i in range(101)])
+
+    def test_preset_save_list_delete_round_trip_isolates_by_config_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            with patch("src.console.store.CONFIG_DIR", config_dir):
+                saved = save_preset("Apple Daily", {"style": "apple_minimal"})
+                listing = list_presets()
+                self.assertEqual(saved["id"], "Apple_Daily")
+                self.assertEqual(saved["params"], {"style": "apple_minimal"})
+                self.assertEqual([p["id"] for p in listing], ["Apple_Daily"])
+
+                # 同名保存覆盖而非新增
+                save_preset("Apple Daily", {"style": "tech_hotspot"})
+                self.assertEqual([p["id"] for p in list_presets()], ["Apple_Daily"])
+                self.assertEqual(list_presets()[0]["params"], {"style": "tech_hotspot"})
+
+                delete_result = delete_preset("Apple_Daily")
+                self.assertTrue(delete_result["ok"])
+                self.assertEqual(list_presets(), [])
+
+    def test_save_preset_rejects_blank_and_oversized_names(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            with patch("src.console.store.CONFIG_DIR", config_dir):
+                with self.assertRaises(ValueError):
+                    save_preset("   ", {})
+                with self.assertRaises(ValueError):
+                    save_preset("x" * 61, {})
+
+    def test_delete_preset_rejects_traversal_and_missing_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            with patch("src.console.store.CONFIG_DIR", config_dir):
+                with self.assertRaises(ValueError):
+                    delete_preset("../escape")
+                with self.assertRaises(ValueError):
+                    delete_preset("")
+                with self.assertRaises(ValueError):
+                    delete_preset("missing")
+
+    def test_list_presets_skips_symlinked_and_malformed_preset_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            presets_dir = config_dir / "presets"
+            presets_dir.mkdir(parents=True)
+            write_json(presets_dir / "good.json", {"name": "Good", "params": {}})
+            (presets_dir / "bad.json").write_text("{broken", encoding="utf-8")
+            outside = Path(tmp) / "outside.json"
+            write_json(outside, {"name": "Linked", "params": {}})
+            (presets_dir / "linked.json").symlink_to(outside)
+
+            with patch("src.console.store.CONFIG_DIR", config_dir):
+                presets = list_presets()
+
+            self.assertEqual([p["id"] for p in presets], ["good"])
 
 def _fake_chat_response(content: str):
     message = type("Message", (), {"content": content})()

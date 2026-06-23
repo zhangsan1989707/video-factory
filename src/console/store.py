@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from src.console.background import is_active
 from src.hotlist_v2.template import default_params_for_style, list_template_styles, normalize_style, render_engine_for_style
 from src.utils.config import BGM_VOLUME, OUTPUT_DIR, ROOT_DIR, TTS_RATE, TTS_VOICE
 
@@ -680,7 +681,7 @@ def batch_delete_jobs(job_ids: list[str]) -> dict[str, Any]:
             if not job:
                 skipped.append(str(job_id))
                 continue
-            if str(job.get("status") or "") == "running":
+            if is_active(str(job_id)):
                 skipped.append(str(job_id))
                 continue
             delete_job(str(job_id))
@@ -700,17 +701,19 @@ def batch_delete_jobs(job_ids: list[str]) -> dict[str, Any]:
 # ---- 任务模板预设 ----
 
 
-PRESETS_DIR = CONFIG_DIR / "presets"
+def _presets_dir() -> Path:
+    """动态计算预设目录，支持 patch CONFIG_DIR 后立即生效。"""
+    return CONFIG_DIR / "presets"
 
 
 def ensure_presets_dir() -> None:
-    PRESETS_DIR.mkdir(parents=True, exist_ok=True)
+    _presets_dir().mkdir(parents=True, exist_ok=True)
 
 
 def list_presets() -> list[dict[str, Any]]:
     ensure_presets_dir()
     presets = []
-    for path in sorted(PRESETS_DIR.glob("*.json")):
+    for path in sorted(_presets_dir().glob("*.json")):
         if path.is_symlink():
             continue
         try:
@@ -738,7 +741,7 @@ def save_preset(name: str, params: dict[str, Any]) -> dict[str, Any]:
         "created_at": now,
         "updated_at": now,
     }
-    write_json(PRESETS_DIR / f"{preset_id}.json", preset)
+    write_json(_presets_dir() / f"{preset_id}.json", preset)
     preset["id"] = preset_id
     return preset
 
@@ -748,7 +751,7 @@ def delete_preset(preset_id: str) -> dict[str, Any]:
     preset_id = str(preset_id or "").strip()
     if not preset_id or "/" in preset_id or "\\" in preset_id or preset_id.startswith("."):
         raise ValueError(f"非法预设编号: {preset_id}")
-    path = PRESETS_DIR / f"{preset_id}.json"
+    path = _presets_dir() / f"{preset_id}.json"
     if not path.exists() or path.is_symlink():
         raise ValueError(f"预设不存在: {preset_id}")
     path.unlink()
