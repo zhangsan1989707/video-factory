@@ -169,6 +169,21 @@
         </section>
 
         <section>
+          <div class="section-title">模板预设</div>
+          <label>
+            <span>预设名称</span>
+            <select id="templatePreset">
+              <option value="default">默认</option>
+            </select>
+          </label>
+          <div class="preset-actions">
+            <button id="savePresetBtn" class="tiny">保存当前为预设</button>
+            <button id="loadPresetBtn" class="tiny">加载预设</button>
+            <button id="deletePresetBtn" class="tiny">删除预设</button>
+          </div>
+        </section>
+
+        <section>
           <div class="section-title">正式产物</div>
           <label>
             <span>正式视频保存目录</span>
@@ -306,7 +321,17 @@
         <section>
           <div class="section-title">历史任务</div>
           <div id="scheduleQueue" class="history-list empty">暂无定时待办。</div>
-          <input id="historySearch" class="search-input" placeholder="搜索任务 ID、标题或状态..." type="search">
+          <div class="history-controls">
+            <input id="historySearch" class="search-input" placeholder="搜索任务 ID、标题或状态..." type="search">
+            <button id="batchDeleteToggleBtn" class="tiny" title="批量删除历史任务">批量管理</button>
+          </div>
+          <div id="batchDeleteBar" class="batch-delete-bar" hidden>
+            <button id="batchSelectAllBtn" class="tiny">全选</button>
+            <button id="batchDeselectAllBtn" class="tiny">取消全选</button>
+            <button id="batchDeleteConfirmBtn" class="tiny danger">删除选中</button>
+            <span id="batchDeleteCount" class="batch-count"></span>
+            <button id="batchDeleteCancelBtn" class="tiny">退出</button>
+          </div>
           <div id="historyList" class="history-list empty">暂无历史任务。</div>
         </section>
       </aside>
@@ -521,6 +546,23 @@
       <section class="settings-section">
         <div class="section-title">任务路由</div>
         <div id="routingEditor" class="routing-editor"></div>
+      </section>
+
+      <section class="settings-section">
+        <div class="section-title">交互偏好</div>
+        <label class="check-row">
+          <input id="autoOpenToggle" type="checkbox" checked onchange="toggleAutoOpen()">
+          <span>视频生成后自动打开产物目录</span>
+        </label>
+        <p id="autoOpenStatus" class="hint">已开启自动打开</p>
+        <label class="check-row">
+          <span>主题模式</span>
+          <select id="themeSelect" onchange="setTheme(this.value)">
+            <option value="system">跟随系统</option>
+            <option value="light">浅色模式</option>
+            <option value="dark">深色模式</option>
+          </select>
+        </label>
       </section>
 
       <section class="settings-section">

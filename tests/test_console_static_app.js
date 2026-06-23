@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, larkPayloadFromForm, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions } = require("../src/console/static/app.js");
+const { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions } = require("../src/console/static/app.js");
 const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
 
 async function run() {
@@ -65,6 +65,14 @@ async function run() {
   testRenderCandidatesHidesBadgeWhenNotPublished();
   testRenderLarkSyncHistoryShowsThreeSegments();
   testRenderLarkSyncHistoryHandlesMissingSync();
+  testToggleBatchModeActivatesAndRendersCheckboxes();
+  testExitBatchModeResetsStateAndRendersNormalList();
+  testBatchSelectAllExcludesRunningJobs();
+  testBatchDeselectAllClearsSelection();
+  await testBatchDeleteConfirmedCallsApiAndRefreshes();
+  testAutoOpenEnabledDefaultsTrue();
+  testInitThemeReadsLocalStorage();
+  testSetThemeStoresAndApplies();
 }
 
 async function testJsonSuccess() {
@@ -1947,6 +1955,254 @@ function testRenderLarkSyncHistoryHandlesMissingSync() {
   const html = nodes.larkSyncHistory.innerHTML;
   assert.match(html, /全量候选/);
   assert.match(html, /未同步/);
+}
+
+// ---- 批量删除 ----
+
+async function testToggleBatchModeActivatesAndRendersCheckboxes() {
+  const jobs = [
+    { id: "job-1", status: "completed", stage: "已完成" },
+    { id: "job-2", status: "running", stage: "渲染中" },
+  ];
+  state._lastJobs = jobs;
+  state._batchMode = false;
+  state._batchSelected = new Set();
+
+  const nodes = {
+    batchDeleteBar: { hidden: true },
+    batchDeleteToggleBtn: { textContent: "", classList: { add() {}, remove() {} } },
+    batchDeleteConfirmBtn: { disabled: true },
+    batchDeleteCount: { textContent: "" },
+    historySearch: { disabled: false },
+    historyList: { innerHTML: "", querySelectorAll() { return []; }, textContent: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  toggleBatchMode();
+  assert.equal(state._batchMode, true);
+  assert.equal(nodes.batchDeleteBar.hidden, false);
+}
+
+async function testExitBatchModeResetsStateAndRendersNormalList() {
+  const jobs = [{ id: "job-1", status: "completed", stage: "已完成" }];
+  state._lastJobs = jobs;
+  state._batchMode = true;
+  state._batchSelected = new Set(["job-1"]);
+
+  const nodes = {
+    batchDeleteBar: { hidden: false },
+    batchDeleteToggleBtn: { textContent: "", classList: { add() {}, remove() {} } },
+    batchDeleteConfirmBtn: { disabled: false },
+    batchDeleteCount: { textContent: "" },
+    historySearch: { disabled: true },
+    historyList: { innerHTML: "", querySelectorAll() { return []; }, textContent: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  exitBatchMode();
+  assert.equal(state._batchMode, false);
+  assert.equal(state._batchSelected.size, 0);
+  assert.equal(nodes.batchDeleteBar.hidden, true);
+}
+
+async function testBatchSelectAllExcludesRunningJobs() {
+  const jobs = [
+    { id: "job-1", status: "completed", stage: "已完成" },
+    { id: "job-2", status: "running", stage: "渲染中" },
+    { id: "job-3", status: "failed", stage: "失败" },
+  ];
+  state._lastJobs = jobs;
+  state._batchMode = true;
+  state._batchSelected = new Set();
+
+  const nodes = {
+    batchDeleteCount: { textContent: "" },
+    batchDeleteConfirmBtn: { disabled: true },
+    historyList: { innerHTML: "", querySelectorAll() { return []; }, textContent: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+    querySelectorAll() { return []; },
+  };
+
+  batchSelectAll();
+  assert.equal(state._batchSelected.has("job-1"), true);
+  assert.equal(state._batchSelected.has("job-2"), false);
+  assert.equal(state._batchSelected.has("job-3"), true);
+}
+
+async function testBatchDeselectAllClearsSelection() {
+  state._batchMode = true;
+  state._batchSelected = new Set(["job-1", "job-2"]);
+  state._lastJobs = [];
+
+  const nodes = {
+    batchDeleteCount: { textContent: "" },
+    batchDeleteConfirmBtn: { disabled: true },
+    historyList: { innerHTML: "", querySelectorAll() { return []; }, textContent: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+    querySelectorAll() { return []; },
+  };
+
+  batchDeselectAll();
+  assert.equal(state._batchSelected.size, 0);
+}
+
+async function testBatchDeleteConfirmedCallsApiAndRefreshes() {
+  const calls = [];
+  global.fetch = async (path, options = {}) => {
+    calls.push({ path, method: options.method || "GET" });
+    if (path === "/api/jobs/batch-delete") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ ok: true, deleted: ["job-1"], skipped: [], errors: [], deleted_count: 1, skipped_count: 0 }),
+      };
+    }
+    if (path === "/api/jobs") {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ jobs: [] }),
+      };
+    }
+    throw new Error(`unexpected fetch: ${path}`);
+  };
+  global.confirm = () => true;
+  global.alert = () => {};
+
+  state._batchSelected = new Set(["job-1"]);
+  state._lastJobs = [];
+  state.currentJobId = null;
+  state._batchMode = true;
+  state.currentJob = null;
+  state.candidates = [];
+
+  const nodes = {
+    batchDeleteBar: { hidden: false },
+    batchDeleteToggleBtn: { textContent: "", classList: { add() {}, remove() {} } },
+    batchDeleteConfirmBtn: { disabled: false },
+    batchDeleteCount: { textContent: "" },
+    historySearch: { disabled: true },
+    historyList: { innerHTML: "", querySelectorAll() { return []; }, textContent: "" },
+    nextActionBtn: { textContent: "", dataset: {}, disabled: false },
+    confirmSelectionBtn: { textContent: "", disabled: false },
+    saveScriptBtn: { textContent: "", disabled: false },
+    openJobFolderBtn: { disabled: true },
+    currentStage: { textContent: "" },
+    currentJobId: { textContent: "" },
+    currentModelCall: { textContent: "" },
+    currentError: { hidden: true, textContent: "" },
+    currentDiagnostics: { hidden: true, textContent: "" },
+    stageTimeline: { className: "", innerHTML: "", textContent: "" },
+    regenerateCandidatesBtn: { disabled: true },
+    regenerateScriptBtn: { disabled: true },
+    regenerateVideoBtn: { disabled: true },
+    cancelJobBtn: { disabled: true, textContent: "" },
+    refreshCandidatesBtn: { disabled: true },
+    refreshCandidatesBtn2: { disabled: true },
+    projectCount: { value: "5" },
+    candidateRows: { innerHTML: "", querySelectorAll() { return []; } },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+    querySelectorAll() { return []; },
+  };
+
+  await batchDeleteConfirmed();
+  assert.equal(calls.some((c) => c.path === "/api/jobs/batch-delete"), true);
+  assert.equal(calls.some((c) => c.path === "/api/jobs"), true);
+  assert.equal(state._batchMode, false);
+}
+
+async function testAutoOpenEnabledDefaultsTrue() {
+  state._autoOpenEnabled = true;
+  assert.equal(state._autoOpenEnabled, true);
+
+  // toggle off
+  state._autoOpenEnabled = false;
+  assert.equal(state._autoOpenEnabled, false);
+}
+
+// ---- 暗色模式 ----
+
+function testInitThemeReadsLocalStorage() {
+  const storage = {};
+  global.localStorage = {
+    getItem(key) { return storage[key] || null; },
+    setItem(key, val) { storage[key] = val; },
+  };
+
+  const root = { attributes: {} };
+  global.document = {
+    documentElement: root,
+    getElementById() { return null; },
+    querySelectorAll() { return []; },
+  };
+
+  root.setAttribute = function (name, value) { this.attributes[name] = value; };
+  root.removeAttribute = function (name) { delete this.attributes[name]; };
+
+  // default: system
+  initTheme();
+  assert.equal(storage["github-video-console-theme"], undefined);
+  assert.equal(root.attributes["data-theme"], undefined);
+
+  // saved: dark
+  storage["github-video-console-theme"] = "dark";
+  initTheme();
+  assert.equal(root.attributes["data-theme"], "dark");
+
+  // saved: light
+  storage["github-video-console-theme"] = "light";
+  initTheme();
+  assert.equal(root.attributes["data-theme"], "light");
+}
+
+function testSetThemeStoresAndApplies() {
+  const storage = {};
+  global.localStorage = {
+    getItem(key) { return storage[key] || null; },
+    setItem(key, val) { storage[key] = val; },
+  };
+
+  const root = { attributes: {} };
+  global.document = {
+    documentElement: root,
+    getElementById() { return null; },
+    querySelectorAll() { return []; },
+  };
+
+  root.setAttribute = function (name, value) { this.attributes[name] = value; };
+  root.removeAttribute = function (name) { delete this.attributes[name]; };
+
+  setTheme("dark");
+  assert.equal(storage["github-video-console-theme"], "dark");
+  assert.equal(root.attributes["data-theme"], "dark");
+
+  setTheme("light");
+  assert.equal(storage["github-video-console-theme"], "light");
+  assert.equal(root.attributes["data-theme"], "light");
+
+  setTheme("system");
+  assert.equal(storage["github-video-console-theme"], "system");
+  assert.equal(root.attributes["data-theme"], undefined);
 }
 
 run().catch((error) => {

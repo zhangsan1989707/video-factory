@@ -34,15 +34,19 @@ from src.console.jobs import (
 from src.console.store import (
     JOBS_DIR,
     append_log,
+    batch_delete_jobs,
     config_snapshot,
     delete_job,
+    delete_preset,
     ensure_storage,
     job_artifacts,
     list_jobs,
+    list_presets,
     provider_connection_matches_saved,
     read_job,
     read_log,
     recover_hanging_jobs,
+    save_preset,
     update_config,
     update_configs,
     update_job,
@@ -134,6 +138,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/config":
             self._json(config_snapshot())
             return
+        if parsed.path == "/api/presets":
+            self._json({"presets": list_presets()})
+            return
         if parsed.path == "/api/jobs":
             jobs = reconcile_running_jobs(list_jobs())
             self._json({"jobs": jobs, "model_usage": summarize_jobs_model_usage(jobs)})
@@ -190,9 +197,26 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     raise ValueError(f"未知任务类型: {job_type}")
                 self._json({"job": creator(payload)})
                 return
+            if parsed.path == "/api/jobs/batch-delete":
+                self._json(batch_delete_jobs(payload.get("job_ids") or []))
+                return
             if parsed.path == "/api/scheduler/run-due":
                 self._json(run_due_scheduled_draft(force=bool(payload.get("force"))))
                 return
+            if parsed.path == "/api/presets":
+                self._json(save_preset(str(payload.get("name") or ""), payload.get("params") or {}))
+                return
+            if parsed.path.startswith("/api/presets/"):
+                parts = parsed.path.strip("/").split("/")
+                if len(parts) == 4 and parts[3] == "apply":
+                    preset_id = parts[2]
+                    presets = list_presets()
+                    preset = next((p for p in presets if p.get("id") == preset_id), None)
+                    if not preset:
+                        self._not_found()
+                        return
+                    self._json({"preset": preset, "ok": True})
+                    return
             if parsed.path.startswith("/api/providers/"):
                 parts = parsed.path.strip("/").split("/")
                 if len(parts) == 4 and parts[3] == "test":
@@ -261,6 +285,11 @@ class ConsoleHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
         try:
+            if parsed.path.startswith("/api/presets/"):
+                parts = parsed.path.strip("/").split("/")
+                if len(parts) == 3:
+                    self._json(delete_preset(parts[2]))
+                    return
             if parsed.path.startswith("/api/jobs/"):
                 parts = parsed.path.strip("/").split("/")
                 if len(parts) == 3:

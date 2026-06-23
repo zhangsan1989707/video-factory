@@ -19,10 +19,43 @@ const state = {
   pollTimer: null,
   templateStyles: [],
   _refreshInFlight: false,
+  _batchMode: false,
+  _batchSelected: new Set(),
+  _autoOpenEnabled: true,
+  _lastCompletedJobId: null,
 };
 
 const DEFAULT_BGM_VOLUME = 0.065;
 const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
+
+// ---- 暗色模式 (Feature Flag: ENABLE_DARK_MODE) ----
+
+const THEME_STORAGE_KEY = "github-video-console-theme";
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_STORAGE_KEY) || "system";
+  applyTheme(saved);
+  const select = document.getElementById("themeSelect");
+  if (select) select.value = saved;
+}
+
+function setTheme(mode) {
+  localStorage.setItem(THEME_STORAGE_KEY, mode);
+  applyTheme(mode);
+}
+
+function applyTheme(mode) {
+  const root = document.documentElement;
+  if (mode === "dark") {
+    root.setAttribute("data-theme", "dark");
+    root.removeAttribute("data-theme-light");
+  } else if (mode === "light") {
+    root.setAttribute("data-theme", "light");
+  } else {
+    root.removeAttribute("data-theme");
+    root.removeAttribute("data-theme-light");
+  }
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -62,8 +95,9 @@ async function boot() {
     );
     return;
   }
+  initTheme();
   bindEvents();
-  await Promise.all([loadConfig(), loadPreflight(), loadJobs()]);
+  await Promise.all([loadConfig(), loadPreflight(), loadJobs(), loadPresets()]);
 }
 
 function bindEvents() {
@@ -106,6 +140,14 @@ function bindEvents() {
     const jobs = state._lastJobs || [];
     renderHistoryJobs(jobs);
   });
+  $("batchDeleteToggleBtn").addEventListener("click", toggleBatchMode);
+  $("batchSelectAllBtn").addEventListener("click", batchSelectAll);
+  $("batchDeselectAllBtn").addEventListener("click", batchDeselectAll);
+  $("batchDeleteConfirmBtn").addEventListener("click", batchDeleteConfirmed);
+  $("batchDeleteCancelBtn").addEventListener("click", exitBatchMode);
+  $("savePresetBtn").addEventListener("click", saveTemplatePreset);
+  $("loadPresetBtn").addEventListener("click", loadTemplatePreset);
+  $("deletePresetBtn").addEventListener("click", deleteTemplatePreset);
   document.addEventListener("keydown", handleKeyboardShortcut);
   syncJobTypeFields();
 }
@@ -355,22 +397,44 @@ function renderHistoryJobs(jobs) {
     list.textContent = searchTerm ? "没有匹配的任务。" : "暂无历史任务。";
     return;
   }
-  list.innerHTML = filtered.map((job) => `
-    <div class="history-item">
-      <button class="history-open" data-job="${escapeAttr(job.id || "")}">
-        <code>${escapeHtml(job.id || "")}</code>
+  const batchMode = state._batchMode;
+  list.innerHTML = filtered.map((job) => {
+    const jobId = job.id || "";
+    const checked = batchMode && state._batchSelected.has(jobId);
+    const running = job.status === "running";
+    return `
+    <div class="history-item${batchMode ? " batch-mode" : ""}">
+      ${batchMode ? `<input type="checkbox" class="batch-checkbox" data-batch-job="${escapeAttr(jobId)}" ${checked ? "checked" : ""} ${running ? "disabled" : ""}>` : ""}
+      <button class="history-open" data-job="${escapeAttr(jobId)}">
+        <code>${escapeHtml(jobId)}</code>
         <span class="status ${escapeAttr(job.status || "")}">${escapeHtml(job.stage || "")}</span>
         ${renderProgressHint(job)}
       </button>
-      <button class="history-delete tiny" data-delete-job="${escapeAttr(job.id || "")}" title="删除历史任务">删除</button>
+      ${batchMode ? "" : `<button class="history-delete tiny" data-delete-job="${escapeAttr(jobId)}" title="删除历史任务">删除</button>`}
     </div>
-  `).join("");
+  `}).join("");
   list.querySelectorAll("[data-job]").forEach((item) => {
     item.addEventListener("click", () => loadJob(item.dataset.job));
   });
-  list.querySelectorAll("[data-delete-job]").forEach((item) => {
-    item.addEventListener("click", () => deleteHistoryJob(item.dataset.deleteJob));
-  });
+  if (!batchMode) {
+    list.querySelectorAll("[data-delete-job]").forEach((item) => {
+      item.addEventListener("click", () => deleteHistoryJob(item.dataset.deleteJob));
+    });
+  }
+  if (batchMode) {
+    list.querySelectorAll(".batch-checkbox").forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const jobId = checkbox.dataset.batchJob;
+        if (checkbox.checked) {
+          state._batchSelected.add(jobId);
+        } else {
+          state._batchSelected.delete(jobId);
+        }
+        updateBatchDeleteCount();
+      });
+    });
+    updateBatchDeleteCount();
+  }
 }
 
 async function loadJob(jobId) {
@@ -800,6 +864,15 @@ async function refreshCurrentJob() {
       stopPollingCurrentJob();
       if (wasPolling) await loadJobs();
       if (nextTab) switchTab(nextTab);
+      // 自动打开产物目录 (Feature Flag: ENABLE_AUTO_OPEN_OUTPUT)
+      if (state._autoOpenEnabled && wasPolling && detail.job.status === "completed" && state._lastCompletedJobId !== state.currentJobId) {
+        state._lastCompletedJobId = state.currentJobId;
+        try {
+          await post(`/api/jobs/${state.currentJobId}/open-folder`);
+        } catch (_error) {
+          // 静默失败，不影响主流程
+        }
+      }
     }
   } finally {
     state._refreshInFlight = false;
@@ -2178,6 +2251,158 @@ function _shortUiText(value, limit) {
   return text.length <= limit ? text : `${text.slice(0, limit - 1)}...`;
 }
 
+// ---- 批量删除 ----
+
+function toggleBatchMode() {
+  state._batchMode = !state._batchMode;
+  if (state._batchMode) {
+    state._batchSelected = new Set();
+    $("batchDeleteBar").hidden = false;
+    $("batchDeleteToggleBtn").textContent = "退出管理";
+    $("batchDeleteToggleBtn").classList.add("active");
+    $("historySearch").disabled = true;
+  } else {
+    exitBatchMode();
+  }
+  const jobs = state._lastJobs || [];
+  renderHistoryJobs(jobs);
+}
+
+function exitBatchMode() {
+  state._batchMode = false;
+  state._batchSelected = new Set();
+  $("batchDeleteBar").hidden = true;
+  $("batchDeleteToggleBtn").textContent = "批量管理";
+  $("batchDeleteToggleBtn").classList.remove("active");
+  $("historySearch").disabled = false;
+  const jobs = state._lastJobs || [];
+  renderHistoryJobs(jobs);
+}
+
+function batchSelectAll() {
+  const jobs = state._lastJobs || [];
+  jobs.forEach((job) => {
+    const jobId = String(job.id || "");
+    if (job.status !== "running") {
+      state._batchSelected.add(jobId);
+    }
+  });
+  renderHistoryJobs(jobs);
+}
+
+function batchDeselectAll() {
+  state._batchSelected = new Set();
+  const jobs = state._lastJobs || [];
+  renderHistoryJobs(jobs);
+}
+
+function updateBatchDeleteCount() {
+  const count = state._batchSelected.size;
+  $("batchDeleteCount").textContent = count ? `已选 ${count} 个` : "";
+  $("batchDeleteConfirmBtn").disabled = count === 0;
+}
+
+async function batchDeleteConfirmed() {
+  const jobIds = Array.from(state._batchSelected);
+  if (!jobIds.length) return;
+  if (!confirm(`确定要删除 ${jobIds.length} 个历史任务？对应的产物目录也会一并删除。`)) return;
+  setBusy(true);
+  try {
+    const result = await post("/api/jobs/batch-delete", { job_ids: jobIds });
+    const deleted = result.deleted_count || 0;
+    const skipped = result.skipped_count || 0;
+    const errors = result.errors || [];
+    let message = `已删除 ${deleted} 个任务。`;
+    if (skipped) message += ` 跳过 ${skipped} 个（运行中或不存在）。`;
+    if (errors.length) message += ` ${errors.length} 个失败。`;
+    state._batchSelected = new Set();
+    if (state.currentJobId && jobIds.includes(state.currentJobId)) {
+      clearCurrentJob();
+    }
+    await loadJobs();
+    exitBatchMode();
+    alert(message);
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ---- 任务模板预设 ----
+
+async function loadPresets() {
+  try {
+    const data = await api("/api/presets");
+    const select = $("templatePreset");
+    const presets = data.presets || [];
+    select.innerHTML = '<option value="default">默认</option>' +
+      presets.map((p) => `<option value="${escapeAttr(p.id)}">${escapeHtml(p.name)}</option>`).join("");
+    state._presets = presets;
+  } catch (_error) {
+    // 静默失败
+  }
+}
+
+async function saveTemplatePreset() {
+  const name = window.prompt("请输入预设名称：");
+  if (!name) return;
+  const params = currentTemplateParams();
+  setBusy(true);
+  try {
+    await post("/api/presets", { name, params });
+    await loadPresets();
+    alert("预设已保存");
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function loadTemplatePreset() {
+  const select = $("templatePreset");
+  const presetId = select.value;
+  if (!presetId || presetId === "default") return;
+  const preset = (state._presets || []).find((p) => p.id === presetId);
+  if (!preset || !preset.params) {
+    alert("预设不存在或无效");
+    return;
+  }
+  applyTemplateParams(preset.params);
+  alert(`已加载预设: ${preset.name}`);
+}
+
+async function deleteTemplatePreset() {
+  const select = $("templatePreset");
+  const presetId = select.value;
+  if (!presetId || presetId === "default") {
+    alert("请选择一个预设");
+    return;
+  }
+  if (!confirm("确定要删除此预设吗？")) return;
+  setBusy(true);
+  try {
+    await del(`/api/presets/${encodeURIComponent(presetId)}`);
+    await loadPresets();
+    select.value = "default";
+    alert("预设已删除");
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ---- 自动打开产物目录 ----
+
+function toggleAutoOpen() {
+  state._autoOpenEnabled = !state._autoOpenEnabled;
+  const label = state._autoOpenEnabled ? "已开启自动打开" : "已关闭自动打开";
+  const node = $("autoOpenStatus");
+  if (node) node.textContent = label;
+}
+
 if (typeof window !== "undefined") {
   boot().catch((error) => {
     console.error(error);
@@ -2186,5 +2411,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, autoTabForCompletedBackground, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, larkPayloadFromForm, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, updateRegenerateActions };
+  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions };
 }

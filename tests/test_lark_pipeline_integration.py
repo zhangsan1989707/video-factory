@@ -495,7 +495,7 @@ def test_full_lark_flow_on_scheduled_job(monkeypatch, tmp_path):
 
 
 def test_manual_job_skips_selected_and_publish(monkeypatch, tmp_path):
-    """手动任务：全量同步，但已选和发布标记跳过"""
+    """手动任务：全量同步，已选和发布标记也同步（与调度一致）"""
     import src.console.store as store_mod
     import src.console.lark_sync as lark_sync_mod
     from src.console import jobs
@@ -556,13 +556,13 @@ def test_manual_job_skips_selected_and_publish(monkeypatch, tmp_path):
     )
     assert state["all"] == 1
 
-    # Select → should be skipped for manual job
+    # Select → should also sync for manual job (same as scheduled)
     (job_dir / "selected_projects.json").write_text(json.dumps({
         "items": [{"full_name": "x/y", "video_title": "T", "official_video": "/v/x.mp4"}]
     }))
     jobs._sync_selection_to_lark(job_id, [{"full_name": "x/y"}])
-    assert state["sel"] == 0
+    assert state["sel"] == 1
 
-    # Verify lark_sync.selected is skipped
+    # Verify lark_sync.selected is synced
     task = json.loads((job_dir / "task.json").read_text())
-    assert task.get("lark_sync", {}).get("selected", {}).get("status") == "skipped"
+    assert task.get("lark_sync", {}).get("selected", {}).get("status") == "synced"

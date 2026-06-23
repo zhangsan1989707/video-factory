@@ -420,6 +420,119 @@ class ConsoleServerSmokeTest(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertTrue(job_dir_exists)
 
+    def test_batch_delete_endpoint_removes_non_running_jobs_and_keeps_running(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+            ):
+                keep = create_job("GH-HOTLIST-20990101-RUNNING", {})
+                update_job(keep["id"], status="running", stage="collecting_candidates")
+                drop_a = create_job("GH-HOTLIST-20990101-DROPA", {})
+                drop_b = create_job("GH-HOTLIST-20990101-DROPB", {})
+
+                # patch is_active so that the running job is treated as active
+                def _mock_is_active(job_id: str) -> bool:
+                    return job_id == keep["id"]
+
+                with patch("src.console.store.is_active", side_effect=_mock_is_active):
+                    server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                    thread = threading.Thread(target=server.serve_forever, daemon=True)
+                    thread.start()
+                    base_url = f"http://127.0.0.1:{server.server_port}"
+                    try:
+                        result = _post(base_url, "/api/jobs/batch-delete", {
+                            "job_ids": [drop_a["id"], drop_b["id"], keep["id"], "GH-MISSING"],
+                        })
+                    finally:
+                        server.shutdown()
+                        server.server_close()
+                        thread.join(timeout=1)
+
+                    kept_exists = (jobs_dir / keep["id"]).exists()
+                    a_exists = (jobs_dir / drop_a["id"]).exists()
+                    b_exists = (jobs_dir / drop_b["id"]).exists()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(sorted(result["deleted"]), sorted([drop_a["id"], drop_b["id"]]))
+        self.assertEqual(result["deleted_count"], 2)
+        self.assertEqual(sorted(result["skipped"]), sorted([keep["id"], "GH-MISSING"]))
+        self.assertEqual(result["skipped_count"], 2)
+        self.assertTrue(kept_exists)
+        self.assertFalse(a_exists)
+        self.assertFalse(b_exists)
+
+    def test_batch_delete_endpoint_rejects_empty_job_list(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+            ):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                try:
+                    status = _post_status(base_url, "/api/jobs/batch-delete", {"job_ids": []})
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+        self.assertEqual(status, 400)
+
+    def test_preset_endpoints_round_trip_save_list_apply_and_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            with patch("src.console.store.CONFIG_DIR", config_dir):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                try:
+                    saved = _post(base_url, "/api/presets", {
+                        "name": "apple-daily",
+                        "params": {"style": "apple_minimal", "project_count": 5},
+                    })
+                    preset_id = saved["id"]
+                    listing = _get(base_url, "/api/presets")
+                    applied = _post(base_url, f"/api/presets/{preset_id}/apply", {})
+                    deleted = _delete(base_url, f"/api/presets/{preset_id}")
+                    after_delete = _get(base_url, "/api/presets")
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+        self.assertEqual(saved["id"], "apple-daily")
+        self.assertEqual(saved["name"], "apple-daily")
+        self.assertEqual(saved["params"], {"style": "apple_minimal", "project_count": 5})
+        self.assertEqual([p["id"] for p in listing["presets"]], ["apple-daily"])
+        self.assertEqual(applied["preset"]["id"], "apple-daily")
+        self.assertTrue(deleted["ok"])
+        self.assertEqual(after_delete["presets"], [])
+
+    def test_delete_preset_endpoint_rejects_path_traversal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            with patch("src.console.store.CONFIG_DIR", config_dir):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                try:
+                    status = _delete_status(base_url, "/api/presets/..%2F..%2Fetc")
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+        self.assertEqual(status, 400)
+
     def test_job_detail_reports_active_flag_while_background_context_is_open(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp) / "jobs"

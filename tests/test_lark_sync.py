@@ -63,7 +63,7 @@ class LarkSyncUpsertTest(unittest.TestCase):
             if "+record-batch-create" in cmd:
                 create_calls.append(cmd)
                 return CompletedProcess(cmd, 0, '{"data":{"record_ids":["recNew"]}}', "")
-            if "+record-update" in cmd:
+            if "+record-upsert" in cmd:
                 return CompletedProcess(cmd, 0, '{"data":{}}', "")
             return CompletedProcess(cmd, 0, "{}", "")
 
@@ -81,10 +81,15 @@ class LarkSyncUpsertTest(unittest.TestCase):
         self.assertEqual(result["updated"], 0)
         self.assertEqual(len(create_calls), 1)
 
+        # 验证 list 命令用了 --filter-json 和 --format json
+        # （fake_run 无法直接拿到 list 调用，用单独断言验证命令构造）
+
     def test_upsert_records_updates_when_existing(self) -> None:
         from subprocess import CompletedProcess
 
         from src.console.lark_sync import upsert_records
+
+        upsert_calls: list[list[str]] = []
 
         def fake_run(cmd, *args, **kwargs):
             if "+record-list" in cmd:
@@ -94,7 +99,8 @@ class LarkSyncUpsertTest(unittest.TestCase):
                     '{"data":{"items":[{"record_id":"recX","fields":{"项目全名":"a/b","抓取时间":"2026-06-18 09:00"}}]}}',
                     "",
                 )
-            if "+record-update" in cmd:
+            if "+record-upsert" in cmd:
+                upsert_calls.append(cmd)
                 return CompletedProcess(cmd, 0, '{"data":{"record":{}}}', "")
             return CompletedProcess(cmd, 0, "{}", "")
 
@@ -103,6 +109,10 @@ class LarkSyncUpsertTest(unittest.TestCase):
             result = upsert_records("bt", "tblA", records, key_fields=("项目全名", "抓取时间"))
         self.assertEqual(result["created"], 0)
         self.assertEqual(result["updated"], 1)
+        # 更新走 +record-upsert --record-id
+        self.assertEqual(len(upsert_calls), 1)
+        self.assertIn("--record-id", upsert_calls[0])
+        self.assertEqual(upsert_calls[0][upsert_calls[0].index("--record-id") + 1], "recX")
 
     def test_upsert_records_empty_list(self) -> None:
         from src.console.lark_sync import upsert_records
@@ -111,6 +121,76 @@ class LarkSyncUpsertTest(unittest.TestCase):
         self.assertEqual(result["created"], 0)
         self.assertEqual(result["updated"], 0)
         self.assertEqual(result["errors"], [])
+
+    def test_upsert_records_list_cmd_uses_filter_json_and_format(self) -> None:
+        """record-list 调用必须用 --filter-json（view-filter 语法）和 --format json。"""
+        from subprocess import CompletedProcess
+
+        from src.console.lark_sync import upsert_records
+
+        list_cmds: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            if "+record-list" in cmd:
+                list_cmds.append(cmd)
+                return CompletedProcess(cmd, 0, '{"data":{"items":[]}}', "")
+            if "+record-batch-create" in cmd:
+                return CompletedProcess(cmd, 0, '{"data":{"record_ids":["recNew"]}}', "")
+            return CompletedProcess(cmd, 0, "{}", "")
+
+        with patch("src.console.lark_sync.subprocess.run", side_effect=fake_run):
+            upsert_records("bt", "tblA", [{"项目全名": "a/b", "抓取时间": "t"}], key_fields=("项目全名", "抓取时间"))
+
+        self.assertEqual(len(list_cmds), 1)
+        cmd = list_cmds[0]
+        # 必须用 --filter-json，不能用不存在的 --filter
+        self.assertIn("--filter-json", cmd)
+        self.assertNotIn("--filter", [c for c in cmd if c != "--filter-json"])
+        # 必须 --format json
+        self.assertIn("--format", cmd)
+        self.assertEqual(cmd[cmd.index("--format") + 1], "json")
+        # filter-json 内容是合法 view-filter JSON
+        filter_payload = json.loads(cmd[cmd.index("--filter-json") + 1])
+        self.assertEqual(filter_payload["logic"], "and")
+        self.assertEqual(
+            filter_payload["conditions"],
+            [["项目全名", "==", "a/b"], ["抓取时间", "==", "t"]],
+        )
+
+    def test_upsert_records_batch_create_payload_is_fields_rows_shape(self) -> None:
+        """batch-create 的 --json 必须是 {"fields":[...],"rows":[...]}，而非 record 列表。"""
+        from subprocess import CompletedProcess
+
+        from src.console.lark_sync import upsert_records
+
+        create_calls: list[list[str]] = []
+
+        def fake_run(cmd, *args, **kwargs):
+            if "+record-list" in cmd:
+                return CompletedProcess(cmd, 0, '{"data":{"items":[]}}', "")
+            if "+record-batch-create" in cmd:
+                create_calls.append(cmd)
+                return CompletedProcess(cmd, 0, '{"data":{"record_ids":["recNew"]}}', "")
+            return CompletedProcess(cmd, 0, "{}", "")
+
+        with patch("src.console.lark_sync.subprocess.run", side_effect=fake_run):
+            upsert_records(
+                "bt", "tblA",
+                [{"项目全名": "a/b", "Stars": 100}, {"项目全名": "c/d", "Stars": 200}],
+                key_fields=("项目全名",),
+            )
+
+        self.assertEqual(len(create_calls), 1)
+        payload = json.loads(create_calls[0][create_calls[0].index("--json") + 1])
+        self.assertIsInstance(payload, dict)
+        self.assertIn("fields", payload)
+        self.assertIn("rows", payload)
+        self.assertIn("项目全名", payload["fields"])
+        self.assertIn("Stars", payload["fields"])
+        # rows 是二维数组，列顺序与 fields 一致
+        self.assertEqual(len(payload["rows"]), 2)
+        for row in payload["rows"]:
+            self.assertEqual(len(row), len(payload["fields"]))
 
 
 class SyncAllCandidatesTest(unittest.TestCase):
@@ -278,10 +358,10 @@ class LarkSyncScanPublishedTest(unittest.TestCase):
 
 
 class SyncSelectionGateTest(unittest.TestCase):
-    """测试 _sync_selection_to_lark 对手动任务的门控"""
+    """手动与调度任务都应同步已选到飞书（行为统一）。"""
 
-    def test_sync_selection_to_lark_skips_manual_job(self) -> None:
-        """手动任务也同步已选到飞书（行为变更：不再跳过手动任务）"""
+    def test_sync_selection_to_lark_syncs_manual_job(self) -> None:
+        """手动任务也应调用 sync_selected_projects（不再跳过）"""
         from src.console import jobs, store
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -337,6 +417,28 @@ class SyncSelectionGateTest(unittest.TestCase):
                 self.assertEqual(len(sync_calls), 1, "调度任务应调用 sync_selected_projects")
 
 
+class BuildFilterTest(unittest.TestCase):
+    def test_build_filter_returns_view_filter_json(self) -> None:
+        from src.console.lark_sync import _build_filter
+
+        result = _build_filter(
+            {"项目全名": "a/b", "抓取时间": "2026-06-18 09:00"},
+            ("项目全名", "抓取时间"),
+        )
+        payload = json.loads(result)
+        self.assertEqual(payload["logic"], "and")
+        self.assertEqual(len(payload["conditions"]), 2)
+        self.assertEqual(payload["conditions"][0], ["项目全名", "==", "a/b"])
+        self.assertEqual(payload["conditions"][1], ["抓取时间", "==", "2026-06-18 09:00"])
+
+    def test_build_filter_single_field(self) -> None:
+        from src.console.lark_sync import _build_filter
+
+        result = _build_filter({"项目全名": "a/b"}, ("项目全名",))
+        payload = json.loads(result)
+        self.assertEqual(payload["conditions"], [["项目全名", "==", "a/b"]])
+
+
 class MarkPublishedTest(unittest.TestCase):
     def test_mark_published_updates_published_flag(self) -> None:
         from subprocess import CompletedProcess
@@ -344,9 +446,11 @@ class MarkPublishedTest(unittest.TestCase):
         from src.console.lark_sync import mark_published_in_lark
 
         update_calls: list[list[str]] = []
+        list_calls: list[list[str]] = []
 
         def fake_run(cmd, *args, **kwargs):
             if "+record-list" in cmd:
+                list_calls.append(cmd)
                 return CompletedProcess(cmd, 0, '{"data":{"items":[{"record_id":"recExisting"}]}}', "")
             if "+record-upsert" in cmd:
                 update_calls.append(cmd)
@@ -365,6 +469,15 @@ class MarkPublishedTest(unittest.TestCase):
 
         self.assertEqual(result["updated"], 1)
         self.assertEqual(result["missing"], [])
+        # list 命令用 --filter-json + --format json
+        self.assertEqual(len(list_calls), 1)
+        self.assertIn("--filter-json", list_calls[0])
+        self.assertIn("--format", list_calls[0])
+        self.assertEqual(list_calls[0][list_calls[0].index("--format") + 1], "json")
+        # update 走 +record-upsert --record-id（不是 +record-update）
+        self.assertEqual(len(update_calls), 1)
+        self.assertIn("--record-id", update_calls[0])
+        self.assertEqual(update_calls[0][update_calls[0].index("--record-id") + 1], "recExisting")
         # 检查 update 命令的 json payload
         update_cmd = update_calls[0]
         json_idx = update_cmd.index("--json")
