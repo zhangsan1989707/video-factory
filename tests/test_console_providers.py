@@ -19,6 +19,7 @@ from src.console.store import (
     batch_delete_jobs,
     config_snapshot,
     create_job,
+    delete_job,
     delete_preset,
     job_artifacts,
     list_jobs,
@@ -1320,6 +1321,18 @@ class ConsoleProvidersTest(unittest.TestCase):
             batch_delete_jobs([])
         with self.assertRaises(ValueError):
             batch_delete_jobs([f"GH-{i}" for i in range(101)])
+
+    def test_delete_job_rejects_active_job(self) -> None:
+        """delete_job 必须在内部检查 is_active，防止竞态删除运行中任务。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with patch("src.console.store.JOBS_DIR", jobs_dir), \
+                 patch("src.console.store.is_active", lambda jid: jid == "GH-HOTLIST-20990101-ACTIVE"):
+                job = create_job("GH-HOTLIST-20990101-ACTIVE", {})
+                with self.assertRaises(ValueError, msg="任务正在运行，不能删除"):
+                    delete_job(job["id"])
+                # 目录应仍然存在
+                self.assertTrue((jobs_dir / job["id"]).exists())
 
     def test_preset_save_list_delete_round_trip_isolates_by_config_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

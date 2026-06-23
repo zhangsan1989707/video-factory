@@ -652,6 +652,8 @@ def list_jobs() -> list[dict[str, Any]]:
 
 def delete_job(job_id: str) -> dict[str, Any]:
     _validate_job_id(job_id)
+    if is_active(job_id):
+        raise ValueError("任务正在运行，不能删除")
     job = read_job(job_id)
     if not job or str(job.get("id") or "") != job_id:
         raise ValueError(f"任务不存在: {job_id}")
