@@ -665,6 +665,103 @@ def delete_job(job_id: str) -> dict[str, Any]:
     return {"ok": True, "job_id": job_id}
 
 
+def batch_delete_jobs(job_ids: list[str]) -> dict[str, Any]:
+    """批量删除任务。运行中的任务会被跳过。"""
+    if not isinstance(job_ids, list) or not job_ids:
+        raise ValueError("请提供要删除的任务编号列表")
+    if len(job_ids) > 100:
+        raise ValueError("单次最多删除 100 个任务")
+    deleted: list[str] = []
+    skipped: list[str] = []
+    errors: list[str] = []
+    for job_id in job_ids:
+        try:
+            job = read_job(str(job_id))
+            if not job:
+                skipped.append(str(job_id))
+                continue
+            if str(job.get("status") or "") == "running":
+                skipped.append(str(job_id))
+                continue
+            delete_job(str(job_id))
+            deleted.append(str(job_id))
+        except ValueError as exc:
+            errors.append(f"{job_id}: {exc}")
+    return {
+        "ok": True,
+        "deleted": deleted,
+        "skipped": skipped,
+        "errors": errors,
+        "deleted_count": len(deleted),
+        "skipped_count": len(skipped),
+    }
+
+
+# ---- 任务模板预设 ----
+
+
+PRESETS_DIR = CONFIG_DIR / "presets"
+
+
+def ensure_presets_dir() -> None:
+    PRESETS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def list_presets() -> list[dict[str, Any]]:
+    ensure_presets_dir()
+    presets = []
+    for path in sorted(PRESETS_DIR.glob("*.json")):
+        if path.is_symlink():
+            continue
+        try:
+            data = read_json(path, {})
+            if isinstance(data, dict) and data.get("name"):
+                data["id"] = path.stem
+                presets.append(data)
+        except Exception:
+            continue
+    return presets
+
+
+def save_preset(name: str, params: dict[str, Any]) -> dict[str, Any]:
+    ensure_presets_dir()
+    name = str(name or "").strip()
+    if not name:
+        raise ValueError("预设名称不能为空")
+    if len(name) > 60:
+        raise ValueError("预设名称不能超过 60 个字符")
+    preset_id = _preset_id_from_name(name)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    preset = {
+        "name": name,
+        "params": params if isinstance(params, dict) else {},
+        "created_at": now,
+        "updated_at": now,
+    }
+    write_json(PRESETS_DIR / f"{preset_id}.json", preset)
+    preset["id"] = preset_id
+    return preset
+
+
+def delete_preset(preset_id: str) -> dict[str, Any]:
+    ensure_presets_dir()
+    preset_id = str(preset_id or "").strip()
+    if not preset_id or "/" in preset_id or "\\" in preset_id or preset_id.startswith("."):
+        raise ValueError(f"非法预设编号: {preset_id}")
+    path = PRESETS_DIR / f"{preset_id}.json"
+    if not path.exists() or path.is_symlink():
+        raise ValueError(f"预设不存在: {preset_id}")
+    path.unlink()
+    return {"ok": True, "preset_id": preset_id}
+
+
+def _preset_id_from_name(name: str) -> str:
+    import re as _re
+    slug = _re.sub(r"[^a-zA-Z0-9\u4e00-\u9fff_-]", "_", name.strip())
+    slug = _re.sub(r"_+", "_", slug).strip("_")
+    return slug[:40] if slug else "preset"
+
+
 def append_log(job_id: str, message: str) -> None:
     _validate_job_id(job_id)
     log_path = JOBS_DIR / job_id / "logs.txt"
@@ -842,8 +939,8 @@ def _normalize_lark(data: dict[str, Any] | None) -> dict[str, Any]:
         base_token = str(current.get("base_token") or "")
     # 新字段：2 个表 ID + 2 个开关
     # 使用 "key in data" 区分"未传入"和"传入空字符串"，否则用户无法清空字段
-    all_data_table_id = str(data["all_data_table_id"] if "all_data_table_id" in data else (current.get("all_data_table_id") or "")).strip()
-    selected_data_table_id = str(data["selected_data_table_id"] if "selected_data_table_id" in data else (current.get("selected_data_table_id") or "")).strip()
+    all_data_table_id = str(data["all_data_table_id"] if ("all_data_table_id" in data and data["all_data_table_id"] is not None) else (current.get("all_data_table_id") or "")).strip()
+    selected_data_table_id = str(data["selected_data_table_id"] if ("selected_data_table_id" in data and data["selected_data_table_id"] is not None) else (current.get("selected_data_table_id") or "")).strip()
     sync_all_data = bool_value(data.get("sync_all_data") if data.get("sync_all_data") is not None else current.get("sync_all_data", True))
     sync_selected_data = bool_value(data.get("sync_selected_data") if data.get("sync_selected_data") is not None else current.get("sync_selected_data", True))
     # 向后兼容：旧 table_id 优先级高于 current 中的 selected_data_table_id

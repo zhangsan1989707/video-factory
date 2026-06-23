@@ -142,3 +142,30 @@ def test_normalize_lark_omit_table_ids_preserves_current() -> None:
     })
     assert result["all_data_table_id"] == "tblKeep"
     assert result["selected_data_table_id"] == "tblKeepSel"
+
+
+@_with_isolated_config
+def test_normalize_lark_null_values_treated_as_empty() -> None:
+    """传入 null (Python None) 时应等同于空字符串，不应变成 'None' 字符串。
+
+    回归测试：str(None) 会产生 'None' 字符串导致数据损坏。
+    修复后 None 值应回落到当前值或空字符串。
+    """
+    # 先写入有值的配置
+    first = _normalize_lark({
+        "enabled": True,
+        "base_token": "bt",
+        "all_data_table_id": "tblExisting",
+        "selected_data_table_id": "tblExistingSel",
+    })
+    from src.console import store as store_mod
+    write_json(store_mod.CONFIG_DIR / "lark.json", first)
+    # 传入 null 值，应回落到当前值（与不传入字段行为一致）
+    result = _normalize_lark({
+        "enabled": True,
+        "base_token": "bt",
+        "all_data_table_id": None,
+        "selected_data_table_id": None,
+    })
+    assert result["all_data_table_id"] == "tblExisting", f"Expected 'tblExisting', got '{result['all_data_table_id']}'"
+    assert result["selected_data_table_id"] == "tblExistingSel", f"Expected 'tblExistingSel', got '{result['selected_data_table_id']}'"

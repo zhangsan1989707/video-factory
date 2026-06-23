@@ -133,6 +133,9 @@ if status == 'ready_to_render':
     print('   Starting render-video...')
     result = api(f'/api/jobs/{job_id}/render-video', 'POST')
     print(f'   Render started')
+else:
+    print(f'   ERROR: Expected ready_to_render but got status={status}, cannot start rendering')
+    exit(1)
 
 print('10. Waiting for rendering to complete...')
 while True:
