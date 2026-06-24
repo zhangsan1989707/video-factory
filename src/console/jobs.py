@@ -245,8 +245,8 @@ def _sync_selection_to_lark(job_id: str, selected: list[dict[str, Any]]) -> None
 def resync_lark(job_id: str, segment: str = "all") -> dict[str, Any]:
     """手动重试飞书同步。支持 segment="selected"/"all_data"/"all"。
 
-    从 job 数据中读取已有的候选/已选，重新执行对应的同步逻辑。
-    不阻塞——每个 segment 在后台线程执行并写入状态。
+    从磁盘文件中读取已有的候选/已选，重新执行对应的同步逻辑。
+    同步执行——每个 segment 依次执行并写入状态。
     """
     from .lark_sync import read_lark_config
 
@@ -261,16 +261,20 @@ def resync_lark(job_id: str, segment: str = "all") -> dict[str, Any]:
 
     for seg in segments_to_retry:
         if seg == "selected":
-            selected = job.get("selected", [])
+            selected = read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items") or []
             if not selected:
                 results[seg] = "no_selection"
                 continue
             _sync_selection_to_lark(job_id, selected)
             results[seg] = "triggered"
         elif seg == "all_data":
-            candidates = job.get("candidates", [])
-            result_meta = job.get("result_meta", {})
-            fetch_time = job.get("fetch_time", "")
+            candidates = read_json(JOBS_DIR / job_id / "candidates.json", {}).get("items") or []
+            result_meta = {
+                "cache_status": str(job.get("cache_status") or "fresh"),
+                "data_source": str(job.get("data_source") or "trending"),
+                "time_window": str(job.get("time_window") or "daily"),
+            }
+            fetch_time = str(job.get("fetch_time") or "")
             if not candidates:
                 results[seg] = "no_candidates"
                 continue

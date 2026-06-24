@@ -596,6 +596,100 @@ class MarkPublishedTest(unittest.TestCase):
         self.assertEqual(result["status"], "skipped")
 
 
+class ResyncLarkTest(unittest.TestCase):
+    """resync_lark 必须从磁盘文件（selected_projects.json / candidates.json）读取数据，
+    而非从 task.json 的 job dict 读取（selected/candidates 不在 task.json 中）。"""
+
+    def test_resync_lark_reads_selected_from_file_not_task_json(self) -> None:
+        from src.console import jobs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with (
+                patch("src.console.jobs.JOBS_DIR", tmp_path),
+                patch("src.console.store.JOBS_DIR", tmp_path),
+            ):
+                job_id = "TEST-RESYNC"
+                job_dir = tmp_path / job_id
+                job_dir.mkdir(parents=True, exist_ok=True)
+                # task.json 不含 selected/candidates 键
+                (job_dir / "task.json").write_text(json.dumps({
+                    "id": job_id, "status": "completed", "lark_sync": {},
+                    "fetch_time": "2026-06-24 09:00",
+                }))
+                # selected_projects.json 含实际已选数据
+                (job_dir / "selected_projects.json").write_text(json.dumps({
+                    "items": [{"full_name": "a/b", "name": "b"}]
+                }))
+
+                sync_calls = []
+
+                def fake_sync(*args, **kwargs):
+                    sync_calls.append(("selected", args, kwargs))
+                    return {"status": "synced", "count": 1, "error": ""}
+
+                config_dir = Path(tmp) / "config"
+                config_dir.mkdir()
+                (config_dir / "lark.json").write_text(json.dumps({
+                    "enabled": True, "base_token": "bt", "selected_data_table_id": "tbl"
+                }))
+
+                with (
+                    patch("src.console.store.CONFIG_DIR", config_dir),
+                    patch("src.console.jobs.sync_selected_projects", side_effect=fake_sync),
+                ):
+                    result = jobs.resync_lark(job_id, segment="selected")
+
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["segments"]["selected"], "triggered")
+                self.assertEqual(len(sync_calls), 1, "应调用 sync_selected_projects")
+
+    def test_resync_lark_reads_candidates_from_file_not_task_json(self) -> None:
+        from src.console import jobs
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            with (
+                patch("src.console.jobs.JOBS_DIR", tmp_path),
+                patch("src.console.store.JOBS_DIR", tmp_path),
+            ):
+                job_id = "TEST-RESYNC-ALL"
+                job_dir = tmp_path / job_id
+                job_dir.mkdir(parents=True, exist_ok=True)
+                (job_dir / "task.json").write_text(json.dumps({
+                    "id": job_id, "status": "completed", "lark_sync": {},
+                    "fetch_time": "2026-06-24 09:00",
+                }))
+                # candidates.json 含实际候选数据
+                (job_dir / "candidates.json").write_text(json.dumps({
+                    "items": [{"full_name": "x/y", "name": "y", "html_url": "https://github.com/x/y",
+                               "stargazers_count": 50, "rank": 1, "topics": []}]
+                }))
+
+                sync_calls = []
+
+                def fake_sync_all(*args, **kwargs):
+                    sync_calls.append(("all_data", args, kwargs))
+                    return {"status": "synced", "created": 1, "updated": 0, "errors": [], "records_count": 1}
+
+                config_dir = Path(tmp) / "config"
+                config_dir.mkdir()
+                (config_dir / "lark.json").write_text(json.dumps({
+                    "enabled": True, "base_token": "bt",
+                    "all_data_table_id": "tblA", "sync_all_data": True,
+                }))
+
+                with (
+                    patch("src.console.store.CONFIG_DIR", config_dir),
+                    patch("src.console.lark_sync.sync_all_candidates", side_effect=fake_sync_all),
+                ):
+                    result = jobs.resync_lark(job_id, segment="all_data")
+
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["segments"]["all_data"], "triggered")
+                self.assertEqual(len(sync_calls), 1, "应调用 sync_all_candidates")
+
+
 class ReadLarkConfigTest(unittest.TestCase):
     def test_read_lark_config_normalizes(self) -> None:
         from src.console import lark_sync, store
