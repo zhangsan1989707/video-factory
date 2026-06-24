@@ -231,6 +231,10 @@ def _sync_selection_to_lark(job_id: str, selected: list[dict[str, Any]]) -> None
     if result.get("status") == "synced":
         append_log(job_id, f"飞书多维表格已同步 {result.get('count') or 0} 个选中项目。")
         _write_lark_sync_status(job_id, "selected", result)
+    elif result.get("status") == "partial":
+        err_count = len(result.get("errors") or [])
+        append_log(job_id, f"飞书多维表格部分同步: 成功 {result.get('count') or 0} 个，{err_count} 个失败或超时，已继续生成口播。")
+        _write_lark_sync_status(job_id, "selected", result)
     elif result.get("status") == "skipped":
         append_log(job_id, f"飞书多维表格同步跳过，已继续生成口播: {result.get('error') or '配置不完整'}")
         _write_lark_sync_status(job_id, "selected", result)

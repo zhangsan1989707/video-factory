@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from src.console.lark_sync import sync_selected_projects
@@ -11,23 +12,33 @@ from src.console.store import write_json
 
 
 class LarkSyncTest(unittest.TestCase):
-    def test_sync_selected_projects_writes_lark_records(self) -> None:
-        calls = []
+    def _make_run(self, create_payloads: list):
+        """record-list 返回空（触发新增），batch-create 捕获 payload。"""
+        def fake_run(cmd, *args, **kwargs):
+            if "+record-list" in cmd:
+                return CompletedProcess(cmd, 0, '{"data":{"items":[]}}', "")
+            if "+record-batch-create" in cmd:
+                create_payloads.append(cmd)
+                return CompletedProcess(cmd, 0, '{"data":{"record_ids":["recNew"]}}', "")
+            if "+record-upsert" in cmd:
+                return CompletedProcess(cmd, 0, '{"data":{}}', "")
+            return CompletedProcess(cmd, 0, "{}", "")
+        return fake_run
 
-        def fake_run(cmd, **kwargs):
-            calls.append((cmd, kwargs))
-            return object()
+    def test_sync_selected_projects_writes_lark_records(self) -> None:
+        create_payloads = []
 
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)
             write_json(config_dir / "lark.json", {
                 "enabled": True,
                 "base_token": "base123",
-                "table_id": "tbl123",
+                "selected_data_table_id": "tbl-selected",
+                "sync_selected_data": True,
             })
             with (
-                patch("src.console.lark_sync.CONFIG_DIR", config_dir),
-                patch("src.console.lark_sync.subprocess.run", side_effect=fake_run),
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.lark_sync.subprocess.run", side_effect=self._make_run(create_payloads)),
             ):
                 result = sync_selected_projects(
                     {"id": "JOB-1", "time_window": "daily"},
@@ -40,13 +51,76 @@ class LarkSyncTest(unittest.TestCase):
                     }],
                 )
 
-        payload = json.loads(calls[0][0][calls[0][0].index("--json") + 1])
-        self.assertEqual(result, {"status": "synced", "count": 1, "error": ""})
-        self.assertEqual(payload["任务 ID"], "JOB-1")
-        self.assertEqual(payload["项目全名"], "demo/alpha")
-        self.assertEqual(payload["Stars"], 12)
-        self.assertEqual(payload["Daily Growth"], "估算日均 star 约 +3/天")
-        self.assertIn("--as", calls[0][0])
+        # 通过批量 batch-create 写入，table_id 来自 selected_data_table_id
+        self.assertEqual(result["status"], "synced")
+        self.assertEqual(result["created"], 1)
+        self.assertEqual(result["errors"], [])
+        batch_cmd = create_payloads[0]
+        self.assertIn("tbl-selected", batch_cmd)
+        payload = json.loads(batch_cmd[batch_cmd.index("--json") + 1])
+        # batch-create 用列式结构 {"fields":[...], "rows":[[...]]}
+        fields = payload["fields"]
+        row = payload["rows"][0]
+        field_map = dict(zip(fields, row))
+        self.assertEqual(field_map["任务 ID"], "JOB-1")
+        self.assertEqual(field_map["项目全名"], "demo/alpha")
+        self.assertEqual(field_map["Stars"], 12)
+        self.assertEqual(field_map["Daily Growth"], "估算日均 star 约 +3/天")
+
+    def test_sync_selected_projects_backward_compat_uses_legacy_table_id(self) -> None:
+        """旧配置只有 table_id（无 selected_data_table_id）应向后兼容。"""
+        create_payloads = []
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            write_json(config_dir / "lark.json", {
+                "enabled": True,
+                "base_token": "base123",
+                "table_id": "tbl-legacy",
+            })
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.lark_sync.subprocess.run", side_effect=self._make_run(create_payloads)),
+            ):
+                result = sync_selected_projects({"id": "J"}, [{"full_name": "a/b", "name": "b"}])
+        self.assertEqual(result["status"], "synced")
+        self.assertIn("tbl-legacy", create_payloads[0])
+
+    def test_sync_selected_projects_respects_sync_selected_data_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            write_json(config_dir / "lark.json", {
+                "enabled": True,
+                "base_token": "base123",
+                "selected_data_table_id": "tbl",
+                "sync_selected_data": False,
+            })
+            with patch("src.console.store.CONFIG_DIR", config_dir):
+                result = sync_selected_projects({"id": "J"}, [{"full_name": "a/b"}])
+        self.assertEqual(result["status"], "disabled")
+
+    def test_sync_selected_projects_returns_partial_on_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp)
+            write_json(config_dir / "lark.json", {
+                "enabled": True,
+                "base_token": "base123",
+                "selected_data_table_id": "tbl",
+                "sync_selected_data": True,
+            })
+
+            def slow_run(cmd, *a, **kw):
+                import time
+                time.sleep(5)
+                return CompletedProcess(cmd, 0, "{}", "")
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.lark_sync.subprocess.run", side_effect=slow_run),
+                patch("src.console.lark_sync.LARK_SYNC_TOTAL_TIMEOUT", 0.2),
+            ):
+                result = sync_selected_projects({"id": "J"}, [{"full_name": "a/b", "name": "b"}])
+        self.assertEqual(result["status"], "partial")
+        self.assertIn("已中止", result["error"])
 
 
 class LarkSyncUpsertTest(unittest.TestCase):

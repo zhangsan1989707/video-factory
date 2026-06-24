@@ -10,6 +10,11 @@ from typing import Any
 from src.console.store import CONFIG_DIR, DEFAULT_LARK, JOBS_DIR, read_json
 
 
+# 整个飞书同步的总超时（秒）。单条 subprocess 已有各自超时，这里保护
+# N 条记录串行的累积耗时，避免拖垮候选生成/口播生成主流程。
+LARK_SYNC_TOTAL_TIMEOUT = 120
+
+
 def read_lark_config():
     """读取 lark.json 配置并归一化"""
     from .store import CONFIG_DIR, _normalize_lark, read_json
@@ -29,42 +34,66 @@ def read_lark_config():
 
 
 def sync_selected_projects(job: dict[str, Any], projects: list[dict[str, Any]]) -> dict[str, Any]:
-    config = read_json(CONFIG_DIR / "lark.json", DEFAULT_LARK)
+    """已选项目同步到飞书"已选表"。
+
+    使用 read_lark_config() 归一化配置（与全量候选路径一致），读取
+    selected_data_table_id，尊重 sync_selected_data 开关。复用批量
+    upsert_records 接口以减少逐条 subprocess 开销。整体同步设有总超时
+    (默认 120s)，超时则返回 partial 状态，避免拖垮候选生成主流程。
+    """
+    config = read_lark_config()
     if not config.get("enabled"):
         return {"status": "disabled", "count": 0, "error": ""}
 
+    if not config.get("sync_selected_data"):
+        return {"status": "disabled", "count": 0, "error": ""}
+
     base_token = str(config.get("base_token") or "").strip()
-    table_id = str(config.get("table_id") or "").strip()
+    table_id = str(config.get("selected_data_table_id") or "").strip()
+    # 向后兼容：归一化保证 table_id 与 selected_data_table_id 同步
+    if not table_id:
+        table_id = str(config.get("table_id") or "").strip()
     if not base_token or not table_id:
-        return {"status": "skipped", "count": 0, "error": "飞书同步未配置 base token 或 table id"}
+        return {"status": "skipped", "count": 0, "error": "飞书同步未配置 base token 或 selected_data_table_id"}
 
-    created = 0
-    for index, project in enumerate(projects, start=1):
-        _create_record(base_token, table_id, _record_fields(job, project, index))
-        created += 1
-    return {"status": "synced", "count": created, "error": ""}
+    if not projects:
+        return {"status": "synced", "count": 0, "error": "", "errors": []}
 
+    records = [_record_fields(job, project, index) for index, project in enumerate(projects, start=1)]
 
-def _create_record(base_token: str, table_id: str, fields: dict[str, Any]) -> None:
-    subprocess.run(
-        [
-            "lark-cli",
-            "base",
-            "+record-upsert",
-            "--base-token",
-            base_token,
-            "--table-id",
-            table_id,
-            "--json",
-            json.dumps(fields, ensure_ascii=False),
-            "--as",
-            "user",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    # 总超时保护：飞书同步不应阻塞候选生成主流程太久
+    import concurrent.futures
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                upsert_records,
+                base_token=base_token,
+                table_id=table_id,
+                records=records,
+                key_fields=("任务 ID", "项目全名"),
+            )
+            result = future.result(timeout=LARK_SYNC_TOTAL_TIMEOUT)
+    except concurrent.futures.TimeoutError:
+        return {
+            "status": "partial",
+            "count": 0,
+            "created": 0,
+            "updated": 0,
+            "error": f"飞书同步总耗时超过 {LARK_SYNC_TOTAL_TIMEOUT}s，已中止",
+            "errors": [{"error": "total timeout exceeded"}],
+        }
+
+    count = result["created"] + result["updated"]
+    status = "synced" if not result["errors"] else "partial"
+    return {
+        "status": status,
+        "count": count,
+        "created": result["created"],
+        "updated": result["updated"],
+        "error": "",
+        "errors": result["errors"],
+    }
 
 
 def _record_fields(job: dict[str, Any], project: dict[str, Any], order: int) -> dict[str, Any]:
