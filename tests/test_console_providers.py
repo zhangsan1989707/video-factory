@@ -1353,6 +1353,21 @@ class ConsoleProvidersTest(unittest.TestCase):
                 self.assertTrue(delete_result["ok"])
                 self.assertEqual(list_presets(), [])
 
+    def test_save_preset_slug_collision_does_not_overwrite_different_name(self) -> None:
+        """不同名称但 slug 相同时，save_preset 应创建新文件而非静默覆盖。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            with patch("src.console.store.CONFIG_DIR", config_dir):
+                first = save_preset("My Preset!", {"style": "a"})
+                second = save_preset("My Preset?", {"style": "b"})
+                # 两者 slug 均为 My_Preset_，但名称不同，应生成不同 id
+                self.assertNotEqual(first["id"], second["id"])
+                presets = list_presets()
+                self.assertEqual(len(presets), 2)
+                ids = [p["id"] for p in presets]
+                self.assertIn(first["id"], ids)
+                self.assertIn(second["id"], ids)
+
     def test_save_preset_rejects_blank_and_oversized_names(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp) / "config"

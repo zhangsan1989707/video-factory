@@ -736,6 +736,15 @@ def save_preset(name: str, params: dict[str, Any]) -> dict[str, Any]:
     if len(name) > 60:
         raise ValueError("预设名称不能超过 60 个字符")
     preset_id = _preset_id_from_name(name)
+    # 避免 slug 冲突导致静默覆盖：如果文件已存在且名称不同，追加数字后缀
+    target_path = _presets_dir() / f"{preset_id}.json"
+    if target_path.exists():
+        existing = read_json(target_path, {})
+        if existing.get("name") != name:
+            n = 1
+            while (_presets_dir() / f"{preset_id}_{n}.json").exists():
+                n += 1
+            preset_id = f"{preset_id}_{n}"
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     preset = {
         "name": name,
