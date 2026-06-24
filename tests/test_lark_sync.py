@@ -99,6 +99,9 @@ class LarkSyncTest(unittest.TestCase):
         self.assertEqual(result["status"], "disabled")
 
     def test_sync_selected_projects_returns_partial_on_timeout(self) -> None:
+        """超时后应立即返回 partial，不应阻塞等待线程完成。"""
+        import time as _time
+
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp)
             write_json(config_dir / "lark.json", {
@@ -109,8 +112,7 @@ class LarkSyncTest(unittest.TestCase):
             })
 
             def slow_run(cmd, *a, **kw):
-                import time
-                time.sleep(5)
+                _time.sleep(5)
                 return CompletedProcess(cmd, 0, "{}", "")
 
             with (
@@ -118,9 +120,14 @@ class LarkSyncTest(unittest.TestCase):
                 patch("src.console.lark_sync.subprocess.run", side_effect=slow_run),
                 patch("src.console.lark_sync.LARK_SYNC_TOTAL_TIMEOUT", 0.2),
             ):
+                start = _time.monotonic()
                 result = sync_selected_projects({"id": "J"}, [{"full_name": "a/b", "name": "b"}])
+                elapsed = _time.monotonic() - start
         self.assertEqual(result["status"], "partial")
         self.assertIn("已中止", result["error"])
+        # 关键断言：超时后不应阻塞等待线程完成
+        # 0.2s 超时 + 少量开销，如果 shutdown(wait=True) 则会阻塞 5s
+        self.assertLess(elapsed, 2.0, "超时后不应阻塞等待线程完成")
 
 
 class LarkSyncUpsertTest(unittest.TestCase):

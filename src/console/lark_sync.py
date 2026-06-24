@@ -64,17 +64,20 @@ def sync_selected_projects(job: dict[str, Any], projects: list[dict[str, Any]]) 
     # 总超时保护：飞书同步不应阻塞候选生成主流程太久
     import concurrent.futures
 
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(
+        upsert_records,
+        base_token=base_token,
+        table_id=table_id,
+        records=records,
+        key_fields=("任务 ID", "项目全名"),
+    )
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(
-                upsert_records,
-                base_token=base_token,
-                table_id=table_id,
-                records=records,
-                key_fields=("任务 ID", "项目全名"),
-            )
-            result = future.result(timeout=LARK_SYNC_TOTAL_TIMEOUT)
+        result = future.result(timeout=LARK_SYNC_TOTAL_TIMEOUT)
     except concurrent.futures.TimeoutError:
+        # 超时后不等待线程完成，否则总超时保护形同虚设
+        future.cancel()
+        executor.shutdown(wait=False)
         return {
             "status": "partial",
             "count": 0,
@@ -83,6 +86,8 @@ def sync_selected_projects(job: dict[str, Any], projects: list[dict[str, Any]]) 
             "error": f"飞书同步总耗时超过 {LARK_SYNC_TOTAL_TIMEOUT}s，已中止",
             "errors": [{"error": "total timeout exceeded"}],
         }
+    else:
+        executor.shutdown(wait=False)
 
     count = result["created"] + result["updated"]
     status = "synced" if not result["errors"] else "partial"

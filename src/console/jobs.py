@@ -241,6 +241,45 @@ def _sync_selection_to_lark(job_id: str, selected: list[dict[str, Any]]) -> None
     elif result.get("status") == "disabled":
         _write_lark_sync_status(job_id, "selected", result)
 
+
+def resync_lark(job_id: str, segment: str = "all") -> dict[str, Any]:
+    """手动重试飞书同步。支持 segment="selected"/"all_data"/"all"。
+
+    从 job 数据中读取已有的候选/已选，重新执行对应的同步逻辑。
+    不阻塞——每个 segment 在后台线程执行并写入状态。
+    """
+    from .lark_sync import read_lark_config
+
+    job = read_job(job_id)
+    if not job:
+        return {"ok": False, "error": "任务不存在"}
+    if not read_lark_config().get("enabled"):
+        return {"ok": False, "error": "飞书同步未启用"}
+
+    segments_to_retry = ["selected", "all_data"] if segment == "all" else [segment]
+    results: dict[str, str] = {}
+
+    for seg in segments_to_retry:
+        if seg == "selected":
+            selected = job.get("selected", [])
+            if not selected:
+                results[seg] = "no_selection"
+                continue
+            _sync_selection_to_lark(job_id, selected)
+            results[seg] = "triggered"
+        elif seg == "all_data":
+            candidates = job.get("candidates", [])
+            result_meta = job.get("result_meta", {})
+            fetch_time = job.get("fetch_time", "")
+            if not candidates:
+                results[seg] = "no_candidates"
+                continue
+            _sync_all_candidates_to_lark(job_id, job, candidates, result_meta, fetch_time)
+            results[seg] = "triggered"
+
+    return {"ok": True, "segments": results}
+
+
 def _sync_all_candidates_to_lark(job_id: str, job: dict[str, Any], candidates: list[dict[str, Any]], result_meta: dict[str, Any], fetch_time: str) -> None:
     """全量候选同步到飞书"""
     from .lark_sync import sync_all_candidates, read_lark_config
