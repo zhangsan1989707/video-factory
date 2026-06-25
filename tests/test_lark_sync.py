@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -688,6 +689,72 @@ class ResyncLarkTest(unittest.TestCase):
                 self.assertTrue(result["ok"])
                 self.assertEqual(result["segments"]["all_data"], "triggered")
                 self.assertEqual(len(sync_calls), 1, "应调用 sync_all_candidates")
+
+
+class CancelEventIsolationTest(unittest.TestCase):
+    """cancel_event 必须是局部变量，不能跨调用污染。
+    sync_selected_projects 超时后，sync_all_candidates 的 upsert_records
+    不应被跳过。
+    """
+
+    def test_cancel_event_does_not_pollute_across_calls(self) -> None:
+        from src.console import lark_sync
+
+        # 模拟 sync_selected_projects 超时场景：设置一个 cancel_event 并触发
+        cancel = threading.Event()
+        cancel.set()
+
+        # upsert_records 使用独立的 cancel_event（未触发），应正常执行
+        fresh_cancel = threading.Event()
+
+        records = [{"项目全名": "a/b", "抓取时间": "2026-06-24"}]
+        call_count = 0
+
+        def fake_run(cmd, *a, **kw):
+            nonlocal call_count
+            call_count += 1
+            return CompletedProcess(cmd, 0, '{"data": {"items": []}}', "")
+
+        with patch("src.console.lark_sync.subprocess.run", side_effect=fake_run):
+            result = lark_sync.upsert_records(
+                base_token="bt",
+                table_id="tbl",
+                records=records,
+                key_fields=("项目全名",),
+                cancel_event=fresh_cancel,
+            )
+
+        # fresh_cancel 未触发，应正常处理记录
+        self.assertGreater(call_count, 0, "upsert_records 应执行 subprocess 调用")
+        self.assertEqual(result["created"], 1, "应成功创建 1 条记录")
+
+    def test_cancel_event_stops_upsert_when_set(self) -> None:
+        from src.console import lark_sync
+
+        cancel = threading.Event()
+        cancel.set()  # 已触发
+
+        records = [{"项目全名": "a/b"}, {"项目全名": "c/d"}]
+        call_count = 0
+
+        def fake_run(cmd, *a, **kw):
+            nonlocal call_count
+            call_count += 1
+            return CompletedProcess(cmd, 0, '{"data": {"items": []}}', "")
+
+        with patch("src.console.lark_sync.subprocess.run", side_effect=fake_run):
+            result = lark_sync.upsert_records(
+                base_token="bt",
+                table_id="tbl",
+                records=records,
+                key_fields=("项目全名",),
+                cancel_event=cancel,
+            )
+
+        # cancel 已触发，应跳过所有记录
+        self.assertEqual(call_count, 0, "cancel_event 触发后不应执行 subprocess 调用")
+        self.assertEqual(result["created"], 0)
+        self.assertEqual(result["updated"], 0)
 
 
 class ReadLarkConfigTest(unittest.TestCase):

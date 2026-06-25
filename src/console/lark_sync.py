@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import subprocess
+import threading
 from datetime import datetime
 from typing import Any
 
 from src.console.store import CONFIG_DIR, DEFAULT_LARK, JOBS_DIR, read_json
+
+# 默认取消事件（永不触发），供不关心超时的调用方使用
+_NEVER_CANCEL = threading.Event()
 
 
 # 整个飞书同步的总超时（秒）。单条 subprocess 已有各自超时，这里保护
@@ -62,8 +67,7 @@ def sync_selected_projects(job: dict[str, Any], projects: list[dict[str, Any]]) 
     records = [_record_fields(job, project, index) for index, project in enumerate(projects, start=1)]
 
     # 总超时保护：飞书同步不应阻塞候选生成主流程太久
-    import concurrent.futures
-
+    cancel_event = threading.Event()
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     future = executor.submit(
         upsert_records,
@@ -71,12 +75,15 @@ def sync_selected_projects(job: dict[str, Any], projects: list[dict[str, Any]]) 
         table_id=table_id,
         records=records,
         key_fields=("任务 ID", "项目全名"),
+        cancel_event=cancel_event,
     )
     try:
         result = future.result(timeout=LARK_SYNC_TOTAL_TIMEOUT)
     except concurrent.futures.TimeoutError:
-        # 超时后不等待线程完成，否则总超时保护形同虚设
-        future.cancel()
+        # 设置取消信号，让 upsert_records 在下一次循环迭代时提前退出
+        cancel_event.set()
+        # shutdown(wait=False) 立即返回，不阻塞主线程
+        # 后台线程会在当前 subprocess 完成后检查 cancel_event 并退出
         executor.shutdown(wait=False)
         return {
             "status": "partial",
@@ -133,13 +140,17 @@ def upsert_records(
     key_fields: tuple[str, ...],
     *,
     identity: str = "user",
+    cancel_event: threading.Event | None = None,
 ) -> dict[str, Any]:
     """按 (key_fields) 复合键 upsert records 到指定表。
 
     对每条 record：先 +record-list --filter-json 查重，找到则 +record-upsert 更新，
     否则 +record-batch-create 批量新增。
+    cancel_event: 可选的取消信号，设置后 upsert_records 在下一次循环迭代时提前退出。
     Returns: {"created": int, "updated": int, "errors": list}
     """
+    if cancel_event is None:
+        cancel_event = _NEVER_CANCEL
     if not records:
         return {"created": 0, "updated": 0, "errors": []}
 
@@ -148,6 +159,8 @@ def upsert_records(
     errors: list[dict[str, Any]] = []
 
     for record in records:
+        if cancel_event.is_set():
+            break
         try:
             filter_expr = _build_filter(record, key_fields)
             list_cmd = [
@@ -172,6 +185,8 @@ def upsert_records(
     created = 0
     if to_create:
         for chunk in _chunks(to_create, 200):
+            if cancel_event.is_set():
+                break
             cmd = [
                 "lark-cli", "base", "+record-batch-create",
                 "--base-token", base_token,
@@ -188,6 +203,8 @@ def upsert_records(
 
     updated = 0
     for record_id, fields in to_update:
+        if cancel_event.is_set():
+            break
         cmd = [
             "lark-cli", "base", "+record-upsert",
             "--base-token", base_token,
