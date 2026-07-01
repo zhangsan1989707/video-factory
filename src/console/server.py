@@ -19,6 +19,7 @@ from src.console.jobs import (
     create_from_plan_render_job,
     create_hotlist_job,
     create_single_project_vertical_job,
+    create_stock_job,
     finalize_numbered_output,
     generate_candidates,
     job_detail,
@@ -26,7 +27,9 @@ from src.console.jobs import (
     regenerate_candidates,
     regenerate_script,
     render_video,
+    resync_lark,
     reset_video_for_regeneration,
+    run_stock_pipeline_job,
     save_script,
     save_selection,
     validate_plan,
@@ -191,6 +194,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     "single_project_vertical": create_single_project_vertical_job,
                     "desktop_review": create_desktop_review_job,
                     "from_plan_render": create_from_plan_render_job,
+                    "stock_education": create_stock_job,
                 }
                 creator = creators.get(job_type)
                 if creator is None:
@@ -264,11 +268,18 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     if action == "render-video":
                         self._json(start_render_job(job_id))
                         return
+                    if action == "render-stock":
+                        self._json(start_stock_render_job(job_id))
+                        return
                     if action == "regenerate-video":
                         self._json(start_regenerate_render_job(job_id))
                         return
                     if action == "cancel":
                         self._json(cancel_active_job(job_id))
+                        return
+                    if action == "resync-lark":
+                        segment = str(payload.get("segment") or "all")
+                        self._json(resync_lark(job_id, segment))
                         return
                     if action == "open-folder":
                         self._json(open_job_folder(job_id))
@@ -406,6 +417,19 @@ def _redact_message_secrets(message: str) -> str:
 def _error_status(exc: Exception) -> int:
     message = str(exc)
     return 404 if message.startswith(("任务不存在:", "任务目录不存在:")) else 400
+
+
+def start_stock_render_job(job_id: str) -> dict:
+    job = job_detail(job_id)["job"]
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    if job.get("type") != "stock_education":
+        raise ValueError("任务类型不是 stock_education")
+    started = start_async_job(job_id, run_stock_pipeline_job, on_error=record_render_background_failure)
+    if not started:
+        raise ValueError("已有渲染任务正在运行")
+    job = job_detail(job_id)["job"]
+    return {"started": started, "active": is_active(job_id), "job": job}
 
 
 def start_render_job(job_id: str) -> dict:

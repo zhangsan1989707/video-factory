@@ -79,6 +79,10 @@ README_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 def create_hotlist_job(payload: dict[str, Any]) -> dict[str, Any]:
     return _create_job_with_retry("GH-HOTLIST", _with_auto_issue_number(payload))
 
+def create_stock_job(payload: dict[str, Any]) -> dict[str, Any]:
+    """创建股票科普视频任务"""
+    return _create_job_with_retry("STOCK", {**payload, "type": "stock_education"})
+
 def create_single_project_vertical_job(payload: dict[str, Any]) -> dict[str, Any]:
     return _create_job_with_retry("GH-SINGLE", {**payload, "type": "single_project_vertical"})
 
@@ -2672,3 +2676,63 @@ def _available_video_path(directory: Path, stem: str) -> Path:
         if not candidate.exists():
             return candidate
         index += 1
+
+
+async def run_stock_pipeline_job(job_id: str) -> dict[str, Any]:
+    """执行股票科普视频流水线"""
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+
+    from src.stock.pipeline import run_stock_pipeline
+
+    theme = str(job.get("theme") or "")
+    content_source = str(job.get("content_source") or "llm")
+    source_input = str(job.get("source_input") or "")
+    voice = _tts_voice(job)
+    rate = _tts_rate(job)
+
+    output_dir = JOBS_DIR / job_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        update_job(job_id, status="running", stage="generating_script", error="")
+        append_log(job_id, f"开始生成股票科普视频: {theme}")
+
+        final_path = await run_stock_pipeline(
+            theme=theme,
+            content_source=content_source,
+            source_input=source_input,
+            output_dir=output_dir,
+            voice=voice,
+            rate=rate,
+        )
+
+        update_job(job_id, status="completed", stage="completed", error="")
+        append_log(job_id, f"视频生成完成: {final_path}")
+
+        return finalize_stock_output(job_id, theme)
+    except Exception as exc:
+        append_log(job_id, f"视频生成失败: {exc}")
+        update_job(job_id, status="failed", stage="failed_stage", error=str(exc))
+        raise
+
+
+def finalize_stock_output(job_id: str, theme: str) -> dict[str, Any]:
+    """生成股票科普视频正式输出"""
+    job = read_job(job_id)
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+
+    job_dir = JOBS_DIR / job_id
+    source = job_dir / "final.mp4"
+    if not source.exists():
+        raise ValueError("final.mp4 不存在")
+
+    safe_title = _safe_filename(f"60秒带你看懂{theme}")
+    base_name = f"STOCK-{_job_date_prefix(job_id)}-001-{safe_title}"
+    target = _write_to_official_output_dir(job, source, base_name)
+
+    append_log(job_id, f"正式视频已输出: {target}")
+    update_job(job_id, status="completed", stage="completed", official_video=str(target))
+    return {"job": read_job(job_id), "artifacts": job_artifacts(job_id)}

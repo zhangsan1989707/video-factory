@@ -432,9 +432,10 @@ def next_job_id(prefix: str = "GH-HOTLIST") -> str:
     numbers = []
     for path in existing:
         parts = path.name.split("-")
-        if len(parts) >= 4 and parts[2] == today:
+        # 支持 GH-HOTLIST-YYYYMMDD-### 与 STOCK-YYYYMMDD-### 等变长前缀
+        if len(parts) >= 3 and parts[-2] == today:
             try:
-                numbers.append(int(parts[3]))
+                numbers.append(int(parts[-1]))
             except ValueError:
                 pass
     return f"{prefix}-{today}-{(max(numbers) + 1 if numbers else 1):03d}"
@@ -499,6 +500,8 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         append_log(job_id, f"桌面审阅任务已创建: {job['repo_url']}。")
     elif job_type == "from_plan_render":
         append_log(job_id, f"计划文件继续渲染任务已创建: {job['plan_path']}。")
+    elif job_type == "stock_education":
+        append_log(job_id, f"股票科普任务已创建: {job.get('theme') or '未命名主题'}。")
     else:
         append_log(job_id, "任务已创建，等待生成候选草稿。")
     return job
@@ -506,7 +509,7 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_job_type(value: Any) -> str:
     job_type = str(value or "github_hotlist").strip()
-    if job_type not in {"github_hotlist", "single_project_vertical", "desktop_review", "from_plan_render"}:
+    if job_type not in {"github_hotlist", "single_project_vertical", "desktop_review", "from_plan_render", "stock_education"}:
         raise ValueError(f"未知任务类型: {job_type}")
     return job_type
 
