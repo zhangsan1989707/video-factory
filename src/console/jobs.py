@@ -2730,7 +2730,7 @@ def finalize_stock_output(job_id: str, theme: str) -> dict[str, Any]:
         raise ValueError("final.mp4 不存在")
 
     safe_title = _safe_filename(f"60秒带你看懂{theme}")
-    base_name = f"STOCK-{_job_date_prefix(job_id)}-001-{safe_title}"
+    base_name = f"{_job_date_prefix(job_id)}-{safe_title}"
     target = _write_to_official_output_dir(job, source, base_name)
 
     append_log(job_id, f"正式视频已输出: {target}")

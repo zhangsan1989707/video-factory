@@ -493,6 +493,9 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         job["stage_history"] = [
             {"stage": "preparing_plan", "status": "awaiting_render", "at": now}
         ]
+    if job_type == "stock_education":
+        theme = str(payload.get("theme") or "").strip()
+        job["title"] = payload.get("title") or (f"60秒带你看懂{theme}" if theme else "股票科普视频")
     write_json(job_dir / "task.json", job)
     if job_type == "single_project_vertical":
         append_log(job_id, f"单项目竖屏任务已创建: {job['repo_url']}。")
