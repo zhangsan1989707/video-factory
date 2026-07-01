@@ -262,7 +262,7 @@ def test_shot_spec_generation():
 
     assert spec["version"] == "1.0"
     assert spec["resolution"] == [1080, 1920]
-    assert spec["duration"] == 60
+    assert spec["duration"] == 20
     assert spec["fps"] == 30
     assert "font_family" in spec
     assert "theme" in spec

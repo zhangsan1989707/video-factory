@@ -963,6 +963,28 @@ async function runNextAction() {
   if (stage === "prepare-plan") return preparePlan();
   if (stage === "validate-plan") return validatePlan();
   if (stage === "render-video") return renderVideo();
+  if (stage === "render-stock") return renderStockVideo();
+}
+
+async function renderStockVideo() {
+  if (!state.currentJobId) {
+    alert("请先创建任务");
+    return;
+  }
+  setBusy(true);
+  try {
+    switchTab("progress");
+    appendLogLine("正在生成股票科普视频，请不要关闭控制台...");
+    const result = await post(`/api/jobs/${state.currentJobId}/render-stock`);
+    renderJob(result.job);
+    await refreshCurrentJob();
+    startPollingCurrentJob();
+  } catch (error) {
+    alert(error.message);
+    await refreshCurrentJob();
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function refreshCurrentJob() {
@@ -1404,7 +1426,9 @@ function updateRegenerateActions(job) {
   if (type !== "github_hotlist") {
     candidatesButton.disabled = true;
     scriptButton.disabled = true;
-    videoButton.disabled = !hasJob || isRunning || !["ready_to_render", "completed", "failed"].includes(status);
+    const stockCanRender = type === "stock_education" && ["draft_pending", "ready_to_render", "completed", "failed"].includes(status);
+    const pipelineCanRender = !["draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"].includes(stage);
+    videoButton.disabled = !hasJob || isRunning || !(stockCanRender || (type !== "stock_education" && pipelineCanRender));
     cancelButton.disabled = !hasJob || !isRunning || Boolean(job.cancel_requested);
     cancelButton.textContent = job.cancel_requested ? "取消中" : "取消任务";
     if (refreshBtn) refreshBtn.disabled = true;
@@ -1427,8 +1451,18 @@ function updateRegenerateActions(job) {
 function nextActionForJob(job) {
   const stage = job.stage || "draft_pending";
   const status = job.status || "";
+  const type = job.type || "github_hotlist";
   if (hasBackgroundWork(job)) {
     return { label: "任务执行中", action: "running", disabled: true };
+  }
+  if (type === "stock_education") {
+    if (status === "completed") {
+      return { label: "已完成", action: "completed", disabled: true };
+    }
+    if (status === "failed") {
+      return { label: "重试：生成视频", action: "render-stock", disabled: false };
+    }
+    return { label: "生成视频（耗时）", action: "render-stock", disabled: false };
   }
   if (stage === "awaiting_project_confirmation") {
     return { label: "确认项目并生成口播", action: "confirm-selection", disabled: false };

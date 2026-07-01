@@ -108,6 +108,15 @@ async def run_stock_pipeline(
 
     audio_path = _combine_audio_files(audio_files, output_dir / "audio" / "combined.mp3")
 
+    # Step 3.5: 根据实际 TTS 音频时长重新校准 segments 时间戳
+    calibrated_segments = _calibrate_segments_by_audio(
+        script_data["segments"], audio_files, output_dir / "audio"
+    )
+    script_data["segments"] = calibrated_segments
+    # 更新 script.json 为校准后的时间
+    with open(script_path, "w", encoding="utf-8") as f:
+        json.dump(script_data, f, ensure_ascii=False, indent=2)
+
     # Step 4: 生成字幕
     subtitle_path = generate_subtitle_file(
         script_data["segments"],
@@ -140,6 +149,59 @@ async def run_stock_pipeline(
         output_path.touch()
 
     return output_path
+
+
+def _calibrate_segments_by_audio(
+    segments: list[dict[str, Any]], audio_files: list[Path], audio_dir: Path
+) -> list[dict[str, Any]]:
+    """根据每段 TTS 音频的实际时长重新校准 segments 时间戳。
+
+    保证字幕、画面与口播严格同步。若实际总时长大于 60 秒，则按比例压缩到 60 秒。
+    """
+    import shutil
+
+    ffprobe = shutil.which("ffprobe") or "ffprobe"
+    durations: list[float] = []
+
+    for i, seg in enumerate(segments):
+        audio_file = audio_files[i] if i < len(audio_files) else None
+        duration = 5.0
+        if audio_file and Path(audio_file).exists():
+            try:
+                result = subprocess.run(
+                    [
+                        ffprobe,
+                        "-v", "error",
+                        "-show_entries", "format=duration",
+                        "-of", "default=noprint_wrappers=1:nokey=1",
+                        str(audio_file),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                duration = float(result.stdout.strip() or "5")
+            except Exception:
+                duration = float(seg.get("duration", 5))
+        else:
+            duration = float(seg.get("duration", 5))
+        durations.append(duration)
+
+    total = sum(durations)
+    target_total = min(total, 60.0)
+    scale = target_total / total if total > 0 else 1.0
+
+    calibrated: list[dict[str, Any]] = []
+    current_ts = 0.0
+    for seg, dur in zip(segments, durations):
+        scaled_dur = round(dur * scale, 3)
+        calibrated.append({
+            **seg,
+            "timestamp": round(current_ts, 3),
+            "duration": scaled_dur,
+        })
+        current_ts += scaled_dur
+
+    return calibrated
 
 
 def _combine_audio_files(audio_files: list[Path], output_path: Path) -> Path | None:
@@ -193,13 +255,15 @@ def _generate_shot_spec(theme: str, segments: list[dict], fps: int = 30) -> dict
     """根据脚本生成分镜规范。"""
     shots = []
     shot_id = 1
+    total_duration = sum(float(seg.get("duration", 0)) for seg in segments) or 60.0
 
     # 封面标题
+    title_end = min(5.0, total_duration * 0.1)
     shots.append(
         TitleShot(
             id=shot_id,
             start=0,
-            end=5,
+            end=title_end,
             main_title="60秒带你看懂",
             sub_title=theme,
         ).to_dict()
@@ -221,11 +285,12 @@ def _generate_shot_spec(theme: str, segments: list[dict], fps: int = 30) -> dict
         shot_id += 1
 
     # 总结
+    summary_start = max(0.0, total_duration - 5.0)
     shots.append(
         SummaryShot(
             id=shot_id,
-            start=55,
-            end=60,
+            start=summary_start,
+            end=total_duration,
             points=["今天学了", theme],
             closing_text="关注我，持续更新投资干货",
         ).to_dict()
@@ -234,7 +299,7 @@ def _generate_shot_spec(theme: str, segments: list[dict], fps: int = 30) -> dict
     return {
         "version": "1.0",
         "resolution": [1080, 1920],
-        "duration": 60,
+        "duration": total_duration,
         "fps": fps,
         "font_family": "Noto Sans SC",
         "theme": {
