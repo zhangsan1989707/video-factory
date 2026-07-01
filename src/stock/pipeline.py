@@ -3,10 +3,10 @@
 import asyncio
 import json
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
 
+from src.stock.hyperframes_render import render_stock_education_video
 from src.stock.script import generate_stock_script, generate_subtitle_file
 from src.stock.scraper import fetch_finance_content, search_finance_topics
 from src.stock.spec.renderer import StockRenderer
@@ -51,9 +51,9 @@ async def run_stock_pipeline(
     1. 获取内容（抓取/LLM生成/手动输入）
     2. 生成脚本
     3. 生成 TTS 音频
-    4. 生成分镜规范
-    5. 渲染帧序列
-    6. 合成最终视频
+    4. 根据音频时长校准 segments
+    5. 生成字幕与分镜规范
+    6. 使用 HyperFrames 渲染最终视频
 
     Args:
         theme: 视频主题
@@ -106,11 +106,9 @@ async def run_stock_pipeline(
     finally:
         reset_tts_rate_override(rate_token)
 
-    audio_path = _combine_audio_files(audio_files, output_dir / "audio" / "combined.mp3")
-
     # Step 3.5: 根据实际 TTS 音频时长重新校准 segments 时间戳
     calibrated_segments = _calibrate_segments_by_audio(
-        script_data["segments"], audio_files, output_dir / "audio"
+        script_data["segments"], audio_files
     )
     script_data["segments"] = calibrated_segments
     # 更新 script.json 为校准后的时间
@@ -129,30 +127,22 @@ async def run_stock_pipeline(
     with open(shot_spec_path, "w", encoding="utf-8") as f:
         json.dump(shot_spec, f, ensure_ascii=False, indent=2)
 
-    # Step 6: 渲染帧序列
-    renderer = StockRenderer()
-    frames = renderer.render_shots(shot_spec, output_dir / "frames")
+    # Step 6: 使用 HyperFrames 渲染最终视频
+    final_video = await render_stock_education_video(
+        theme=theme,
+        segments=calibrated_segments,
+        output_dir=output_dir,
+        voice=voice,
+        rate=rate,
+        fps=fps,
+        audio_files=audio_files,
+    )
 
-    # Step 7: 合成最终视频
-    output_path = output_dir / "final.mp4"
-
-    if frames and audio_path and audio_path.exists():
-        renderer.render_video_from_frames(
-            frames=frames,
-            audio_path=audio_path,
-            subtitle_path=subtitle_path,
-            output_path=output_path,
-            fps=fps,
-        )
-    else:
-        # Fallback: 至少保留脚本、字幕与音频，生成空壳视频占位
-        output_path.touch()
-
-    return output_path
+    return final_video
 
 
 def _calibrate_segments_by_audio(
-    segments: list[dict[str, Any]], audio_files: list[Path], audio_dir: Path
+    segments: list[dict[str, Any]], audio_files: list[Path]
 ) -> list[dict[str, Any]]:
     """根据每段 TTS 音频的实际时长重新校准 segments 时间戳。
 
@@ -202,53 +192,6 @@ def _calibrate_segments_by_audio(
         current_ts += scaled_dur
 
     return calibrated
-
-
-def _combine_audio_files(audio_files: list[Path], output_path: Path) -> Path | None:
-    """将多段 TTS 音频合并为一个音频文件；单段时直接复用。"""
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    valid_files = [Path(p) for p in audio_files if Path(p).exists()]
-    if not valid_files:
-        return None
-    if len(valid_files) == 1:
-        return valid_files[0]
-
-    # 使用 ffmpeg concat demuxer 顺序拼接
-    concat_lines = "\n".join(f"file '{path.resolve()}'" for path in valid_files)
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".txt", delete=False, encoding="utf-8"
-    ) as list_file:
-        list_file.write(concat_lines)
-        list_path = Path(list_file.name)
-
-    try:
-        result = subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(list_path),
-                "-c",
-                "copy",
-                str(output_path),
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"音频拼接失败: {result.stderr}")
-        return output_path
-    finally:
-        list_path.unlink(missing_ok=True)
 
 
 def _generate_shot_spec(theme: str, segments: list[dict], fps: int = 30) -> dict:

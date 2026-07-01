@@ -3,45 +3,38 @@
 from pathlib import Path
 from typing import Any
 
-from src.stock.spec.renderer import StockRenderer
+from src.stock.hyperframes_render import render_stock_education_video
 
 
-def compose_stock_video(
-    frames_dir: Path,
-    audio_path: Path,
-    subtitle_path: Path,
-    output_path: Path,
+async def compose_stock_video(
+    theme: str,
+    segments: list[dict[str, Any]],
+    output_dir: Path,
+    voice: str,
+    rate: str,
     fps: int = 30,
 ) -> Path:
     """合成股票科普视频
 
-    读取帧序列目录中的 frame_*.png，调用 StockRenderer 与 ffmpeg
-    将帧、TTS 音频、SRT 字幕合成为最终视频。
+    作为 render_stock_education_video 的薄封装，使用 HyperFrames
+    将脚本片段、TTS 音频与动画合成为最终视频。
 
     Args:
-        frames_dir: 帧序列目录
-        audio_path: TTS音频文件
-        subtitle_path: SRT字幕文件
-        output_path: 输出视频路径
+        theme: 视频主题
+        segments: 脚本片段（含 narration / subtitle / timestamp / duration）
+        output_dir: 输出目录
+        voice: TTS 声音
+        rate: TTS 语速
         fps: 帧率
 
     Returns:
-        输出视频路径
+        最终视频路径
     """
-    frames_dir = Path(frames_dir)
-    audio_path = Path(audio_path)
-    subtitle_path = Path(subtitle_path)
-    output_path = Path(output_path)
-
-    frames = sorted(frames_dir.glob("frame_*.png"))
-    if not frames:
-        raise ValueError(f"未在 {frames_dir} 找到帧序列")
-
-    renderer = StockRenderer()
-    return renderer.render_video_from_frames(
-        frames=frames,
-        audio_path=audio_path,
-        subtitle_path=subtitle_path,
-        output_path=output_path,
+    return await render_stock_education_video(
+        theme=theme,
+        segments=segments,
+        output_dir=output_dir,
+        voice=voice,
+        rate=rate,
         fps=fps,
     )

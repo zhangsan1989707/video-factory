@@ -90,6 +90,9 @@ def test_stock_pipeline_llm_source():
         audio_path = output_dir / "audio" / "segment-000.m4a"
         _generate_silent_audio(audio_path, duration=1.0)
 
+        expected_final = output_dir / "final.mp4"
+        expected_final.write_text("fake video", encoding="utf-8")
+
         with (
             patch(
                 "src.stock.pipeline.search_finance_topics",
@@ -111,6 +114,10 @@ def test_stock_pipeline_llm_source():
                 "src.stock.pipeline.generate_all_audio",
                 new=AsyncMock(return_value=[audio_path]),
             ) as mock_tts,
+            patch(
+                "src.stock.pipeline.render_stock_education_video",
+                new=AsyncMock(return_value=expected_final),
+            ) as mock_render,
         ):
             final_path = _run(
                 run_stock_pipeline(
@@ -124,6 +131,7 @@ def test_stock_pipeline_llm_source():
                 )
             )
 
+        assert final_path == expected_final
         assert final_path.exists()
         assert (output_dir / "script.json").exists()
         assert (output_dir / "subtitle.srt").exists()
@@ -131,6 +139,7 @@ def test_stock_pipeline_llm_source():
         mock_search.assert_awaited_once_with("MACD")
         mock_chat.assert_called_once()
         mock_tts.assert_awaited_once()
+        mock_render.assert_awaited_once()
 
 
 def test_stock_pipeline_manual_source():
@@ -146,6 +155,9 @@ def test_stock_pipeline_manual_source():
         主要用于判断买卖信号
         """
 
+        expected_final = output_dir / "final.mp4"
+        expected_final.write_text("fake video", encoding="utf-8")
+
         with (
             patch(
                 "src.stock.script.chat_json_detail",
@@ -155,6 +167,10 @@ def test_stock_pipeline_manual_source():
                 "src.stock.pipeline.generate_all_audio",
                 new=AsyncMock(return_value=[audio_path]),
             ) as mock_tts,
+            patch(
+                "src.stock.pipeline.render_stock_education_video",
+                new=AsyncMock(return_value=expected_final),
+            ) as mock_render,
         ):
             final_path = _run(
                 run_stock_pipeline(
@@ -176,11 +192,13 @@ def test_stock_pipeline_manual_source():
         assert "segments" in script
         assert len(script["segments"]) > 0
 
+        assert final_path == expected_final
         assert final_path.exists()
         assert (output_dir / "subtitle.srt").exists()
         assert (output_dir / "shot_spec.json").exists()
         mock_chat.assert_called_once()
         mock_tts.assert_awaited_once()
+        mock_render.assert_awaited_once()
 
 
 def test_script_generation_output_format():

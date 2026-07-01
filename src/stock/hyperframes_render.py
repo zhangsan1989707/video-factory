@@ -41,16 +41,18 @@ async def render_stock_education_video(
     voice: str,
     rate: str,
     fps: int = 30,
+    audio_files: list[Any] | None = None,
 ) -> Path:
     """用 HyperFrames 渲染股票科普视频
 
     Args:
         theme: 主题
-        segments: 脚本片段（已按实际音频时长校准）
+        segments: 脚本片段
         output_dir: 输出目录
         voice: TTS 声音
         rate: TTS 语速
         fps: 帧率
+        audio_files: 预生成的 TTS 音频文件列表；传入时跳过 TTS 生成与校准
 
     Returns:
         最终视频路径
@@ -58,13 +60,16 @@ async def render_stock_education_video(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. 生成 TTS
-    audio_files = await generate_all_audio(
-        ScriptAdapter(segments), output_dir, voice=voice, rate=rate
-    )
-
-    # 2. 根据实际音频时长再次校准 segments
-    calibrated = calibrate_segments_by_audio(segments, audio_files)
+    if audio_files is None:
+        # 1. 生成 TTS
+        audio_files = await generate_all_audio(
+            ScriptAdapter(segments), output_dir, voice=voice, rate=rate
+        )
+        # 2. 根据实际音频时长校准 segments
+        calibrated = calibrate_segments_by_audio(segments, audio_files)
+    else:
+        # 外部已生成 TTS 并完成校准，直接使用
+        calibrated = segments
 
     # 3. 渲染 HTML composition
     html_path = output_dir / "composition.html"
