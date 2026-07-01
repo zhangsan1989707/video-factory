@@ -12,6 +12,11 @@
       <div class="boot-warning">这个控制台需要启用 JavaScript，并且必须通过 http://127.0.0.1:8765 打开。</div>
     </noscript>
     <div class="app">
+      <div id="track-switcher" class="track-switcher">
+        <button class="track-btn active" data-track="github">GitHub 热榜</button>
+        <button class="track-btn" data-track="stock">炒股科普</button>
+      </div>
+
       <header class="topbar">
         <div class="brand-block">
           <div class="brand-mark">GV</div>
@@ -34,548 +39,619 @@
         </div>
       </header>
 
-      <aside class="left-rail panel">
-        <div class="rail-head">
-          <h2>任务设置</h2>
+      <div id="github-panel" class="github-panel">
+        <aside class="left-rail panel">
+          <div class="rail-head">
+            <h2>任务设置</h2>
+          </div>
+          <section>
+            <div class="section-title">内容来源</div>
+            <label>
+              <span>任务类型</span>
+              <select id="jobType">
+                <option value="github_hotlist" selected>GitHub 热榜</option>
+                <option value="single_project_vertical">单项目竖屏</option>
+                <option value="desktop_review">桌面审阅</option>
+                <option value="from_plan_render">计划文件继续渲染</option>
+              </select>
+            </label>
+            <label>
+              <span>时间维度</span>
+              <select id="timeWindow">
+                <option value="daily">日榜</option>
+                <option value="weekly" selected>周榜</option>
+                <option value="monthly">月榜</option>
+              </select>
+            </label>
+            <label>
+              <span>项目数</span>
+              <select id="projectCount">
+                <option value="5" selected>5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+              </select>
+            </label>
+            <label>
+              <span>期数</span>
+              <input id="issueNumber" type="number" min="1" max="999" placeholder="自动递增">
+            </label>
+            <label id="repoUrlField" hidden>
+              <span>仓库 URL</span>
+              <input id="repoUrl" placeholder="https://github.com/owner/repo">
+            </label>
+            <label id="planPathField" hidden>
+              <span>计划目录</span>
+              <input id="planPath" placeholder="/Users/me/project/output/jobs/GH-...">
+            </label>
+          </section>
+
+          <section class="run-summary">
+            <div class="pulse"></div>
+            <div>
+              <div class="section-title">RUN CONTEXT</div>
+              <strong>本机任务控制台</strong>
+              <p>候选、口播、计划文件都写入本地快照。</p>
+            </div>
+          </section>
+
+          <section>
+            <div class="section-title">视频模板</div>
+            <label>
+              <span>视觉风格</span>
+              <select id="visualStyle">
+                <option value="tech_hotspot">科技热点风</option>
+                <option value="apple_minimal">Apple 极简风</option>
+                <option value="claude_warm">Claude 暖橘风</option>
+                <option value="sspai_editorial">少数派编辑风</option>
+                <option value="bytedance_product">字节产品风</option>
+                <option value="chinese_editorial">中国风编辑版</option>
+              </select>
+            </label>
+            <label>
+              <span>渲染引擎</span>
+              <select id="renderEngine">
+                <option value="hyperframes">HyperFrames</option>
+                <option value="pil">PIL</option>
+              </select>
+            </label>
+            <label>
+              <span>字幕模式</span>
+              <select id="subtitleMode">
+                <option value="large_hook">大字强钩子</option>
+                <option value="standard">标准解释型</option>
+              </select>
+            </label>
+            <label>
+              <span>口播语气</span>
+              <select id="tone">
+                <option value="professional_review">专业测评</option>
+                <option value="short_video_hook">爆款短视频</option>
+                <option value="calm_analysis">冷静解读</option>
+              </select>
+            </label>
+          </section>
+
+          <section>
+            <div class="section-title">TTS 配音</div>
+            <label>
+              <span>声音</span>
+              <select id="ttsVoice">
+                <option value="zh-CN-XiaoxiaoNeural">小晓（女声 · 温柔清晰）— 默认</option>
+                <option value="zh-CN-YunxiNeural">云希（男声 · 青年活力）</option>
+                <option value="zh-CN-YunjianNeural">云健（男声 · 运动激情）</option>
+                <option value="zh-CN-YunyangNeural">云扬（男声 · 资讯专业）</option>
+                <option value="zh-CN-YunxiaNeural">云夏（男声 · 成熟稳重）</option>
+                <option value="zh-CN-XiaoyiNeural">晓伊（女声 · 活泼俏皮）</option>
+              </select>
+            </label>
+            <label>
+              <span>语速</span>
+              <input id="ttsRate" type="text" placeholder="+20%" pattern="^[+-]?\d+%$" value="+20%">
+            </label>
+            <p class="section-hint">说明：声音和语速只影响当前任务的 TTS 配音，不修改全局默认配置。</p>
+          </section>
+
+          <section>
+            <div class="section-title">音频</div>
+            <label>
+              <span>BGM</span>
+              <select id="bgmMode">
+                <option value="default">默认</option>
+                <option value="none">无</option>
+                <option value="custom">自定义本地文件</option>
+              </select>
+            </label>
+            <label>
+              <span>BGM 音量</span>
+              <input id="bgmVolume" type="number" min="0" max="1" step="0.01" value="0.065">
+            </label>
+            <label>
+              <span>BGM 路径</span>
+              <input id="bgmPath" placeholder="/Users/me/Music/bgm.mp3">
+            </label>
+          </section>
+
+          <section>
+            <div class="section-title">模板预设</div>
+            <label>
+              <span>预设名称</span>
+              <select id="templatePreset">
+                <option value="default">默认</option>
+              </select>
+            </label>
+            <div class="preset-actions">
+              <button id="savePresetBtn" class="tiny">保存当前为预设</button>
+              <button id="loadPresetBtn" class="tiny">加载预设</button>
+              <button id="deletePresetBtn" class="tiny">删除预设</button>
+            </div>
+          </section>
+
+          <section>
+            <div class="section-title">正式产物</div>
+            <label>
+              <span>正式视频保存目录</span>
+              <input id="officialOutputDir" value="/Users/leohang/Movies/GitHub热榜视频">
+            </label>
+          </section>
+
+          <section>
+            <div class="section-title">配置状态</div>
+            <div class="kv">
+              <span>GitHub Token</span>
+              <strong id="githubStatus">读取中</strong>
+            </div>
+            <div class="kv">
+              <span>模型路由</span>
+              <strong id="routingStatus">按任务配置</strong>
+            </div>
+            <div class="kv">
+              <span>渲染环境</span>
+              <strong id="preflightStatus">检测中</strong>
+            </div>
+            <div class="kv">
+              <span>真实 smoke</span>
+              <strong id="realSmokeStatus">未运行</strong>
+            </div>
+            <button id="runRealSmokeBtn" class="tiny" type="button">运行真实 smoke</button>
+            <div class="kv">
+              <span>模板</span>
+              <strong>github_hotlist_vertical_v1</strong>
+            </div>
+            <button id="openScheduleSideBtn" class="tiny" type="button">打开定时生产</button>
+          </section>
+        </aside>
+
+        <main class="workspace">
+          <nav class="tabs">
+            <button class="tab active" data-tab="candidates">候选项目</button>
+            <button class="tab" data-tab="script">口播脚本</button>
+            <button class="tab" data-tab="progress">进度日志</button>
+          </nav>
+
+          <section id="candidatesTab" class="tab-panel active">
+            <div class="panel-head">
+              <div>
+                <div class="subtle-title">draft.candidates</div>
+                <h2>候选项目</h2>
+                <p>自动拉取后，勾选并调整要进入热榜视频的项目。</p>
+                <div id="candidateSourceSummary" class="panel-meta">候选来源：待生成。</div>
+              </div>
+              <div class="panel-head-actions">
+                <button id="refreshCandidatesBtn2" class="ghost" disabled title="跳过缓存，直接从 GitHub API 拉取最新候选数据">跳过缓存刷新</button>
+                <button id="confirmSelectionBtn">确认项目</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th></th>
+                    <th>顺序</th>
+                    <th>项目</th>
+                    <th>评分</th>
+                    <th>星标</th>
+                    <th>语言</th>
+                    <th>推荐理由</th>
+                    <th>风险</th>
+                  </tr>
+                </thead>
+                <tbody id="candidateRows">
+                  <tr><td colspan="8" class="empty">还没有任务。先选择时间维度和项目数，再点击“创建任务”。</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="scriptTab" class="tab-panel">
+            <div class="panel-head">
+              <div>
+                <div class="subtle-title">draft.narration</div>
+                <h2>口播脚本</h2>
+                <p>编辑每段口播后确认，系统会写入任务快照。</p>
+                <div id="narrationSourceSummary" class="panel-meta">口播来源：待生成。</div>
+              </div>
+              <button id="saveScriptBtn">确认口播</button>
+            </div>
+            <div id="scriptEditor" class="script-editor empty">确认项目后会在这里生成口播草稿。</div>
+            <div id="qualityReport" class="quality-report" hidden></div>
+          </section>
+
+          <section id="progressTab" class="tab-panel">
+            <div class="panel-head">
+              <div>
+                <div class="subtle-title">runner.logs</div>
+                <h2>阶段与日志</h2>
+                <p>这里保留接近 CLI 的透明度，方便定位失败节点。</p>
+              </div>
+            </div>
+            <div id="stageTimeline" class="stage-timeline empty">暂无阶段记录。</div>
+            <pre id="logBox" class="logbox">暂无日志。</pre>
+          </section>
+        </main>
+
+        <aside class="right-rail panel">
+          <div class="rail-head">
+            <h2>任务上下文</h2>
+          </div>
+          <section>
+            <div class="section-title">当前任务</div>
+            <div class="job-card">
+              <code id="currentJobId">未创建</code>
+              <div id="currentStage">等待创建任务</div>
+              <div id="currentModelCall" class="job-meta">model: -</div>
+              <div id="currentError" class="job-error" hidden></div>
+              <div id="recoveryHint" class="job-recovery" hidden></div>
+              <pre id="currentDiagnostics" class="job-diagnostics" hidden></pre>
+              <div class="regen-actions">
+                <button id="refreshCandidatesBtn" class="tiny" disabled title="跳过缓存，从 GitHub API 重新拉取最新候选数据">跳过缓存</button>
+                <button id="regenerateCandidatesBtn" class="tiny" disabled>重生成候选</button>
+                <button id="regenerateScriptBtn" class="tiny" disabled>重生成口播</button>
+                <button id="regenerateVideoBtn" class="tiny" disabled>重生成视频</button>
+                <button id="cancelJobBtn" class="tiny danger" disabled>取消任务</button>
+              </div>
+              <div class="lark-sync-history" id="larkSyncHistory"></div>
+            </div>
+          </section>
+          <section>
+            <div class="section-title action-title">
+              <span>产物</span>
+              <button id="openJobFolderBtn" class="tiny" disabled>打开目录</button>
+            </div>
+            <div id="artifactSummary" class="artifact-summary empty">暂无任务摘要。</div>
+            <div id="publishActions" class="publish-actions" hidden></div>
+            <div id="artifactList" class="artifact-list empty">暂无产物。</div>
+          </section>
+          <section>
+            <div class="section-title">历史任务</div>
+            <div id="scheduleQueue" class="history-list empty">暂无定时待办。</div>
+            <div class="history-controls">
+              <input id="historySearch" class="search-input" placeholder="搜索任务 ID、标题或状态..." type="search">
+              <button id="batchDeleteToggleBtn" class="tiny" title="批量删除历史任务">批量管理</button>
+            </div>
+            <div id="batchDeleteBar" class="batch-delete-bar" hidden>
+              <button id="batchSelectAllBtn" class="tiny">全选</button>
+              <button id="batchDeselectAllBtn" class="tiny">取消全选</button>
+              <button id="batchDeleteConfirmBtn" class="tiny danger">删除选中</button>
+              <span id="batchDeleteCount" class="batch-count"></span>
+              <button id="batchDeleteCancelBtn" class="tiny">退出</button>
+            </div>
+            <div id="historyList" class="history-list empty">暂无历史任务。</div>
+          </section>
+        </aside>
+
+        <section id="scheduleView" class="schedule-view" hidden>
+          <div class="schedule-shell">
+            <div class="schedule-head">
+              <div>
+                <div class="subtle-title">scheduled.production</div>
+                <h2>定时生产</h2>
+                <p>配置无人值守的 GitHub 热榜生产计划，到点后按当前参数自动产出正式 mp4。</p>
+              </div>
+              <button id="closeScheduleBtn" class="ghost">返回工作台</button>
+            </div>
+
+            <div class="schedule-grid">
+              <section class="schedule-panel">
+                <div class="section-title">计划状态</div>
+                <label class="check-row">
+                  <input id="scheduleEnabled" type="checkbox">
+                  <span>启用定时生产</span>
+                </label>
+                <div class="schedule-status-box">
+                  <div class="kv">
+                    <span>当前模式</span>
+                    <strong id="scheduleModeLabel">读取中</strong>
+                  </div>
+                  <div class="kv">
+                    <span>上次运行</span>
+                    <strong id="scheduleLastRun">尚未运行</strong>
+                  </div>
+                  <div class="kv">
+                    <span>下一次</span>
+                    <strong id="scheduleNextRun">未启用</strong>
+                  </div>
+                </div>
+                <p id="scheduleStatus" class="hint">定时任务只生成候选草稿，不会自动确认或渲染。</p>
+              </section>
+
+              <section class="schedule-panel">
+                <div class="section-title">自动化级别</div>
+                <label>
+                  <span>模式</span>
+                  <select id="scheduleMode">
+                    <option value="candidates_only">只生成候选草稿</option>
+                    <option value="auto_script">自动生成口播草稿</option>
+                    <option value="auto_video">自动生成正式视频</option>
+                  </select>
+                </label>
+                <label>
+                  <span>频率</span>
+                  <select id="scheduleFrequency">
+                    <option value="daily">每日</option>
+                    <option value="weekly">每周一</option>
+                  </select>
+                </label>
+                <label>
+                  <span>时间</span>
+                  <input id="scheduleTime" type="time" value="09:00">
+                </label>
+              </section>
+
+              <section class="schedule-panel">
+                <div class="section-title">内容参数</div>
+                <label>
+                  <span>榜单窗口</span>
+                  <select id="scheduleWindow">
+                    <option value="daily">日榜</option>
+                    <option value="weekly">周榜</option>
+                    <option value="monthly">月榜</option>
+                  </select>
+                </label>
+                <label>
+                  <span>项目数</span>
+                  <select id="scheduleProjectCount">
+                    <option value="5" selected>5</option>
+                    <option value="6">6</option>
+                    <option value="7">7</option>
+                    <option value="8">8</option>
+                    <option value="9">9</option>
+                    <option value="10">10</option>
+                  </select>
+                </label>
+              </section>
+
+              <section class="schedule-panel schedule-panel-wide">
+                <div class="section-title">视频参数</div>
+                <div class="provider-grid">
+                  <label>
+                    <span>视觉风格</span>
+                    <select id="scheduleVisualStyle"></select>
+                  </label>
+                  <label>
+                    <span>渲染引擎</span>
+                    <select id="scheduleRenderEngine">
+                      <option value="hyperframes">HyperFrames</option>
+                      <option value="pil">PIL</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>字幕模式</span>
+                    <select id="scheduleSubtitleMode">
+                      <option value="large_hook">大字强钩子</option>
+                      <option value="standard">标准解释型</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>口播语气</span>
+                    <select id="scheduleTone">
+                      <option value="professional_review">专业测评</option>
+                      <option value="short_video_hook">爆款短视频</option>
+                      <option value="calm_analysis">冷静解读</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>BGM</span>
+                    <select id="scheduleBgmMode">
+                      <option value="default">默认</option>
+                      <option value="none">无</option>
+                      <option value="custom">自定义本地文件</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>BGM 音量</span>
+                    <input id="scheduleBgmVolume" type="number" min="0" max="1" step="0.01" value="0.065">
+                  </label>
+                  <label class="wide">
+                    <span>BGM 路径</span>
+                    <input id="scheduleBgmPath" placeholder="/Users/me/Music/bgm.mp3">
+                  </label>
+                  <label class="wide">
+                    <span>正式视频保存目录</span>
+                    <input id="scheduleOfficialOutputDir" value="/Users/leohang/Movies/GitHub热榜视频">
+                  </label>
+                </div>
+              </section>
+
+              <section class="schedule-panel schedule-panel-wide">
+                <div class="section-title">最近定时任务</div>
+                <div id="scheduleRecentJobs" class="history-list empty">暂无定时任务。</div>
+              </section>
+            </div>
+
+            <div class="schedule-actions">
+              <button id="saveScheduleBtn" class="primary">保存定时计划</button>
+              <button id="runScheduleNowBtn" class="ghost">立即试跑</button>
+              <span id="scheduleMessage" class="hint"></span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <main id="stock-panel" class="stock-panel" style="display:none">
+        <div class="stock-shell">
+          <div class="panel-head">
+            <div>
+              <div class="subtle-title">stock.education</div>
+              <h2>炒股科普 · 60秒科普系列</h2>
+              <p>输入主题与内容来源，生成 60 秒竖屏炒股科普视频。</p>
+            </div>
+          </div>
+
+          <form id="stock-form" class="stock-form">
+            <div class="form-group">
+              <label>主题 *</label>
+              <input type="text" name="theme" placeholder="如：MACD指标、市盈率、K线图" required>
+            </div>
+
+            <div class="form-group">
+              <label>内容来源</label>
+              <div class="radio-group">
+                <label><input type="radio" name="content_source" value="finance_site" checked> 财经网站</label>
+                <label><input type="radio" name="content_source" value="llm"> LLM 生成</label>
+                <label><input type="radio" name="content_source" value="manual"> 手动输入</label>
+              </div>
+            </div>
+
+            <!-- 财经网站输入 -->
+            <div id="finance-site-input" class="form-group conditional-input">
+              <label>文章 URL 或概念搜索词</label>
+              <input type="text" name="finance_url" placeholder="输入东方财富/雪球文章URL，或搜索词">
+            </div>
+
+            <!-- LLM 生成输入 -->
+            <div id="llm-input" class="form-group conditional-input" style="display:none">
+              <label>主题关键词</label>
+              <input type="text" name="topic_keywords" placeholder="如：KDJ指标、布林线">
+            </div>
+
+            <!-- 手动输入 -->
+            <div id="manual-input" class="form-group conditional-input" style="display:none">
+              <label>内容文本</label>
+              <textarea name="manual_content" rows="4" placeholder="粘贴文章或输入要点"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>时长</label>
+              <input type="text" value="60秒（固定）" disabled>
+            </div>
+
+            <div class="form-group">
+              <label>字幕</label>
+              <input type="text" value="启用（固定）" disabled>
+            </div>
+
+            <div class="form-group">
+              <label>BGM</label>
+              <input type="text" value="无（固定）" disabled>
+            </div>
+
+            <button type="submit" class="btn-primary">生成科普视频</button>
+          </form>
+
+          <div id="stock-result" class="result-area" style="display:none">
+            <h3>生成结果</h3>
+            <div id="stock-status"></div>
+            <div id="stock-video-preview"></div>
+          </div>
         </div>
-        <section>
-          <div class="section-title">内容来源</div>
-          <label>
-            <span>任务类型</span>
-            <select id="jobType">
-              <option value="github_hotlist" selected>GitHub 热榜</option>
-              <option value="single_project_vertical">单项目竖屏</option>
-              <option value="desktop_review">桌面审阅</option>
-              <option value="from_plan_render">计划文件继续渲染</option>
-            </select>
-          </label>
-          <label>
-            <span>时间维度</span>
-            <select id="timeWindow">
-              <option value="daily">日榜</option>
-              <option value="weekly" selected>周榜</option>
-              <option value="monthly">月榜</option>
-            </select>
-          </label>
-          <label>
-            <span>项目数</span>
-            <select id="projectCount">
-              <option value="5" selected>5</option>
-              <option value="6">6</option>
-              <option value="7">7</option>
-              <option value="8">8</option>
-              <option value="9">9</option>
-              <option value="10">10</option>
-            </select>
-          </label>
-          <label>
-            <span>期数</span>
-            <input id="issueNumber" type="number" min="1" max="999" placeholder="自动递增">
-          </label>
-          <label id="repoUrlField" hidden>
-            <span>仓库 URL</span>
-            <input id="repoUrl" placeholder="https://github.com/owner/repo">
-          </label>
-          <label id="planPathField" hidden>
-            <span>计划目录</span>
-            <input id="planPath" placeholder="/Users/me/project/output/jobs/GH-...">
-          </label>
-        </section>
-
-        <section class="run-summary">
-          <div class="pulse"></div>
-          <div>
-            <div class="section-title">RUN CONTEXT</div>
-            <strong>本机任务控制台</strong>
-            <p>候选、口播、计划文件都写入本地快照。</p>
-          </div>
-        </section>
-
-        <section>
-          <div class="section-title">视频模板</div>
-          <label>
-            <span>视觉风格</span>
-            <select id="visualStyle">
-              <option value="tech_hotspot">科技热点风</option>
-              <option value="apple_minimal">Apple 极简风</option>
-              <option value="claude_warm">Claude 暖橘风</option>
-              <option value="sspai_editorial">少数派编辑风</option>
-              <option value="bytedance_product">字节产品风</option>
-              <option value="chinese_editorial">中国风编辑版</option>
-            </select>
-          </label>
-          <label>
-            <span>渲染引擎</span>
-            <select id="renderEngine">
-              <option value="hyperframes">HyperFrames</option>
-              <option value="pil">PIL</option>
-            </select>
-          </label>
-          <label>
-            <span>字幕模式</span>
-            <select id="subtitleMode">
-              <option value="large_hook">大字强钩子</option>
-              <option value="standard">标准解释型</option>
-            </select>
-          </label>
-          <label>
-            <span>口播语气</span>
-            <select id="tone">
-              <option value="professional_review">专业测评</option>
-              <option value="short_video_hook">爆款短视频</option>
-              <option value="calm_analysis">冷静解读</option>
-            </select>
-          </label>
-        </section>
-
-        <section>
-          <div class="section-title">TTS 配音</div>
-          <label>
-            <span>声音</span>
-            <select id="ttsVoice">
-              <option value="zh-CN-XiaoxiaoNeural">小晓（女声 · 温柔清晰）— 默认</option>
-              <option value="zh-CN-YunxiNeural">云希（男声 · 青年活力）</option>
-              <option value="zh-CN-YunjianNeural">云健（男声 · 运动激情）</option>
-              <option value="zh-CN-YunyangNeural">云扬（男声 · 资讯专业）</option>
-              <option value="zh-CN-YunxiaNeural">云夏（男声 · 成熟稳重）</option>
-              <option value="zh-CN-XiaoyiNeural">晓伊（女声 · 活泼俏皮）</option>
-            </select>
-          </label>
-          <label>
-            <span>语速</span>
-            <input id="ttsRate" type="text" placeholder="+20%" pattern="^[+-]?\d+%$" value="+20%">
-          </label>
-          <p class="section-hint">说明：声音和语速只影响当前任务的 TTS 配音，不修改全局默认配置。</p>
-        </section>
-
-        <section>
-          <div class="section-title">音频</div>
-          <label>
-            <span>BGM</span>
-            <select id="bgmMode">
-              <option value="default">默认</option>
-              <option value="none">无</option>
-              <option value="custom">自定义本地文件</option>
-            </select>
-          </label>
-          <label>
-            <span>BGM 音量</span>
-            <input id="bgmVolume" type="number" min="0" max="1" step="0.01" value="0.065">
-          </label>
-          <label>
-            <span>BGM 路径</span>
-            <input id="bgmPath" placeholder="/Users/me/Music/bgm.mp3">
-          </label>
-        </section>
-
-        <section>
-          <div class="section-title">模板预设</div>
-          <label>
-            <span>预设名称</span>
-            <select id="templatePreset">
-              <option value="default">默认</option>
-            </select>
-          </label>
-          <div class="preset-actions">
-            <button id="savePresetBtn" class="tiny">保存当前为预设</button>
-            <button id="loadPresetBtn" class="tiny">加载预设</button>
-            <button id="deletePresetBtn" class="tiny">删除预设</button>
-          </div>
-        </section>
-
-        <section>
-          <div class="section-title">正式产物</div>
-          <label>
-            <span>正式视频保存目录</span>
-            <input id="officialOutputDir" value="/Users/leohang/Movies/GitHub热榜视频">
-          </label>
-        </section>
-
-        <section>
-          <div class="section-title">配置状态</div>
-          <div class="kv">
-            <span>GitHub Token</span>
-            <strong id="githubStatus">读取中</strong>
-          </div>
-          <div class="kv">
-            <span>模型路由</span>
-            <strong id="routingStatus">按任务配置</strong>
-          </div>
-          <div class="kv">
-            <span>渲染环境</span>
-            <strong id="preflightStatus">检测中</strong>
-          </div>
-          <div class="kv">
-            <span>真实 smoke</span>
-            <strong id="realSmokeStatus">未运行</strong>
-          </div>
-          <button id="runRealSmokeBtn" class="tiny" type="button">运行真实 smoke</button>
-          <div class="kv">
-            <span>模板</span>
-            <strong>github_hotlist_vertical_v1</strong>
-          </div>
-          <button id="openScheduleSideBtn" class="tiny" type="button">打开定时生产</button>
-        </section>
-      </aside>
-
-      <main class="workspace">
-        <nav class="tabs">
-          <button class="tab active" data-tab="candidates">候选项目</button>
-          <button class="tab" data-tab="script">口播脚本</button>
-          <button class="tab" data-tab="progress">进度日志</button>
-        </nav>
-
-        <section id="candidatesTab" class="tab-panel active">
-          <div class="panel-head">
-            <div>
-              <div class="subtle-title">draft.candidates</div>
-              <h2>候选项目</h2>
-              <p>自动拉取后，勾选并调整要进入热榜视频的项目。</p>
-              <div id="candidateSourceSummary" class="panel-meta">候选来源：待生成。</div>
-            </div>
-            <div class="panel-head-actions">
-              <button id="refreshCandidatesBtn2" class="ghost" disabled title="跳过缓存，直接从 GitHub API 拉取最新候选数据">跳过缓存刷新</button>
-              <button id="confirmSelectionBtn">确认项目</button>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>顺序</th>
-                  <th>项目</th>
-                  <th>评分</th>
-                  <th>星标</th>
-                  <th>语言</th>
-                  <th>推荐理由</th>
-                  <th>风险</th>
-                </tr>
-              </thead>
-              <tbody id="candidateRows">
-                <tr><td colspan="8" class="empty">还没有任务。先选择时间维度和项目数，再点击“创建任务”。</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section id="scriptTab" class="tab-panel">
-          <div class="panel-head">
-            <div>
-              <div class="subtle-title">draft.narration</div>
-              <h2>口播脚本</h2>
-              <p>编辑每段口播后确认，系统会写入任务快照。</p>
-              <div id="narrationSourceSummary" class="panel-meta">口播来源：待生成。</div>
-            </div>
-            <button id="saveScriptBtn">确认口播</button>
-          </div>
-          <div id="scriptEditor" class="script-editor empty">确认项目后会在这里生成口播草稿。</div>
-          <div id="qualityReport" class="quality-report" hidden></div>
-        </section>
-
-        <section id="progressTab" class="tab-panel">
-          <div class="panel-head">
-            <div>
-              <div class="subtle-title">runner.logs</div>
-              <h2>阶段与日志</h2>
-              <p>这里保留接近 CLI 的透明度，方便定位失败节点。</p>
-            </div>
-          </div>
-          <div id="stageTimeline" class="stage-timeline empty">暂无阶段记录。</div>
-          <pre id="logBox" class="logbox">暂无日志。</pre>
-        </section>
       </main>
 
-      <aside class="right-rail panel">
-        <div class="rail-head">
-          <h2>任务上下文</h2>
+      <div id="settingsOverlay" class="settings-overlay" hidden></div>
+      <aside id="settingsDrawer" class="settings-drawer" hidden>
+        <div class="drawer-head">
+          <div>
+            <div class="eyebrow">CONFIG</div>
+            <h2>模型与 GitHub 配置</h2>
+          </div>
+          <button id="closeSettingsBtn" class="ghost">关闭</button>
         </div>
-        <section>
-          <div class="section-title">当前任务</div>
-          <div class="job-card">
-            <code id="currentJobId">未创建</code>
-            <div id="currentStage">等待创建任务</div>
-            <div id="currentModelCall" class="job-meta">model: -</div>
-            <div id="currentError" class="job-error" hidden></div>
-            <div id="recoveryHint" class="job-recovery" hidden></div>
-            <pre id="currentDiagnostics" class="job-diagnostics" hidden></pre>
-            <div class="regen-actions">
-              <button id="refreshCandidatesBtn" class="tiny" disabled title="跳过缓存，从 GitHub API 重新拉取最新候选数据">跳过缓存</button>
-              <button id="regenerateCandidatesBtn" class="tiny" disabled>重生成候选</button>
-              <button id="regenerateScriptBtn" class="tiny" disabled>重生成口播</button>
-              <button id="regenerateVideoBtn" class="tiny" disabled>重生成视频</button>
-              <button id="cancelJobBtn" class="tiny danger" disabled>取消任务</button>
-            </div>
-            <div class="lark-sync-history" id="larkSyncHistory"></div>
-          </div>
+
+        <section class="settings-section">
+          <div class="section-title">GitHub</div>
+          <label>
+            <span>GitHub Token</span>
+            <input id="githubTokenInput" type="password" placeholder="留空表示不修改已保存 Token" />
+          </label>
+          <p class="hint">用于提高 GitHub API 限流额度。Token 只保存在本机 .config 目录。</p>
         </section>
-        <section>
-          <div class="section-title action-title">
-            <span>产物</span>
-            <button id="openJobFolderBtn" class="tiny" disabled>打开目录</button>
+
+        <section class="settings-section">
+          <div class="section-title">飞书多维表格</div>
+          <label class="check-row">
+            <input id="larkSyncEnabled" type="checkbox" />
+            <span>确认项目后同步到飞书</span>
+          </label>
+          <div class="provider-grid">
+            <label>
+              <span>Base Token</span>
+              <input id="larkBaseTokenInput" type="password" placeholder="留空表示不修改已保存 Token" />
+            </label>
+            <label>
+              <span>Table ID</span>
+              <input id="larkTableIdInput" placeholder="tblxxxx 或表名" />
+            </label>
+            <label>
+              <span>全量候选表 ID</span>
+              <input id="larkAllDataTableIdInput" placeholder="tblAllC..." />
+            </label>
+            <label>
+              <span>已选项目表 ID</span>
+              <input id="larkSelectedDataTableIdInput" placeholder="tblSel..." />
+            </label>
           </div>
-          <div id="artifactSummary" class="artifact-summary empty">暂无任务摘要。</div>
-          <div id="publishActions" class="publish-actions" hidden></div>
-          <div id="artifactList" class="artifact-list empty">暂无产物。</div>
+          <label class="check-row">
+            <input type="checkbox" id="larkSyncAllDataEnabled" checked />
+            <span>启用全量同步</span>
+          </label>
+          <label class="check-row">
+            <input type="checkbox" id="larkSyncSelectedDataEnabled" checked />
+            <span>启用已选同步</span>
+          </label>
+          <p id="larkSyncStatus" class="hint">未配置。</p>
         </section>
-        <section>
-          <div class="section-title">历史任务</div>
-          <div id="scheduleQueue" class="history-list empty">暂无定时待办。</div>
-          <div class="history-controls">
-            <input id="historySearch" class="search-input" placeholder="搜索任务 ID、标题或状态..." type="search">
-            <button id="batchDeleteToggleBtn" class="tiny" title="批量删除历史任务">批量管理</button>
-          </div>
-          <div id="batchDeleteBar" class="batch-delete-bar" hidden>
-            <button id="batchSelectAllBtn" class="tiny">全选</button>
-            <button id="batchDeselectAllBtn" class="tiny">取消全选</button>
-            <button id="batchDeleteConfirmBtn" class="tiny danger">删除选中</button>
-            <span id="batchDeleteCount" class="batch-count"></span>
-            <button id="batchDeleteCancelBtn" class="tiny">退出</button>
-          </div>
-          <div id="historyList" class="history-list empty">暂无历史任务。</div>
+
+        <section class="settings-section">
+          <div class="section-title">模型供应商</div>
+          <div id="providerEditor" class="provider-editor"></div>
         </section>
+
+        <section class="settings-section">
+          <div class="section-title">任务路由</div>
+          <div id="routingEditor" class="routing-editor"></div>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-title">交互偏好</div>
+          <label class="check-row">
+            <input id="autoOpenToggle" type="checkbox" checked onchange="toggleAutoOpen()">
+            <span>视频生成后自动打开产物目录</span>
+          </label>
+          <p id="autoOpenStatus" class="hint">已开启自动打开</p>
+          <label class="check-row">
+            <span>主题模式</span>
+            <select id="themeSelect" onchange="setTheme(this.value)">
+              <option value="system">跟随系统</option>
+              <option value="light">浅色模式</option>
+              <option value="dark">深色模式</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="settings-section">
+          <div class="section-title">定时生产</div>
+          <p class="hint">定时参数已移到独立页面，包含自动出正式 mp4、视频模板和最近运行状态。</p>
+          <button id="openScheduleFromSettingsBtn" class="ghost" type="button">打开定时生产</button>
+        </section>
+
+        <div class="drawer-actions">
+          <button id="saveSettingsBtn" class="primary">保存配置</button>
+          <span id="settingsMessage" class="hint"></span>
+        </div>
       </aside>
-
-      <section id="scheduleView" class="schedule-view" hidden>
-        <div class="schedule-shell">
-          <div class="schedule-head">
-            <div>
-              <div class="subtle-title">scheduled.production</div>
-              <h2>定时生产</h2>
-              <p>配置无人值守的 GitHub 热榜生产计划，到点后按当前参数自动产出正式 mp4。</p>
-            </div>
-            <button id="closeScheduleBtn" class="ghost">返回工作台</button>
-          </div>
-
-          <div class="schedule-grid">
-            <section class="schedule-panel">
-              <div class="section-title">计划状态</div>
-              <label class="check-row">
-                <input id="scheduleEnabled" type="checkbox">
-                <span>启用定时生产</span>
-              </label>
-              <div class="schedule-status-box">
-                <div class="kv">
-                  <span>当前模式</span>
-                  <strong id="scheduleModeLabel">读取中</strong>
-                </div>
-                <div class="kv">
-                  <span>上次运行</span>
-                  <strong id="scheduleLastRun">尚未运行</strong>
-                </div>
-                <div class="kv">
-                  <span>下一次</span>
-                  <strong id="scheduleNextRun">未启用</strong>
-                </div>
-              </div>
-              <p id="scheduleStatus" class="hint">定时任务只生成候选草稿，不会自动确认或渲染。</p>
-            </section>
-
-            <section class="schedule-panel">
-              <div class="section-title">自动化级别</div>
-              <label>
-                <span>模式</span>
-                <select id="scheduleMode">
-                  <option value="candidates_only">只生成候选草稿</option>
-                  <option value="auto_script">自动生成口播草稿</option>
-                  <option value="auto_video">自动生成正式视频</option>
-                </select>
-              </label>
-              <label>
-                <span>频率</span>
-                <select id="scheduleFrequency">
-                  <option value="daily">每日</option>
-                  <option value="weekly">每周一</option>
-                </select>
-              </label>
-              <label>
-                <span>时间</span>
-                <input id="scheduleTime" type="time" value="09:00">
-              </label>
-            </section>
-
-            <section class="schedule-panel">
-              <div class="section-title">内容参数</div>
-              <label>
-                <span>榜单窗口</span>
-                <select id="scheduleWindow">
-                  <option value="daily">日榜</option>
-                  <option value="weekly">周榜</option>
-                  <option value="monthly">月榜</option>
-                </select>
-              </label>
-              <label>
-                <span>项目数</span>
-                <select id="scheduleProjectCount">
-                  <option value="5" selected>5</option>
-                  <option value="6">6</option>
-                  <option value="7">7</option>
-                  <option value="8">8</option>
-                  <option value="9">9</option>
-                  <option value="10">10</option>
-                </select>
-              </label>
-            </section>
-
-            <section class="schedule-panel schedule-panel-wide">
-              <div class="section-title">视频参数</div>
-              <div class="provider-grid">
-                <label>
-                  <span>视觉风格</span>
-                  <select id="scheduleVisualStyle"></select>
-                </label>
-                <label>
-                  <span>渲染引擎</span>
-                  <select id="scheduleRenderEngine">
-                    <option value="hyperframes">HyperFrames</option>
-                    <option value="pil">PIL</option>
-                  </select>
-                </label>
-                <label>
-                  <span>字幕模式</span>
-                  <select id="scheduleSubtitleMode">
-                    <option value="large_hook">大字强钩子</option>
-                    <option value="standard">标准解释型</option>
-                  </select>
-                </label>
-                <label>
-                  <span>口播语气</span>
-                  <select id="scheduleTone">
-                    <option value="professional_review">专业测评</option>
-                    <option value="short_video_hook">爆款短视频</option>
-                    <option value="calm_analysis">冷静解读</option>
-                  </select>
-                </label>
-                <label>
-                  <span>BGM</span>
-                  <select id="scheduleBgmMode">
-                    <option value="default">默认</option>
-                    <option value="none">无</option>
-                    <option value="custom">自定义本地文件</option>
-                  </select>
-                </label>
-                <label>
-                  <span>BGM 音量</span>
-                  <input id="scheduleBgmVolume" type="number" min="0" max="1" step="0.01" value="0.065">
-                </label>
-                <label class="wide">
-                  <span>BGM 路径</span>
-                  <input id="scheduleBgmPath" placeholder="/Users/me/Music/bgm.mp3">
-                </label>
-                <label class="wide">
-                  <span>正式视频保存目录</span>
-                  <input id="scheduleOfficialOutputDir" value="/Users/leohang/Movies/GitHub热榜视频">
-                </label>
-              </div>
-            </section>
-
-            <section class="schedule-panel schedule-panel-wide">
-              <div class="section-title">最近定时任务</div>
-              <div id="scheduleRecentJobs" class="history-list empty">暂无定时任务。</div>
-            </section>
-          </div>
-
-          <div class="schedule-actions">
-            <button id="saveScheduleBtn" class="primary">保存定时计划</button>
-            <button id="runScheduleNowBtn" class="ghost">立即试跑</button>
-            <span id="scheduleMessage" class="hint"></span>
-          </div>
-        </div>
-      </section>
     </div>
-
-    <div id="settingsOverlay" class="settings-overlay" hidden></div>
-    <aside id="settingsDrawer" class="settings-drawer" hidden>
-      <div class="drawer-head">
-        <div>
-          <div class="eyebrow">CONFIG</div>
-          <h2>模型与 GitHub 配置</h2>
-        </div>
-        <button id="closeSettingsBtn" class="ghost">关闭</button>
-      </div>
-
-      <section class="settings-section">
-        <div class="section-title">GitHub</div>
-        <label>
-          <span>GitHub Token</span>
-          <input id="githubTokenInput" type="password" placeholder="留空表示不修改已保存 Token" />
-        </label>
-        <p class="hint">用于提高 GitHub API 限流额度。Token 只保存在本机 .config 目录。</p>
-      </section>
-
-      <section class="settings-section">
-        <div class="section-title">飞书多维表格</div>
-        <label class="check-row">
-          <input id="larkSyncEnabled" type="checkbox" />
-          <span>确认项目后同步到飞书</span>
-        </label>
-        <div class="provider-grid">
-          <label>
-            <span>Base Token</span>
-            <input id="larkBaseTokenInput" type="password" placeholder="留空表示不修改已保存 Token" />
-          </label>
-          <label>
-            <span>Table ID</span>
-            <input id="larkTableIdInput" placeholder="tblxxxx 或表名" />
-          </label>
-          <label>
-            <span>全量候选表 ID</span>
-            <input id="larkAllDataTableIdInput" placeholder="tblAllC..." />
-          </label>
-          <label>
-            <span>已选项目表 ID</span>
-            <input id="larkSelectedDataTableIdInput" placeholder="tblSel..." />
-          </label>
-        </div>
-        <label class="check-row">
-          <input type="checkbox" id="larkSyncAllDataEnabled" checked />
-          <span>启用全量同步</span>
-        </label>
-        <label class="check-row">
-          <input type="checkbox" id="larkSyncSelectedDataEnabled" checked />
-          <span>启用已选同步</span>
-        </label>
-        <p id="larkSyncStatus" class="hint">未配置。</p>
-      </section>
-
-      <section class="settings-section">
-        <div class="section-title">模型供应商</div>
-        <div id="providerEditor" class="provider-editor"></div>
-      </section>
-
-      <section class="settings-section">
-        <div class="section-title">任务路由</div>
-        <div id="routingEditor" class="routing-editor"></div>
-      </section>
-
-      <section class="settings-section">
-        <div class="section-title">交互偏好</div>
-        <label class="check-row">
-          <input id="autoOpenToggle" type="checkbox" checked onchange="toggleAutoOpen()">
-          <span>视频生成后自动打开产物目录</span>
-        </label>
-        <p id="autoOpenStatus" class="hint">已开启自动打开</p>
-        <label class="check-row">
-          <span>主题模式</span>
-          <select id="themeSelect" onchange="setTheme(this.value)">
-            <option value="system">跟随系统</option>
-            <option value="light">浅色模式</option>
-            <option value="dark">深色模式</option>
-          </select>
-        </label>
-      </section>
-
-      <section class="settings-section">
-        <div class="section-title">定时生产</div>
-        <p class="hint">定时参数已移到独立页面，包含自动出正式 mp4、视频模板和最近运行状态。</p>
-        <button id="openScheduleFromSettingsBtn" class="ghost" type="button">打开定时生产</button>
-      </section>
-
-      <div class="drawer-actions">
-        <button id="saveSettingsBtn" class="primary">保存配置</button>
-        <span id="settingsMessage" class="hint"></span>
-      </div>
-    </aside>
 
     <script src="/static/app.js?v=20260614-workbench"></script>
   </body>

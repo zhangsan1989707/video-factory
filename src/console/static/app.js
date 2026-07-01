@@ -25,6 +25,14 @@ const state = {
   _lastCompletedJobId: null,
 };
 
+let currentTrack = "github";
+
+const STOCK_INPUT_MAP = {
+  finance_site: "finance-site-input",
+  llm: "llm-input",
+  manual: "manual-input",
+};
+
 const DEFAULT_BGM_VOLUME = 0.065;
 const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
 
@@ -149,13 +157,128 @@ function bindEvents() {
   $("loadPresetBtn").addEventListener("click", loadTemplatePreset);
   $("deletePresetBtn").addEventListener("click", deleteTemplatePreset);
   document.addEventListener("keydown", handleKeyboardShortcut);
+  document.querySelectorAll(".track-btn").forEach((btn) => {
+    btn.addEventListener("click", () => switchTrack(btn.dataset.track));
+  });
+  document.querySelectorAll('input[name="content_source"]').forEach((radio) => {
+    radio.addEventListener("change", syncStockContentSource);
+  });
+  const stockForm = $("stock-form");
+  if (stockForm) stockForm.addEventListener("submit", submitStockForm);
   syncJobTypeFields();
+  syncStockContentSource();
 }
 
 function switchTab(name) {
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.remove("active"));
   $(`${name}Tab`).classList.add("active");
+}
+
+function switchTrack(track) {
+  currentTrack = track;
+  document.querySelectorAll(".track-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.track === track);
+  });
+  showTrackUI(track);
+}
+
+function showTrackUI(track) {
+  const githubPanel = $("github-panel");
+  const stockPanel = $("stock-panel");
+  if (track === "github") {
+    if (githubPanel) githubPanel.style.display = "";
+    if (stockPanel) stockPanel.style.display = "none";
+  } else {
+    if (githubPanel) githubPanel.style.display = "none";
+    if (stockPanel) stockPanel.style.display = "";
+  }
+}
+
+function syncStockContentSource(event) {
+  const radios = document.querySelectorAll('input[name="content_source"]');
+  const checked = event && event.target ? event.target : [...radios].find((r) => r.checked);
+  const source = checked ? checked.value : "finance_site";
+  document.querySelectorAll(".conditional-input").forEach((el) => {
+    el.style.display = "none";
+  });
+  const targetId = STOCK_INPUT_MAP[source];
+  const target = targetId ? $(targetId) : null;
+  if (target) target.style.display = "";
+}
+
+async function submitStockForm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const params = currentTemplateParams();
+  const payload = {
+    type: "stock_education",
+    theme: String(formData.get("theme") || "").trim(),
+    content_source: formData.get("content_source"),
+    source_input:
+      String(formData.get("finance_url") || "").trim() ||
+      String(formData.get("topic_keywords") || "").trim() ||
+      String(formData.get("manual_content") || "").trim(),
+    template_params: {
+      tts_voice: params.tts_voice,
+      tts_rate: params.tts_rate,
+    },
+  };
+
+  if (!payload.theme) {
+    alert("请输入主题");
+    return;
+  }
+
+  try {
+    const data = await post("/api/jobs", payload);
+    if (data.error) throw new Error(data.error);
+    const resultBox = $("stock-result");
+    if (resultBox) resultBox.style.display = "";
+    pollJobStatus(data.job.id);
+  } catch (error) {
+    alert("创建任务失败: " + error.message);
+  }
+}
+
+async function pollJobStatus(jobId) {
+  try {
+    await loadJob(jobId);
+    startPollingCurrentJob();
+    updateStockStatus(state.currentJob);
+  } catch (error) {
+    alert("加载任务状态失败: " + error.message);
+  }
+}
+
+function updateStockStatus(job) {
+  const statusBox = $("stock-status");
+  const previewBox = $("stock-video-preview");
+  if (!statusBox) return;
+  if (!job) {
+    statusBox.textContent = "等待创建任务";
+    if (previewBox) previewBox.innerHTML = "";
+    return;
+  }
+  const stage = stageLabel(job.stage || "");
+  const labels = {
+    completed: "已完成",
+    failed: "失败",
+    running: "运行中",
+    awaiting_input: "等待处理",
+  };
+  const statusText = labels[job.status] || job.status;
+  statusBox.textContent = `${statusText} · ${stage}${job.error ? " · " + job.error : ""}`;
+
+  if (previewBox && job.status === "completed") {
+    const official = job.official_video || "";
+    previewBox.innerHTML = official
+      ? `<a href="${escapeAttr(official)}" target="_blank" rel="noreferrer">${escapeHtml(official)}</a>`
+      : "视频已生成";
+  } else if (previewBox) {
+    previewBox.innerHTML = "";
+  }
 }
 
 function handleKeyboardShortcut(event) {
@@ -874,6 +997,7 @@ async function refreshCurrentJob() {
         }
       }
     }
+    if (currentTrack === "stock") updateStockStatus(state.currentJob);
   } finally {
     state._refreshInFlight = false;
   }
@@ -919,14 +1043,43 @@ function renderLarkSyncHistory(job) {
   }
   const html = segments.map(seg => {
     const s = sync[seg.key] || { status: "未同步" };
+    const needsRetry = s.status === "partial" || s.status === "failed" || s.error;
+    const errorsHtml = Array.isArray(s.errors) && s.errors.length
+      ? `<ul class="lark-sync-errors">${s.errors.map(e => `<li>${escapeHtml(typeof e === "string" ? e : (e.error || JSON.stringify(e)))}</li>`).join("")}</ul>`
+      : "";
     return `<div class="lark-sync-seg">
       <strong>${seg.label}</strong>: ${s.status}
       ${s.count != null ? `(${s.count} 条)` : ""}
+      ${s.created != null ? `新增 ${s.created}` : ""}
+      ${s.updated != null ? `更新 ${s.updated}` : ""}
       ${s.at ? ` · ${s.at}` : ""}
-      ${s.error ? ` · <span class="err">${s.error}</span>` : ""}
+      ${s.error ? ` · <span class="err">${escapeHtml(s.error)}</span>` : ""}
+      ${errorsHtml}
+      ${needsRetry ? `<button class="lark-resync-btn tiny" data-resync-seg="${seg.key}" data-resync-job="${escapeAttr(job.id)}">重试</button>` : ""}
     </div>`;
   }).join("");
   container.innerHTML = html;
+  container.querySelectorAll(".lark-resync-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const seg = btn.dataset.resyncSeg;
+      const jid = btn.dataset.resyncJob;
+      btn.disabled = true;
+      btn.textContent = "同步中…";
+      try {
+        const result = await post(`/api/jobs/${jid}/resync-lark`, { segment: seg });
+        if (result.ok) {
+          btn.textContent = "已触发";
+          setTimeout(() => refreshCurrentJob(), 2000);
+        } else {
+          btn.textContent = "失败";
+          setTimeout(() => { btn.textContent = "重试"; btn.disabled = false; }, 3000);
+        }
+      } catch (err) {
+        btn.textContent = "失败";
+        setTimeout(() => { btn.textContent = "重试"; btn.disabled = false; }, 3000);
+      }
+    });
+  });
 }
 
 function renderJob(job) {
@@ -2411,5 +2564,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions };
+  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, pollJobStatus, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, showTrackUI, startNewJob, state, submitStockForm, syncDetailState, syncJobTypeFields, syncStockContentSource, switchTrack, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions, updateStockStatus };
 }

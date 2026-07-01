@@ -227,7 +227,7 @@ th,
 .app {
   display: grid;
   grid-template-columns: 280px minmax(760px, 1fr) 300px;
-  grid-template-rows: 64px calc(100dvh - 64px);
+  grid-template-rows: auto 64px 1fr;
   min-height: 100dvh;
   background: var(--bg);
 }
@@ -1356,6 +1356,24 @@ textarea {
   color: var(--error);
 }
 
+.lark-sync-errors {
+  margin: 4px 0 0 8px;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.lark-sync-errors li {
+  margin-bottom: 2px;
+}
+
+.lark-resync-btn {
+  margin-left: 8px;
+  font-size: 11px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+
 /* 批量删除 */
 .history-controls {
   display: flex;
@@ -1406,4 +1424,136 @@ textarea {
 /* 交互偏好 */
 .settings-section .check-row + .hint {
   margin-top: 2px;
+}
+
+/* 赛道切换器 */
+.track-switcher {
+  grid-column: 1 / 4;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.track-btn {
+  padding: 6px 16px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: transparent;
+  color: var(--soft);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.track-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.track-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* GitHub 赛道容器 */
+.github-panel {
+  grid-column: 1 / 4;
+  display: grid;
+  grid-template-columns: 280px minmax(760px, 1fr) 300px;
+  grid-template-rows: 1fr;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 炒股科普赛道 */
+.stock-panel {
+  grid-column: 1 / 4;
+  overflow: auto;
+  background: var(--workspace-bg);
+}
+
+.stock-shell {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 22px 44px;
+}
+
+.stock-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.stock-form .form-group {
+  display: grid;
+  gap: 6px;
+}
+
+.stock-form .form-group > label:first-child {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.stock-form input[type="text"],
+.stock-form textarea {
+  width: 100%;
+}
+
+.radio-group {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.radio-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.radio-group input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.conditional-input {
+  animation: fade-in 0.2s ease;
+}
+
+.btn-primary {
+  justify-self: start;
+  border-color: var(--accent-deep);
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-deep);
+}
+
+.result-area {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.result-area h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
