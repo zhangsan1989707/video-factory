@@ -1,0 +1,3 @@
+[submodule "third_party/video-spec-builder"]
+	path = third_party/video-spec-builder
+	url = https://github.com/feicaiclub/video-spec-builder.git
