@@ -238,7 +238,17 @@ def render_finance_preview_frames(
         bullets = scene.get("bullets", [])
 
         if template_id == "indicator_chart":
-            _draw_macd_chart(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font)
+            chart_type = scene.get("chart_type", "macd")
+            _CHART_DRAWERS = {
+                "macd": _draw_macd_chart,
+                "kdj": _draw_kdj_chart,
+                "ma": _draw_ma_chart,
+                "volume": _draw_volume_chart,
+                "support_resistance": _draw_sr_chart,
+                "stop_loss": _draw_stoploss_chart,
+            }
+            drawer = _CHART_DRAWERS.get(chart_type, _draw_macd_chart)
+            drawer(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font)
         else:
             if title:
                 f = _font(64)
@@ -373,3 +383,248 @@ def _draw_macd_chart(draw, width, height, title, sub, gold, white, muted, green,
         f = _font(20)
         draw.text((lx + 18, legend_y - 2), label, fill=white, font=f)
         lx += 180
+
+
+def _draw_kdj_chart(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font):
+    """KDJ 指标图"""
+    if title:
+        f = _font(56)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        draw.text(((width - bbox[2] + bbox[0]) // 2, 320), title, fill=gold, font=f)
+    if sub:
+        f = _font(28)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        draw.text(((width - bbox[2] + bbox[0]) // 2, 400), sub, fill=white, font=f)
+
+    cl, cr = 120, width - 120
+    ct, cb = 520, 1050
+    cw = cr - cl
+    mid80 = ct + int((cb - ct) * 0.2)
+    mid20 = ct + int((cb - ct) * 0.8)
+
+    # 超买超卖区域
+    draw.rectangle([cl, ct, cr, mid80], fill=(239, 68, 68, 25))
+    draw.rectangle([cl, mid20, cr, cb], fill=(34, 197, 94, 25))
+    draw.line([(cl, mid80), (cr, mid80)], fill=red, width=1)
+    draw.line([(cl, mid20), (cr, mid20)], fill=green, width=1)
+    f = _font(16)
+    draw.text((cr + 8, mid80 - 10), "超买 80", fill=red, font=f)
+    draw.text((cr + 8, mid20 - 10), "超卖 20", fill=green, font=f)
+
+    # K 线 (gold)
+    k_pts = [(cl + i * cw // 13, ct + int((cb - ct) * (0.3 + 0.15 * (1 if i % 3 == 0 else -1) * (i % 5) / 5))) for i in range(14)]
+    for i in range(len(k_pts) - 1):
+        draw.line([k_pts[i], k_pts[i + 1]], fill=gold, width=3)
+
+    # D 线 (blue) - 更平滑
+    d_pts = [(cl + i * cw // 13, ct + int((cb - ct) * (0.35 + 0.1 * (1 if i % 4 == 0 else -1) * (i % 6) / 6))) for i in range(14)]
+    for i in range(len(d_pts) - 1):
+        draw.line([d_pts[i], d_pts[i + 1]], fill=blue, width=3)
+
+    # J 线 (purple) - 波动最大
+    purple = (168, 85, 247)
+    j_pts = [(cl + i * cw // 13, ct + int((cb - ct) * (0.25 + 0.25 * (1 if i % 2 == 0 else -1) * (i % 3) / 3))) for i in range(14)]
+    for i in range(len(j_pts) - 1):
+        draw.line([j_pts[i], j_pts[i + 1]], fill=purple, width=2)
+
+    legend_y = cb + 40
+    lx = cl
+    for label, color in [("K 线", gold), ("D 线", blue), ("J 线", purple)]:
+        draw.ellipse([lx, legend_y, lx + 12, legend_y + 12], fill=color)
+        draw.text((lx + 18, legend_y - 2), label, fill=white, font=_font(20))
+        lx += 160
+
+
+def _draw_ma_chart(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font):
+    """均线图"""
+    if title:
+        f = _font(56)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        draw.text(((width - bbox[2] + bbox[0]) // 2, 320), title, fill=gold, font=f)
+    if sub:
+        f = _font(28)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        draw.text(((width - bbox[2] + bbox[0]) // 2, 400), sub, fill=white, font=f)
+
+    cl, cr = 120, width - 120
+    ct, cb = 520, 1050
+    cw = cr - cl
+
+    # K 线背景 (灰色)
+    k_base = [(cl + i * cw // 19, ct + int((cb - ct) * (0.4 + 0.15 * ((-1) ** i) * (i % 5) / 5))) for i in range(20)]
+    for i in range(len(k_base) - 1):
+        draw.line([k_base[i], k_base[i + 1]], fill=(100, 116, 139), width=2)
+
+    # MA5 (gold)
+    ma5 = [(cl + i * cw // 19, ct + int((cb - ct) * (0.42 + 0.12 * ((-1) ** i) * (i % 4) / 4))) for i in range(20)]
+    for i in range(len(ma5) - 1):
+        draw.line([ma5[i], ma5[i + 1]], fill=gold, width=3)
+
+    # MA10 (blue)
+    ma10 = [(cl + i * cw // 19, ct + int((cb - ct) * (0.45 + 0.08 * ((-1) ** i) * (i % 6) / 6))) for i in range(20)]
+    for i in range(len(ma10) - 1):
+        draw.line([ma10[i], ma10[i + 1]], fill=blue, width=3)
+
+    # MA20 (green)
+    ma20 = [(cl + i * cw // 19, ct + int((cb - ct) * (0.48 + 0.05 * ((-1) ** i) * (i % 8) / 8))) for i in range(20)]
+    for i in range(len(ma20) - 1):
+        draw.line([ma20[i], ma20[i + 1]], fill=green, width=3)
+
+    legend_y = cb + 40
+    lx = cl
+    for label, color in [("K 线", (100, 116, 139)), ("MA5", gold), ("MA10", blue), ("MA20", green)]:
+        draw.ellipse([lx, legend_y, lx + 12, legend_y + 12], fill=color)
+        draw.text((lx + 18, legend_y - 2), label, fill=white, font=_font(20))
+        lx += 160
+
+
+def _draw_volume_chart(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font):
+    """成交量图"""
+    if title:
+        f = _font(56)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        draw.text(((width - bbox[2] + bbox[0]) // 2, 320), title, fill=gold, font=f)
+    if sub:
+        f = _font(28)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        draw.text(((width - bbox[2] + bbox[0]) // 2, 400), sub, fill=white, font=f)
+
+    cl, cr = 120, width - 120
+    ct, cb = 520, 1000
+    cw = cr - cl
+    bar_count = 16
+    bar_w = cw // (bar_count * 2)
+    volumes = [30, 45, 55, 40, 65, 80, 60, 35, 50, 70, 90, 75, 45, 55, 40, 60]
+    max_vol = max(volumes)
+
+    for i, v in enumerate(volumes):
+        x = cl + (i * 2 + 1) * bar_w
+        bar_h = int((v / max_vol) * (cb - ct - 40))
+        y0 = cb - bar_h
+        color = green if i % 3 != 0 else red
+        draw.rounded_rectangle([x, y0, x + bar_w, cb], radius=3, fill=color)
+
+    # 放量标注
+    peak_idx = volumes.index(max(volumes))
+    peak_x = cl + (peak_idx * 2 + 1) * bar_w + bar_w // 2
+    peak_y = cb - int((max_vol / max_vol) * (cb - ct - 40)) - 20
+    draw.text((peak_x - 20, peak_y), "放量", fill=gold, font=_font(20))
+
+    legend_y = cb + 40
+    lx = cl
+    for label, color in [("上涨量", green), ("下跌量", red), ("放量", gold)]:
+        draw.ellipse([lx, legend_y, lx + 12, legend_y + 12], fill=color)
+        draw.text((lx + 18, legend_y - 2), label, fill=white, font=_font(20))
+        lx += 160
+
+
+def _draw_sr_chart(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font):
+    """支撑压力图"""
+    if title:
+        f = _font(56)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        draw.text(((width - bbox[2] + bbox[0]) // 2, 320), title, fill=gold, font=f)
+    if sub:
+        f = _font(28)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        draw.text(((width - bbox[2] + bbox[0]) // 2, 400), sub, fill=white, font=f)
+
+    cl, cr = 120, width - 120
+    ct, cb = 520, 1050
+    cw = cr - cl
+    support_y = cb - 120
+    resist_y = ct + 120
+
+    # 支撑线 (green)
+    draw.line([(cl, support_y), (cr, support_y)], fill=green, width=2)
+    f = _font(20)
+    draw.text((cr + 8, support_y - 10), "支撑位", fill=green, font=f)
+
+    # 压力线 (red)
+    draw.line([(cl, resist_y), (cr, resist_y)], fill=red, width=2)
+    draw.text((cr + 8, resist_y - 10), "压力位", fill=red, font=f)
+
+    # 价格走势
+    price_pts = [
+        (cl + 10, ct + 200),
+        (cl + cw * 0.15, ct + 180),
+        (cl + cw * 0.25, support_y + 20),
+        (cl + cw * 0.35, ct + 250),
+        (cl + cw * 0.45, resist_y - 20),
+        (cl + cw * 0.55, ct + 200),
+        (cl + cw * 0.65, support_y + 30),
+        (cl + cw * 0.75, ct + 280),
+        (cl + cw * 0.85, resist_y - 10),
+        (cr - 10, ct + 220),
+    ]
+    for i in range(len(price_pts) - 1):
+        draw.line([price_pts[i], price_pts[i + 1]], fill=white, width=2)
+
+    # 触碰标记
+    for px, py in [price_pts[2], price_pts[6]]:
+        draw.ellipse([px - 8, py - 8, px + 8, py + 8], fill=green)
+    for px, py in [price_pts[4], price_pts[8]]:
+        draw.ellipse([px - 8, py - 8, px + 8, py + 8], fill=red)
+
+    legend_y = cb + 40
+    lx = cl
+    for label, color in [("价格", white), ("支撑", green), ("压力", red)]:
+        draw.ellipse([lx, legend_y, lx + 12, legend_y + 12], fill=color)
+        draw.text((lx + 18, legend_y - 2), label, fill=white, font=_font(20))
+        lx += 140
+
+
+def _draw_stoploss_chart(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font):
+    """止损路径图"""
+    if title:
+        f = _font(56)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        draw.text(((width - bbox[2] + bbox[0]) // 2, 320), title, fill=gold, font=f)
+    if sub:
+        f = _font(28)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        draw.text(((width - bbox[2] + bbox[0]) // 2, 400), sub, fill=white, font=f)
+
+    cl, cr = 120, width - 120
+    ct, cb = 520, 1050
+    cw = cr - cl
+    sl_y = ct + 300
+
+    # 止损线 (red dashed)
+    for x in range(cl, cr, 12):
+        draw.line([(x, sl_y), (min(x + 6, cr), sl_y)], fill=red, width=2)
+    f = _font(20)
+    draw.text((cr + 8, sl_y - 10), "止损线", fill=red, font=f)
+
+    # 买入点
+    buy_x = cl + int(cw * 0.2)
+    buy_y = sl_y - 80
+    draw.ellipse([buy_x - 10, buy_y - 10, buy_x + 10, buy_y + 10], fill=green)
+    draw.text((buy_x - 16, buy_y + 16), "买入", fill=green, font=f)
+
+    # 价格路径：先涨后跌破
+    price_pts = [
+        (cl + 10, buy_y),
+        (cl + cw * 0.15, buy_y - 40),
+        (cl + cw * 0.25, buy_y - 20),
+        (cl + cw * 0.35, buy_y + 30),
+        (cl + cw * 0.45, sl_y - 10),
+        (cl + cw * 0.55, sl_y + 15),
+        (cl + cw * 0.65, sl_y + 60),
+        (cl + cw * 0.75, sl_y + 100),
+        (cr - 10, sl_y + 140),
+    ]
+    for i in range(len(price_pts) - 1):
+        draw.line([price_pts[i], price_pts[i + 1]], fill=white, width=2)
+
+    # 跌破标记
+    break_x = cl + int(cw * 0.52)
+    draw.ellipse([break_x - 12, sl_y - 12, break_x + 12, sl_y + 12], fill=red)
+    draw.text((break_x - 20, sl_y + 18), "跌破止损", fill=red, font=f)
+
+    legend_y = cb + 40
+    lx = cl
+    for label, color in [("价格", white), ("买入点", green), ("止损线", red)]:
+        draw.ellipse([lx, legend_y, lx + 12, legend_y + 12], fill=color)
+        draw.text((lx + 18, legend_y - 2), label, fill=white, font=_font(20))
+        lx += 160

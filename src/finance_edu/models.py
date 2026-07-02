@@ -126,6 +126,37 @@ class FinanceEduScript:
 
 
 @dataclass
+class FinanceVisualSpec:
+    """图解视觉规格"""
+    chart_type: str = "none"
+    highlight_target: str = "none"
+    chart_stage: str = "concept"
+    annotations: list[str] = field(default_factory=list)
+    animation_steps: list[dict] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "chart_type": self.chart_type,
+            "highlight_target": self.highlight_target,
+            "chart_stage": self.chart_stage,
+            "annotations": self.annotations,
+            "animation_steps": self.animation_steps,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "FinanceVisualSpec":
+        if not data:
+            return cls()
+        return cls(
+            chart_type=str(data.get("chart_type", "none")),
+            highlight_target=str(data.get("highlight_target", "none")),
+            chart_stage=str(data.get("chart_stage", "concept")),
+            annotations=list(data.get("annotations") or []),
+            animation_steps=list(data.get("animation_steps") or []),
+        )
+
+
+@dataclass
 class FinanceEduScene:
     """分镜场景"""
     scene_id: str
@@ -141,6 +172,7 @@ class FinanceEduScene:
     chart_type: str
     chart_hint: str
     risk_note: str = ""
+    visual_spec: FinanceVisualSpec = field(default_factory=FinanceVisualSpec)
 
     def to_dict(self) -> dict:
         return {
@@ -157,6 +189,7 @@ class FinanceEduScene:
             "chart_type": self.chart_type,
             "chart_hint": self.chart_hint,
             "risk_note": self.risk_note,
+            "visual_spec": self.visual_spec.to_dict(),
         }
 
 
@@ -189,6 +222,7 @@ class FinanceEduStoryboard:
                 chart_type=str(s.get("chart_type", "none")),
                 chart_hint=str(s.get("chart_hint", "")),
                 risk_note=str(s.get("risk_note", "")),
+                visual_spec=FinanceVisualSpec.from_dict(s.get("visual_spec")),
             )
             for i, s in enumerate(data.get("scenes") or [])
         ]
