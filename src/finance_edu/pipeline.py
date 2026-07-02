@@ -234,13 +234,20 @@ async def run_finance_edu_video(
     previews = render_finance_preview_frames(render_plan, paths.preview_frames_dir)
     console.print(f"   ✓ 生成 {len(previews)} 张预览帧")
 
-    # 8. Playwright 渲染
-    _stage(stage_callback, "composing_video", "Playwright 渲染视频。")
-    console.print("[cyan]🎬 正在 Playwright 渲染视频...[/cyan]")
+    # 8. 合成视频 (PIL 帧 + ffmpeg)
+    _stage(stage_callback, "composing_video", "合成视频。")
+    console.print("[cyan]🎬 正在合成视频...[/cyan]")
 
     # 校准时间戳
     calibrated = _calibrate_segments_by_audio(
         [s.to_dict() for s in script.segments], audio_files
+    )
+
+    # 用 ffmpeg 拼接预览帧为视频，再混合音频
+    final_video = paths.base / "final.mp4"
+    await timing.measure(
+        "compose_video",
+        _compose_from_frames(previews, calibrated, audio_files, final_video, paths),
     )
 
     # 渲染 HTML composition
@@ -288,15 +295,70 @@ async def run_finance_edu_video(
     return paths.base
 
 
-async def _run_mix_audio(
-    raw_video: Path,
+async def _compose_from_frames(
+    preview_paths: list[Path],
     scenes: list[dict[str, Any]],
     audio_files: list[Path],
     output_path: Path,
+    paths,
 ) -> None:
-    """异步调用 moviepy 混音"""
+    """用 PIL 生成每帧画面 + ffmpeg 合成视频 + 混合音频"""
     import asyncio
-    await asyncio.to_thread(mix_audio, raw_video, scenes, audio_files, output_path)
+
+    # Step 1: 拼接音频
+    concat_list = paths.base / "audio_concat.txt"
+    with open(concat_list, "w", encoding="utf-8") as f:
+        for af in audio_files:
+            f.write(f"file '{af.resolve()}'\n")
+
+    merged_audio = paths.base / "merged_audio.m4a"
+    proc = await _run_subprocess([
+        "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+        "-i", str(concat_list),
+        "-c:a", "aac", "-b:a", "128k",
+        str(merged_audio),
+    ])
+    if proc.returncode != 0:
+        raise RuntimeError(f"音频拼接失败: {proc.stderr[-300:]}")
+
+    # Step 2: 为每个 scene 生成对应时长的帧序列，用 ffmpeg 合成
+    # 用一张图片循环播放对应时长
+    segments_video = paths.base / "segments.mp4"
+    filter_parts = []
+    inputs = []
+    for i, (scene, preview) in enumerate(zip(scenes, preview_paths)):
+        dur = scene.get("duration", 5)
+        inputs.extend(["-loop", "1", "-t", str(dur), "-i", str(preview)])
+        filter_parts.append(f"[{i}:v]fps=30[v{i}]")
+
+    concat_str = "".join(f"[v{i}]" for i in range(len(scenes)))
+    filter_parts.append(f"{concat_str}concat=n={len(scenes)}:v=1:a=0[outv]")
+    filter_complex = ";".join(filter_parts)
+
+    proc = await _run_subprocess([
+        "ffmpeg", "-y",
+        *inputs,
+        "-filter_complex", filter_complex,
+        "-map", "[outv]",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        str(segments_video),
+    ])
+    if proc.returncode != 0:
+        raise RuntimeError(f"视频合成失败: {proc.stderr[-500:]}")
+
+    # Step 3: 合并视频 + 音频
+    proc = await _run_subprocess([
+        "ffmpeg", "-y",
+        "-i", str(segments_video),
+        "-i", str(merged_audio),
+        "-map", "0:v", "-map", "1:a",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+        "-shortest",
+        str(output_path),
+    ])
+    if proc.returncode != 0:
+        raise RuntimeError(f"最终合成失败: {proc.stderr[-500:]}")
 
 
 async def _run_playwright_render(

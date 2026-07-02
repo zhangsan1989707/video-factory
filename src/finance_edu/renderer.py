@@ -189,7 +189,7 @@ def render_finance_preview_frames(
     render_plan: dict[str, Any],
     output_dir: Path,
 ) -> list[Path]:
-    """生成静态预览帧（PIL）"""
+    """生成静态预览帧（PIL），支持 MACD 图表渲染"""
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
@@ -221,6 +221,9 @@ def render_finance_preview_frames(
     gold = (242, 201, 76) if is_dark else (217, 164, 65)
     white = (248, 250, 252) if is_dark else (17, 24, 39)
     muted = (148, 163, 184) if is_dark else (107, 114, 128)
+    green = (34, 197, 94)
+    red = (239, 68, 68)
+    blue = (96, 165, 250)
 
     preview_paths: list[Path] = []
     for scene in render_plan.get("scenes", []):
@@ -229,30 +232,33 @@ def render_finance_preview_frames(
         margin = 48
         draw.rounded_rectangle([margin, 200, width - margin, height - 200], radius=24, fill=card)
 
+        template_id = scene.get("template_id", "")
         title = scene.get("title", "")
-        if title:
-            f = _font(64)
-            bbox = draw.textbbox((0, 0), title, font=f)
-            tw = bbox[2] - bbox[0]
-            draw.text(((width - tw) // 2, 440), title, fill=gold, font=f)
-
         sub = scene.get("subtitle", "")
-        if sub:
-            f = _font(32)
-            bbox = draw.textbbox((0, 0), sub, font=f)
-            tw = bbox[2] - bbox[0]
-            draw.text(((width - tw) // 2, 540), sub, fill=white, font=f)
-
         bullets = scene.get("bullets", [])
-        if bullets:
-            f = _font(28)
-            y = 660
-            for b in bullets[:3]:
-                text = f"•  {b}"
-                bbox = draw.textbbox((0, 0), text, font=f)
+
+        if template_id == "indicator_chart":
+            _draw_macd_chart(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font)
+        else:
+            if title:
+                f = _font(64)
+                bbox = draw.textbbox((0, 0), title, font=f)
                 tw = bbox[2] - bbox[0]
-                draw.text(((width - tw) // 2, y), text, fill=muted, font=f)
-                y += 60
+                draw.text(((width - tw) // 2, 440), title, fill=gold, font=f)
+            if sub:
+                f = _font(32)
+                bbox = draw.textbbox((0, 0), sub, font=f)
+                tw = bbox[2] - bbox[0]
+                draw.text(((width - tw) // 2, 540), sub, fill=white, font=f)
+            if bullets:
+                f = _font(28)
+                y = 660
+                for b in bullets[:3]:
+                    text = f"•  {b}"
+                    bbox = draw.textbbox((0, 0), text, font=f)
+                    tw = bbox[2] - bbox[0]
+                    draw.text(((width - tw) // 2, y), text, fill=muted, font=f)
+                    y += 60
 
         risk = scene.get("risk_note", "")
         if risk:
@@ -260,10 +266,110 @@ def render_finance_preview_frames(
             text = f"⚠ {risk}"
             bbox = draw.textbbox((0, 0), text, font=f)
             tw = bbox[2] - bbox[0]
-            draw.text(((width - tw) // 2, height - 320), text, fill=(239, 68, 68), font=f)
+            draw.text(((width - tw) // 2, height - 320), text, fill=red, font=f)
 
         target = output_dir / f"preview_{scene.get('scene_id', 'unknown')}.png"
         img.save(target)
         preview_paths.append(target)
 
     return preview_paths
+
+
+def _draw_macd_chart(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font):
+    """用 PIL 绘制 MACD 图表"""
+    # Title
+    if title:
+        f = _font(56)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        tw = bbox[2] - bbox[0]
+        draw.text(((width - tw) // 2, 320), title, fill=gold, font=f)
+    if sub:
+        f = _font(28)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        tw = bbox[2] - bbox[0]
+        draw.text(((width - tw) // 2, 400), sub, fill=white, font=f)
+
+    # Chart area
+    chart_left = 120
+    chart_right = width - 120
+    chart_top = 520
+    chart_bottom = 1100
+    chart_mid = (chart_top + chart_bottom) // 2
+    chart_w = chart_right - chart_left
+
+    # Zero axis
+    draw.line([(chart_left, chart_mid), (chart_right, chart_mid)], fill=muted, width=1)
+    f = _font(18)
+    draw.text((chart_right + 8, chart_mid - 10), "零轴", fill=muted, font=f)
+
+    # Histogram bars
+    bar_count = 14
+    bar_w = chart_w // (bar_count * 2)
+    heights = [30, 48, 62, 40, -35, -52, -25, 18, 38, 55, 42, -20, -30, 15]
+    for i, h in enumerate(heights):
+        x = chart_left + (i * 2 + 1) * bar_w
+        bar_h = abs(h) * 2
+        if h > 0:
+            y0 = chart_mid - bar_h
+            y1 = chart_mid
+            draw.rounded_rectangle([x, y0, x + bar_w, y1], radius=3, fill=green)
+        else:
+            y0 = chart_mid
+            y1 = chart_mid + bar_h
+            draw.rounded_rectangle([x, y0, x + bar_w, y1], radius=3, fill=red)
+
+    # DIF line (gold)
+    dif_points = [
+        (chart_left + 10, chart_mid + 20),
+        (chart_left + chart_w * 0.1, chart_mid - 10),
+        (chart_left + chart_w * 0.2, chart_mid - 30),
+        (chart_left + chart_w * 0.3, chart_mid - 50),
+        (chart_left + chart_w * 0.35, chart_mid - 20),
+        (chart_left + chart_w * 0.45, chart_mid + 10),
+        (chart_left + chart_w * 0.5, chart_mid + 40),
+        (chart_left + chart_w * 0.6, chart_mid + 20),
+        (chart_left + chart_w * 0.7, chart_mid - 15),
+        (chart_left + chart_w * 0.8, chart_mid - 35),
+        (chart_left + chart_w * 0.9, chart_mid - 20),
+        (chart_right - 10, chart_mid - 10),
+    ]
+    for i in range(len(dif_points) - 1):
+        draw.line([dif_points[i], dif_points[i + 1]], fill=gold, width=3)
+
+    # DEA line (blue)
+    dea_points = [
+        (chart_left + 10, chart_mid + 25),
+        (chart_left + chart_w * 0.1, chart_mid + 5),
+        (chart_left + chart_w * 0.2, chart_mid - 15),
+        (chart_left + chart_w * 0.3, chart_mid - 35),
+        (chart_left + chart_w * 0.35, chart_mid - 10),
+        (chart_left + chart_w * 0.45, chart_mid + 15),
+        (chart_left + chart_w * 0.5, chart_mid + 30),
+        (chart_left + chart_w * 0.6, chart_mid + 10),
+        (chart_left + chart_w * 0.7, chart_mid - 5),
+        (chart_left + chart_w * 0.8, chart_mid - 20),
+        (chart_left + chart_w * 0.9, chart_mid - 12),
+        (chart_right - 10, chart_mid - 5),
+    ]
+    for i in range(len(dea_points) - 1):
+        draw.line([dea_points[i], dea_points[i + 1]], fill=blue, width=3)
+
+    # Golden cross marker
+    gc_x = chart_left + int(chart_w * 0.58)
+    gc_y = chart_mid - 10
+    draw.ellipse([gc_x - 14, gc_y - 14, gc_x + 14, gc_y + 14], outline=gold, width=2)
+    f = _font(16)
+    draw.text((gc_x - 16, gc_y + 18), "金叉", fill=gold, font=f)
+
+    # Legend
+    legend_y = chart_bottom + 40
+    legend_items = [
+        ("DIF 快线", gold), ("DEA 慢线", blue),
+        ("红柱", green), ("绿柱", red),
+    ]
+    lx = chart_left
+    for label, color in legend_items:
+        draw.ellipse([lx, legend_y, lx + 12, legend_y + 12], fill=color)
+        f = _font(20)
+        draw.text((lx + 18, legend_y - 2), label, fill=white, font=f)
+        lx += 180

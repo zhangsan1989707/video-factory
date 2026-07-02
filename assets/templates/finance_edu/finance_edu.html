@@ -495,6 +495,131 @@ body {
   line-height: 1.4;
   text-align: center;
 }
+
+/* === MACD CHART === */
+.macd-screen {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.macd-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 28px;
+  padding: 48px 40px;
+}
+.macd-title {
+  font-family: var(--font-display);
+  font-size: 52px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.macd-subtitle {
+  font-size: 26px;
+  color: var(--text-secondary);
+  margin-bottom: 32px;
+}
+.macd-svg-wrap {
+  width: 100%;
+  margin-bottom: 24px;
+}
+.macd-svg-wrap svg {
+  width: 100%;
+  height: auto;
+}
+.macd-labels {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.macd-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 22px;
+  color: var(--text-secondary);
+}
+.macd-label-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.macd-annotation {
+  margin-top: 20px;
+  padding: 16px 24px;
+  background: rgba(var(--accent-gold-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.25);
+  border-radius: 14px;
+  font-size: 26px;
+  color: var(--accent-gold);
+  text-align: center;
+}
+.macd-chart-area {
+  position: relative;
+  width: 100%;
+  margin-bottom: 24px;
+}
+.macd-price-zone {
+  width: 100%;
+  height: 80px;
+  position: relative;
+  margin-bottom: 8px;
+}
+.macd-price-line {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(248,250,252,0.1), rgba(248,250,252,0.5), rgba(248,250,252,0.3));
+}
+.macd-hist-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 100px;
+  padding: 0 8px;
+  position: relative;
+}
+.macd-hist-zone::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(148,163,184,0.2);
+}
+.macd-bar {
+  flex: 1;
+  max-width: 40px;
+  border-radius: 4px 4px 0 0;
+  margin: 0 3px;
+  transform-origin: center bottom;
+}
+.macd-bar.green {
+  background: linear-gradient(180deg, #22C55E, rgba(34,197,94,0.5));
+  margin-bottom: 50%;
+}
+.macd-bar.red {
+  background: linear-gradient(180deg, rgba(239,68,68,0.5), #EF4444);
+  margin-top: 50%;
+  border-radius: 0 0 4px 4px;
+}
+.macd-lines-zone {
+  width: 100%;
+  height: 120px;
+  position: relative;
+}
+.macd-zero-label {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  color: var(--text-muted);
+}
 </style>
 </head>
 <body>
@@ -553,31 +678,53 @@ body {
   </div>
 
   {% elif scene.template_id == 'indicator_chart' %}
-  <div class="safe-area chart-screen">
-    <div class="chart-card">
-      <h2 class="chart-title">{{ scene.title }}</h2>
-      <p class="chart-subtitle">{{ scene.subtitle }}</p>
-      <div class="chart-bars">
-        {% for b in scene.bullets[:3] %}
-        <div class="chart-bar-wrap">
-          <div class="chart-bar {% if loop.index0 % 2 == 0 %}green{% else %}red{% endif %}" data-value="{{ [55, 72, 48][loop.index0] }}"></div>
-          <div class="chart-bar-label">{{ b }}</div>
+  <div class="safe-area macd-screen">
+    <div class="macd-card">
+      <h2 class="macd-title">{{ scene.title }}</h2>
+      <p class="macd-subtitle">{{ scene.subtitle }}</p>
+      <div class="macd-chart-area">
+        <!-- Price line area -->
+        <div class="macd-price-zone">
+          <div class="macd-price-line"></div>
         </div>
-        {% endfor %}
-        {% if scene.bullets|length < 3 %}
-        {% for i in range(3 - scene.bullets|length) %}
-        <div class="chart-bar-wrap">
-          <div class="chart-bar gold" data-value="{{ [60, 45, 70][i] }}"></div>
-          <div class="chart-bar-label">—</div>
+        <!-- Histogram area -->
+        <div class="macd-hist-zone">
+          <div class="macd-bar green" style="height:30%"></div>
+          <div class="macd-bar green" style="height:48%"></div>
+          <div class="macd-bar green" style="height:62%"></div>
+          <div class="macd-bar green" style="height:40%"></div>
+          <div class="macd-bar red" style="height:35%"></div>
+          <div class="macd-bar red" style="height:52%"></div>
+          <div class="macd-bar red" style="height:25%"></div>
+          <div class="macd-bar green" style="height:18%"></div>
+          <div class="macd-bar green" style="height:38%"></div>
+          <div class="macd-bar green" style="height:55%"></div>
+          <div class="macd-bar green" style="height:42%"></div>
+          <div class="macd-bar red" style="height:20%"></div>
+          <div class="macd-bar red" style="height:30%"></div>
         </div>
-        {% endfor %}
-        {% endif %}
+        <!-- DIF/DEA lines -->
+        <div class="macd-lines-zone">
+          <svg viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%">
+            <line x1="0" y1="100" x2="800" y2="100" stroke="rgba(148,163,184,0.2)" stroke-width="1" stroke-dasharray="4,4"/>
+            <polyline class="macd-dif" points="20,110 80,95 140,80 200,65 260,85 320,100 380,130 440,145 500,135 560,115 620,95 680,80 740,90 780,85" fill="none" stroke="#F2C94C" stroke-width="3" stroke-linecap="round"/>
+            <polyline class="macd-dea" points="20,115 80,105 140,92 200,80 260,90 320,105 380,125 440,132 500,128 560,118 620,105 680,95 740,100 780,97" fill="none" stroke="#60A5FA" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="490" cy="125" r="10" fill="none" stroke="#F2C94C" stroke-width="2"/>
+            <text x="490" y="115" fill="#F2C94C" font-size="14" text-anchor="middle" font-weight="600">金叉</text>
+          </svg>
+        </div>
+        <!-- Zero axis label -->
+        <div class="macd-zero-label">零轴</div>
       </div>
-      <div class="chart-legend">
-        <div class="chart-legend-item"><span class="chart-legend-dot" style="background:#22C55E"></span>上升</div>
-        <div class="chart-legend-item"><span class="chart-legend-dot" style="background:#EF4444"></span>下降</div>
-        <div class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--accent-gold)"></span>趋势</div>
+      <div class="macd-labels">
+        <div class="macd-label"><span class="macd-label-dot" style="background:#F2C94C"></span>DIF 快线</div>
+        <div class="macd-label"><span class="macd-label-dot" style="background:#60A5FA"></span>DEA 慢线</div>
+        <div class="macd-label"><span class="macd-label-dot" style="background:#22C55E"></span>红柱</div>
+        <div class="macd-label"><span class="macd-label-dot" style="background:#EF4444"></span>绿柱</div>
       </div>
+      {% if scene.risk_note %}
+      <div class="macd-annotation">{{ scene.risk_note }}</div>
+      {% endif %}
     </div>
   </div>
 
@@ -696,20 +843,27 @@ document.querySelectorAll('.screen.clip').forEach(screen => {
       .to(bullets, { opacity: 1, y: 0, scale: 1, duration: 0.4, stagger: 0.1, ease: "power2.out" }, 0.7);
 
   } else if (type === 'indicator_chart') {
-    const title = screen.querySelector('.chart-title');
-    const sub = screen.querySelector('.chart-subtitle');
-    const bars = screen.querySelectorAll('.chart-bar');
-    const labels = screen.querySelectorAll('.chart-bar-label');
-    const legend = screen.querySelector('.chart-legend');
-    gsap.set([title, sub, legend], { opacity: 0, y: 24 });
-    bars.forEach(bar => { gsap.set(bar, { height: 0 }); });
-    gsap.set(labels, { opacity: 0 });
+    const title = screen.querySelector('.macd-title');
+    const sub = screen.querySelector('.macd-subtitle');
+    const bars = screen.querySelectorAll('.macd-bar');
+    const dif = screen.querySelector('.macd-dif');
+    const dea = screen.querySelector('.macd-dea');
+    const labels = screen.querySelector('.macd-labels');
+    const annotation = screen.querySelector('.macd-annotation');
+    gsap.set([title, sub], { opacity: 0, y: 20 });
+    gsap.set(bars, { scaleY: 0 });
+    if (dif) gsap.set(dif, { strokeDasharray: 1200, strokeDashoffset: 1200 });
+    if (dea) gsap.set(dea, { strokeDasharray: 1200, strokeDashoffset: 1200 });
+    gsap.set(labels, { opacity: 0, y: 12 });
+    if (annotation) gsap.set(annotation, { opacity: 0, y: 10 });
     entrance
-      .to(title, { opacity: 1, y: 0, duration: 0.5 }, 0)
-      .to(sub, { opacity: 1, y: 0, duration: 0.4 }, 0.15)
-      .to(bars, { height: (i, el) => el.dataset.value + '%', duration: 0.9, stagger: 0.12, ease: "power2.out" }, 0.3)
-      .to(labels, { opacity: 1, duration: 0.35, stagger: 0.08 }, 0.9)
-      .to(legend, { opacity: 1, y: 0, duration: 0.4 }, 1);
+      .to(title, { opacity: 1, y: 0, duration: 0.4 }, 0)
+      .to(sub, { opacity: 1, y: 0, duration: 0.3 }, 0.1)
+      .to(bars, { scaleY: 1, duration: 0.6, stagger: 0.05, ease: "power2.out" }, 0.3)
+      .to(dif, { strokeDashoffset: 0, duration: 1.2, ease: "power1.inOut" }, 0.6)
+      .to(dea, { strokeDashoffset: 0, duration: 1.2, ease: "power1.inOut" }, 0.8)
+      .to(labels, { opacity: 1, y: 0, duration: 0.4 }, 1.5)
+      .to(annotation, { opacity: 1, y: 0, duration: 0.4 }, 1.8);
 
   } else if (type === 'three_points') {
     const title = screen.querySelector('.three-title');
@@ -754,11 +908,12 @@ document.querySelectorAll('.screen.clip').forEach(screen => {
   }
 
   if (entrance.duration() > 0) {
-    mainTl.add(entrance.play(), start);
+    mainTl.add(entrance, start);
   }
 });
 
 window.__timelines["main"] = mainTl;
+} // end else (gsap available)
 </script>
 
 </div>
