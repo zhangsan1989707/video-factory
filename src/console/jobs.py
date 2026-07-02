@@ -83,6 +83,11 @@ def create_stock_job(payload: dict[str, Any]) -> dict[str, Any]:
     """创建股票科普视频任务"""
     return _create_job_with_retry("STOCK", {**payload, "type": "stock_education"})
 
+
+def create_finance_edu_job(payload: dict[str, Any]) -> dict[str, Any]:
+    """创建炒股科普视频任务（finance_edu）"""
+    return _create_job_with_retry("FINEDU", {**payload, "type": "finance_edu"})
+
 def create_single_project_vertical_job(payload: dict[str, Any]) -> dict[str, Any]:
     return _create_job_with_retry("GH-SINGLE", {**payload, "type": "single_project_vertical"})
 
@@ -2684,6 +2689,9 @@ async def run_stock_pipeline_job(job_id: str) -> dict[str, Any]:
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
 
+    if _job_type(job) == "finance_edu":
+        return await _run_finance_edu_pipeline(job_id, job)
+
     from src.stock.pipeline import run_stock_pipeline
 
     theme = str(job.get("theme") or "")
@@ -2715,6 +2723,64 @@ async def run_stock_pipeline_job(job_id: str) -> dict[str, Any]:
     except Exception as exc:
         append_log(job_id, f"视频生成失败: {exc}")
         update_job(job_id, status="failed", stage="failed_stage", error=str(exc))
+        raise
+
+
+async def _run_finance_edu_pipeline(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+    """执行 finance_edu 炒股科普视频流水线"""
+    from src.finance_edu.models import FinanceEduTopic
+    from src.finance_edu.pipeline import run_finance_edu_video
+
+    topic_text = str(job.get("topic") or job.get("theme") or "")
+    topic_type = str(job.get("topic_type") or "indicator")
+    audience = str(job.get("audience") or "beginner")
+    visual_style = str(job.get("visual_style") or "black_gold")
+    voice = _tts_voice(job)
+    rate = _tts_rate(job)
+
+    output_dir = JOBS_DIR / job_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def on_stage(stage: str, message: str) -> None:
+        raise_if_cancelled(job_id)
+        update_job(job_id, status="running", stage=stage)
+        append_log(job_id, message)
+
+    try:
+        raise_if_cancelled(job_id)
+        update_job(job_id, status="running", stage="generating_script", error="")
+        append_log(job_id, f"开始生成炒股科普视频: {topic_text}")
+
+        finance_topic = FinanceEduTopic(
+            topic=topic_text,
+            topic_type=topic_type,
+            audience=audience,
+            visual_style=visual_style,
+        )
+
+        result_dir = await run_finance_edu_video(
+            topic=finance_topic,
+            output_dir=output_dir,
+            voice=voice,
+            rate=rate,
+            dry_run=False,
+            stage_callback=on_stage,
+        )
+
+        raise_if_cancelled(job_id)
+        update_job(job_id, status="completed", stage="completed", error="")
+        append_log(job_id, f"炒股科普视频生成完成: {result_dir}")
+
+        return finalize_stock_output(job_id, topic_text)
+    except JobCancelled as exc:
+        failed_stage = str(read_job(job_id).get("stage") or "generating_script")
+        append_log(job_id, str(exc))
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
+        raise
+    except Exception as exc:
+        failed_stage = str(read_job(job_id).get("stage") or "generating_script")
+        append_log(job_id, f"炒股科普视频生成失败: {exc}")
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc))
         raise
 
 

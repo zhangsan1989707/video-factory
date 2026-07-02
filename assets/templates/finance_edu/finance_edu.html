@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>炒股科普 · {{ title }}</title>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=Noto+Serif+SC:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+{% if visual_style == 'white_card' %}
+{% set palette = {
+  "canvas_bg": "#F7F3EA",
+  "bg_card": "#FFFFFF",
+  "accent": "#1F2937",
+  "accent_gold": "#D9A441",
+  "accent_gold_rgb": "217, 164, 65",
+  "text_primary": "#111827",
+  "text_secondary": "#374151",
+  "text_muted": "#6B7280",
+  "border": "rgba(0,0,0,0.08)",
+  "font_display": "'Noto Serif SC', 'STSong', serif",
+  "font_body": "'Noto Sans SC', -apple-system, sans-serif",
+  "warning": "#B45309"
+} %}
+{% else %}
+{% set palette = {
+  "canvas_bg": "#070A0F",
+  "bg_card": "#101722",
+  "accent_gold": "#F2C94C",
+  "accent_gold_rgb": "242, 201, 76",
+  "text_primary": "#F8FAFC",
+  "text_secondary": "rgba(248,250,252,0.78)",
+  "text_muted": "#94A3B8",
+  "border": "rgba(242,201,76,0.2)",
+  "font_display": "'Noto Serif SC', 'STSong', serif",
+  "font_body": "'Noto Sans SC', -apple-system, sans-serif",
+  "warning": "#EF4444"
+} %}
+{% endif %}
+
+:root {
+  --canvas-bg: {{ palette.canvas_bg }};
+  --bg-card: {{ palette.bg_card }};
+  --accent-gold: {{ palette.accent_gold }};
+  --accent-gold-rgb: {{ palette.accent_gold_rgb }};
+  --text-primary: {{ palette.text_primary }};
+  --text-secondary: {{ palette.text_secondary }};
+  --text-muted: {{ palette.text_muted }};
+  --border-color: {{ palette.border }};
+  --font-display: {{ palette.font_display | safe }};
+  --font-body: {{ palette.font_body | safe }};
+  --warning: {{ palette.warning }};
+}
+
+body {
+  background: var(--canvas-bg);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  overflow: hidden;
+  width: 1080px;
+  height: 1920px;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+  width: 1080px;
+  height: 1920px;
+  overflow: hidden;
+  background: var(--canvas-bg);
+}
+
+.safe-area {
+  position: absolute;
+  top: 120px; bottom: 160px; left: 72px; right: 72px;
+}
+
+/* === HOOK TITLE === */
+.hook-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.hook-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border-color);
+  background: rgba(var(--accent-gold-rgb), 0.08);
+  border-radius: 999px;
+  padding: 14px 32px;
+  font-size: 24px;
+  color: var(--accent-gold);
+  letter-spacing: 0.12em;
+  margin-bottom: 56px;
+}
+.hook-title {
+  font-family: var(--font-display);
+  font-size: 88px;
+  font-weight: 900;
+  color: var(--accent-gold);
+  line-height: 1.15;
+  margin-bottom: 36px;
+}
+.hook-subtitle {
+  font-size: 34px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* === MYTH VS TRUTH === */
+.myth-screen {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.myth-header {
+  text-align: center;
+  margin-bottom: 56px;
+}
+.myth-title {
+  font-family: var(--font-display);
+  font-size: 64px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+.myth-subtitle {
+  font-size: 28px;
+  color: var(--text-secondary);
+}
+.myth-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+.myth-col {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  padding: 44px 36px;
+}
+.myth-col.wrong {
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.myth-col.right {
+  border-color: rgba(var(--accent-gold-rgb), 0.4);
+}
+.myth-col-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  margin-bottom: 28px;
+}
+.myth-col.wrong .myth-col-label { color: #EF4444; }
+.myth-col.right .myth-col-label { color: var(--accent-gold); }
+.myth-col-items {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.myth-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  font-size: 28px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.myth-item::before {
+  content: '';
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-top: 14px;
+  flex-shrink: 0;
+}
+.myth-col.wrong .myth-item::before { background: #EF4444; }
+.myth-col.right .myth-item::before { background: var(--accent-gold); }
+
+/* === CONCEPT CARD === */
+.concept-screen {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.concept-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 28px;
+  padding: 60px 52px;
+  box-shadow: 0 40px 100px rgba(0,0,0,0.3);
+}
+.concept-eyebrow {
+  font-size: 22px;
+  color: var(--accent-gold);
+  letter-spacing: 0.14em;
+  font-weight: 500;
+  margin-bottom: 20px;
+}
+.concept-title {
+  font-family: var(--font-display);
+  font-size: 64px;
+  font-weight: 700;
+  margin-bottom: 28px;
+}
+.concept-divider {
+  width: 72px; height: 4px;
+  background: var(--accent-gold);
+  border-radius: 2px;
+  margin-bottom: 32px;
+}
+.concept-desc {
+  font-size: 30px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  margin-bottom: 40px;
+}
+.concept-bullets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.concept-bullet {
+  background: rgba(var(--accent-gold-rgb), 0.10);
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.28);
+  color: var(--text-primary);
+  border-radius: 14px;
+  padding: 16px 28px;
+  font-size: 26px;
+  font-weight: 500;
+}
+
+/* === INDICATOR CHART === */
+.chart-screen {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 28px;
+  padding: 52px;
+}
+.chart-title {
+  font-family: var(--font-display);
+  font-size: 56px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.chart-subtitle {
+  font-size: 26px;
+  color: var(--text-secondary);
+  margin-bottom: 48px;
+}
+.chart-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  height: 420px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+.chart-bar-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.chart-bar {
+  width: 100%;
+  max-width: 100px;
+  border-radius: 10px 10px 0 0;
+  box-shadow: 0 0 30px rgba(var(--accent-gold-rgb), 0.15);
+}
+.chart-bar.green { background: linear-gradient(180deg, #22C55E, rgba(34,197,94,0.4)); }
+.chart-bar.red { background: linear-gradient(180deg, #EF4444, rgba(239,68,68,0.4)); }
+.chart-bar.gold { background: linear-gradient(180deg, var(--accent-gold), rgba(var(--accent-gold-rgb),0.4)); }
+.chart-bar-label {
+  font-size: 20px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.chart-legend {
+  margin-top: 32px;
+  display: flex;
+  gap: 28px;
+  justify-content: center;
+}
+.chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 22px;
+  color: var(--text-secondary);
+}
+.chart-legend-dot {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+}
+
+/* === THREE POINTS === */
+.three-screen {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.three-header {
+  text-align: center;
+  margin-bottom: 52px;
+}
+.three-title {
+  font-family: var(--font-display);
+  font-size: 64px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+.three-subtitle {
+  font-size: 28px;
+  color: var(--text-secondary);
+}
+.three-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.three-card {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  padding: 36px 40px;
+}
+.three-card-num {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  background: rgba(var(--accent-gold-rgb), 0.12);
+  border: 2px solid rgba(var(--accent-gold-rgb), 0.4);
+  color: var(--accent-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.three-card-text {
+  font-size: 32px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* === RISK WARNING === */
+.risk-screen {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.risk-card {
+  background: var(--bg-card);
+  border: 2px solid rgba(239, 68, 68, 0.35);
+  border-radius: 28px;
+  padding: 56px 52px;
+}
+.risk-icon {
+  font-size: 48px;
+  margin-bottom: 28px;
+}
+.risk-title {
+  font-family: var(--font-display);
+  font-size: 60px;
+  font-weight: 700;
+  color: #EF4444;
+  margin-bottom: 16px;
+}
+.risk-subtitle {
+  font-size: 28px;
+  color: var(--text-secondary);
+  margin-bottom: 40px;
+}
+.risk-bullets {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.risk-bullet {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  font-size: 28px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.risk-bullet::before {
+  content: '!';
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #EF4444;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.risk-note {
+  margin-top: 36px;
+  padding: 20px 28px;
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: 16px;
+  font-size: 24px;
+  color: #EF4444;
+  text-align: center;
+}
+
+/* === SUMMARY QUOTE === */
+.summary-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.summary-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 28px;
+  padding: 64px 56px;
+}
+.summary-eyebrow {
+  font-size: 22px;
+  color: var(--accent-gold);
+  letter-spacing: 0.14em;
+  margin-bottom: 32px;
+}
+.summary-title {
+  font-family: var(--font-display);
+  font-size: 52px;
+  font-weight: 700;
+  margin-bottom: 28px;
+}
+.summary-divider {
+  width: 60px; height: 3px;
+  background: var(--accent-gold);
+  border-radius: 2px;
+  margin: 0 auto 32px;
+}
+.summary-quote {
+  font-family: var(--font-display);
+  font-size: 36px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 40px;
+}
+.summary-disclaimer {
+  font-size: 22px;
+  color: var(--text-muted);
+  padding: 16px 24px;
+  background: rgba(var(--accent-gold-rgb), 0.06);
+  border-radius: 12px;
+}
+
+/* === SUBTITLE OVERLAY === */
+.subtitle-overlay {
+  position: absolute;
+  left: 64px; right: 64px;
+  bottom: 64px;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.subtitle-pill {
+  max-width: 880px;
+  padding: 20px 32px;
+  border-radius: 20px;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.2);
+  color: #FFFFFF;
+  font-size: 30px;
+  line-height: 1.4;
+  text-align: center;
+}
+</style>
+</head>
+<body>
+
+<div data-composition-id="finance-edu" data-style="stock_magazine" data-start="0" data-width="1080" data-height="1920" data-duration="{{ total_duration }}" style="position:relative;width:1080px;height:1920px;overflow:hidden;background:var(--canvas-bg);">
+
+{% for scene in scenes %}
+<div class="screen clip screen-{{ scene.template_id }}" data-start="{{ scene.start }}" data-duration="{{ scene.duration }}" data-type="{{ scene.template_id }}" id="{{ scene.scene_id }}">
+
+  {% if scene.template_id == 'hook_title' %}
+  <div class="safe-area hook-screen">
+    <div class="hook-badge">• 科普小课堂</div>
+    <h1 class="hook-title">{{ scene.title }}</h1>
+    <p class="hook-subtitle">{{ scene.subtitle }}</p>
+  </div>
+
+  {% elif scene.template_id == 'myth_vs_truth' %}
+  <div class="safe-area myth-screen">
+    <div class="myth-header">
+      <h2 class="myth-title">{{ scene.title }}</h2>
+      <p class="myth-subtitle">{{ scene.subtitle }}</p>
+    </div>
+    <div class="myth-grid">
+      <div class="myth-col wrong">
+        <div class="myth-col-label">✗ 常见误区</div>
+        <div class="myth-col-items">
+          {% for b in scene.bullets[:3] %}
+          <div class="myth-item">{{ b }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="myth-col right">
+        <div class="myth-col-label">✓ 正确理解</div>
+        <div class="myth-col-items">
+          <div class="myth-item">只是观察工具</div>
+          <div class="myth-item">需要结合其他信号</div>
+          <div class="myth-item">不能单独使用</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% elif scene.template_id == 'concept_card' %}
+  <div class="safe-area concept-screen">
+    <div class="concept-card">
+      <div class="concept-eyebrow">概念</div>
+      <h2 class="concept-title">{{ scene.title }}</h2>
+      <div class="concept-divider"></div>
+      <p class="concept-desc">{{ scene.subtitle }}</p>
+      <div class="concept-bullets">
+        {% for b in scene.bullets[:3] %}
+        <span class="concept-bullet">{{ b }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {% elif scene.template_id == 'indicator_chart' %}
+  <div class="safe-area chart-screen">
+    <div class="chart-card">
+      <h2 class="chart-title">{{ scene.title }}</h2>
+      <p class="chart-subtitle">{{ scene.subtitle }}</p>
+      <div class="chart-bars">
+        {% for b in scene.bullets[:3] %}
+        <div class="chart-bar-wrap">
+          <div class="chart-bar {% if loop.index0 % 2 == 0 %}green{% else %}red{% endif %}" data-value="{{ [55, 72, 48][loop.index0] }}"></div>
+          <div class="chart-bar-label">{{ b }}</div>
+        </div>
+        {% endfor %}
+        {% if scene.bullets|length < 3 %}
+        {% for i in range(3 - scene.bullets|length) %}
+        <div class="chart-bar-wrap">
+          <div class="chart-bar gold" data-value="{{ [60, 45, 70][i] }}"></div>
+          <div class="chart-bar-label">—</div>
+        </div>
+        {% endfor %}
+        {% endif %}
+      </div>
+      <div class="chart-legend">
+        <div class="chart-legend-item"><span class="chart-legend-dot" style="background:#22C55E"></span>上升</div>
+        <div class="chart-legend-item"><span class="chart-legend-dot" style="background:#EF4444"></span>下降</div>
+        <div class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--accent-gold)"></span>趋势</div>
+      </div>
+    </div>
+  </div>
+
+  {% elif scene.template_id == 'three_points' %}
+  <div class="safe-area three-screen">
+    <div class="three-header">
+      <h2 class="three-title">{{ scene.title }}</h2>
+      <p class="three-subtitle">{{ scene.subtitle }}</p>
+    </div>
+    <div class="three-cards">
+      {% for b in scene.bullets[:3] %}
+      <div class="three-card">
+        <div class="three-card-num">{{ loop.index }}</div>
+        <div class="three-card-text">{{ b }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% elif scene.template_id == 'risk_warning' %}
+  <div class="safe-area risk-screen">
+    <div class="risk-card">
+      <div class="risk-icon">⚠</div>
+      <h2 class="risk-title">{{ scene.title }}</h2>
+      <p class="risk-subtitle">{{ scene.subtitle }}</p>
+      <div class="risk-bullets">
+        {% for b in scene.bullets[:3] %}
+        <div class="risk-bullet">{{ b }}</div>
+        {% endfor %}
+      </div>
+      {% if scene.risk_note %}
+      <div class="risk-note">{{ scene.risk_note }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% elif scene.template_id == 'summary_quote' %}
+  <div class="safe-area summary-screen">
+    <div class="summary-card">
+      <div class="summary-eyebrow">总结</div>
+      <h2 class="summary-title">{{ scene.title }}</h2>
+      <div class="summary-divider"></div>
+      <p class="summary-quote">{{ scene.subtitle }}</p>
+      <div class="summary-disclaimer">以上内容仅作知识科普，不构成投资建议</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="subtitle-overlay"><div class="subtitle-pill">{{ scene.subtitle }}</div></div>
+</div>
+{% endfor %}
+
+<script>
+if (typeof gsap === 'undefined') {
+  document.querySelectorAll('.screen.clip').forEach(s => { s.style.opacity = '1'; });
+} else {
+window.__timelines = window.__timelines || {};
+const mainTl = gsap.timeline({ paused: true });
+
+document.querySelectorAll('.screen.clip').forEach(screen => {
+  const start = parseFloat(screen.dataset.start || 0);
+  const dur = parseFloat(screen.dataset.duration || 5);
+  const type = screen.dataset.type;
+
+  if (start <= 0) {
+    gsap.set(screen, { opacity: 1 });
+  } else {
+    gsap.set(screen, { opacity: 0 });
+    mainTl.to(screen, { opacity: 1, duration: 0.05, ease: "power1.out" }, start);
+  }
+  mainTl.to(screen, { opacity: 0, duration: 0.05, ease: "power1.in" }, start + dur - 0.05);
+
+  const entrance = gsap.timeline({ paused: true });
+
+  if (type === 'hook_title') {
+    const badge = screen.querySelector('.hook-badge');
+    const title = screen.querySelector('.hook-title');
+    const sub = screen.querySelector('.hook-subtitle');
+    gsap.set([badge, title, sub], { opacity: 0 });
+    gsap.set(title, { scale: 0.85, y: 60 });
+    entrance
+      .to(badge, { opacity: 1, duration: 0.4 }, 0)
+      .to(title, { opacity: 1, scale: 1, y: 0, duration: 0.7, ease: "back.out(1.4)" }, 0.15)
+      .to(sub, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 0.5);
+
+  } else if (type === 'myth_vs_truth') {
+    const title = screen.querySelector('.myth-title');
+    const sub = screen.querySelector('.myth-subtitle');
+    const left = screen.querySelector('.myth-col.wrong');
+    const right = screen.querySelector('.myth-col.right');
+    gsap.set([title, sub], { opacity: 0, y: 30 });
+    gsap.set(left, { x: -100, opacity: 0 });
+    gsap.set(right, { x: 100, opacity: 0 });
+    entrance
+      .to(title, { opacity: 1, y: 0, duration: 0.5 }, 0)
+      .to(sub, { opacity: 1, y: 0, duration: 0.4 }, 0.1)
+      .to(left, { x: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0.2)
+      .to(right, { x: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0.35);
+
+  } else if (type === 'concept_card') {
+    const card = screen.querySelector('.concept-card');
+    const eyebrow = screen.querySelector('.concept-eyebrow');
+    const title = screen.querySelector('.concept-title');
+    const divider = screen.querySelector('.concept-divider');
+    const desc = screen.querySelector('.concept-desc');
+    const bullets = screen.querySelectorAll('.concept-bullet');
+    gsap.set(card, { x: 120, opacity: 0 });
+    gsap.set([eyebrow, title, divider, desc], { opacity: 0, y: 24 });
+    gsap.set(bullets, { opacity: 0, y: 16, scale: 0.9 });
+    entrance
+      .to(card, { x: 0, opacity: 1, duration: 0.6, ease: "power3.out" }, 0)
+      .to(eyebrow, { opacity: 1, y: 0, duration: 0.4 }, 0.2)
+      .to(title, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 0.3)
+      .to(divider, { opacity: 1, y: 0, duration: 0.3 }, 0.45)
+      .to(desc, { opacity: 1, y: 0, duration: 0.5 }, 0.55)
+      .to(bullets, { opacity: 1, y: 0, scale: 1, duration: 0.4, stagger: 0.1, ease: "power2.out" }, 0.7);
+
+  } else if (type === 'indicator_chart') {
+    const title = screen.querySelector('.chart-title');
+    const sub = screen.querySelector('.chart-subtitle');
+    const bars = screen.querySelectorAll('.chart-bar');
+    const labels = screen.querySelectorAll('.chart-bar-label');
+    const legend = screen.querySelector('.chart-legend');
+    gsap.set([title, sub, legend], { opacity: 0, y: 24 });
+    bars.forEach(bar => { gsap.set(bar, { height: 0 }); });
+    gsap.set(labels, { opacity: 0 });
+    entrance
+      .to(title, { opacity: 1, y: 0, duration: 0.5 }, 0)
+      .to(sub, { opacity: 1, y: 0, duration: 0.4 }, 0.15)
+      .to(bars, { height: (i, el) => el.dataset.value + '%', duration: 0.9, stagger: 0.12, ease: "power2.out" }, 0.3)
+      .to(labels, { opacity: 1, duration: 0.35, stagger: 0.08 }, 0.9)
+      .to(legend, { opacity: 1, y: 0, duration: 0.4 }, 1);
+
+  } else if (type === 'three_points') {
+    const title = screen.querySelector('.three-title');
+    const sub = screen.querySelector('.three-subtitle');
+    const cards = screen.querySelectorAll('.three-card');
+    gsap.set([title, sub], { opacity: 0, y: 30 });
+    gsap.set(cards, { x: 80, opacity: 0 });
+    entrance
+      .to(title, { opacity: 1, y: 0, duration: 0.5 }, 0)
+      .to(sub, { opacity: 1, y: 0, duration: 0.4 }, 0.1)
+      .to(cards, { x: 0, opacity: 1, duration: 0.6, stagger: 0.2, ease: "power3.out" }, 0.25);
+
+  } else if (type === 'risk_warning') {
+    const icon = screen.querySelector('.risk-icon');
+    const title = screen.querySelector('.risk-title');
+    const sub = screen.querySelector('.risk-subtitle');
+    const bullets = screen.querySelectorAll('.risk-bullet');
+    const note = screen.querySelector('.risk-note');
+    gsap.set([icon, title, sub], { opacity: 0, y: 24 });
+    gsap.set(bullets, { opacity: 0, x: -30 });
+    gsap.set(note, { opacity: 0, scale: 0.95 });
+    entrance
+      .to(icon, { opacity: 1, y: 0, duration: 0.4, ease: "back.out(2)" }, 0)
+      .to(title, { opacity: 1, y: 0, duration: 0.5 }, 0.15)
+      .to(sub, { opacity: 1, y: 0, duration: 0.4 }, 0.25)
+      .to(bullets, { opacity: 1, x: 0, duration: 0.5, stagger: 0.12 }, 0.35)
+      .to(note, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.3)" }, 0.7);
+
+  } else if (type === 'summary_quote') {
+    const eyebrow = screen.querySelector('.summary-eyebrow');
+    const title = screen.querySelector('.summary-title');
+    const divider = screen.querySelector('.summary-divider');
+    const quote = screen.querySelector('.summary-quote');
+    const disclaimer = screen.querySelector('.summary-disclaimer');
+    gsap.set([eyebrow, title, divider, quote, disclaimer], { opacity: 0, y: 30 });
+    entrance
+      .to(eyebrow, { opacity: 1, y: 0, duration: 0.4 }, 0)
+      .to(title, { opacity: 1, y: 0, duration: 0.5 }, 0.1)
+      .to(divider, { opacity: 1, scaleX: 1, duration: 0.4, ease: "power2.out" }, 0.25)
+      .to(quote, { opacity: 1, y: 0, duration: 0.6 }, 0.35)
+      .to(disclaimer, { opacity: 1, y: 0, duration: 0.4 }, 0.6);
+  }
+
+  if (entrance.duration() > 0) {
+    mainTl.add(entrance.play(), start);
+  }
+});
+
+window.__timelines["main"] = mainTl;
+</script>
+
+</div>
+</body>
+</html>

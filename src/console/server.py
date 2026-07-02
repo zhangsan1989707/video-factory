@@ -16,6 +16,7 @@ from src.console.preflight import preflight_snapshot, run_real_smoke_check
 from src.console.scheduler import run_due_scheduled_draft, start_scheduler_loop
 from src.console.jobs import (
     create_desktop_review_job,
+    create_finance_edu_job,
     create_from_plan_render_job,
     create_hotlist_job,
     create_single_project_vertical_job,
@@ -195,6 +196,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     "desktop_review": create_desktop_review_job,
                     "from_plan_render": create_from_plan_render_job,
                     "stock_education": create_stock_job,
+                    "finance_edu": create_finance_edu_job,
                 }
                 creator = creators.get(job_type)
                 if creator is None:
@@ -270,6 +272,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                         return
                     if action == "render-stock":
                         self._json(start_stock_render_job(job_id))
+                        return
+                    if action == "render-finance-edu":
+                        self._json(start_finance_edu_render_job(job_id))
                         return
                     if action == "regenerate-video":
                         self._json(start_regenerate_render_job(job_id))
@@ -425,6 +430,19 @@ def start_stock_render_job(job_id: str) -> dict:
         raise ValueError(f"任务不存在: {job_id}")
     if job.get("type") != "stock_education":
         raise ValueError("任务类型不是 stock_education")
+    started = start_async_job(job_id, run_stock_pipeline_job, on_error=record_render_background_failure)
+    if not started:
+        raise ValueError("已有渲染任务正在运行")
+    job = job_detail(job_id)["job"]
+    return {"started": started, "active": is_active(job_id), "job": job}
+
+
+def start_finance_edu_render_job(job_id: str) -> dict:
+    job = job_detail(job_id)["job"]
+    if not job:
+        raise ValueError(f"任务不存在: {job_id}")
+    if job.get("type") != "finance_edu":
+        raise ValueError("任务类型不是 finance_edu")
     started = start_async_job(job_id, run_stock_pipeline_job, on_error=record_render_background_failure)
     if not started:
         raise ValueError("已有渲染任务正在运行")
