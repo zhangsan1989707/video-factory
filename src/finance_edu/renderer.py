@@ -229,60 +229,274 @@ def render_finance_preview_frames(
     for scene in render_plan.get("scenes", []):
         img = Image.new("RGB", (width, height), bg)
         draw = ImageDraw.Draw(img)
-        margin = 48
-        draw.rounded_rectangle([margin, 200, width - margin, height - 200], radius=24, fill=card)
 
         template_id = scene.get("template_id", "")
         title = scene.get("title", "")
         sub = scene.get("subtitle", "")
         bullets = scene.get("bullets", [])
 
-        if template_id == "indicator_chart":
-            chart_type = scene.get("chart_type", "macd")
-            _CHART_DRAWERS = {
-                "macd": _draw_macd_chart,
-                "kdj": _draw_kdj_chart,
-                "ma": _draw_ma_chart,
-                "volume": _draw_volume_chart,
-                "support_resistance": _draw_sr_chart,
-                "stop_loss": _draw_stoploss_chart,
-            }
-            drawer = _CHART_DRAWERS.get(chart_type, _draw_macd_chart)
-            drawer(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font)
-        else:
-            if title:
-                f = _font(64)
-                bbox = draw.textbbox((0, 0), title, font=f)
-                tw = bbox[2] - bbox[0]
-                draw.text(((width - tw) // 2, 440), title, fill=gold, font=f)
-            if sub:
-                f = _font(32)
-                bbox = draw.textbbox((0, 0), sub, font=f)
-                tw = bbox[2] - bbox[0]
-                draw.text(((width - tw) // 2, 540), sub, fill=white, font=f)
-            if bullets:
-                f = _font(28)
-                y = 660
-                for b in bullets[:3]:
-                    text = f"•  {b}"
-                    bbox = draw.textbbox((0, 0), text, font=f)
-                    tw = bbox[2] - bbox[0]
-                    draw.text(((width - tw) // 2, y), text, fill=muted, font=f)
-                    y += 60
+        _TEMPLATE_RENDERERS = {
+            "hook_title": _render_hook,
+            "myth_vs_truth": _render_myth,
+            "concept_card": _render_concept,
+            "indicator_chart": _render_chart,
+            "three_points": _render_three,
+            "risk_warning": _render_risk,
+            "summary_quote": _render_summary,
+        }
+        renderer = _TEMPLATE_RENDERERS.get(template_id, _render_generic)
+        renderer(draw, width, height, title, sub, bullets, scene, gold, white, muted, card, green, red, blue, _font)
 
         risk = scene.get("risk_note", "")
-        if risk:
+        if risk and template_id != "risk_warning":
             f = _font(22)
             text = f"⚠ {risk}"
             bbox = draw.textbbox((0, 0), text, font=f)
             tw = bbox[2] - bbox[0]
-            draw.text(((width - tw) // 2, height - 320), text, fill=red, font=f)
+            draw.text(((width - tw) // 2, height - 280), text, fill=red, font=f)
 
         target = output_dir / f"preview_{scene.get('scene_id', 'unknown')}.png"
         img.save(target)
         preview_paths.append(target)
 
     return preview_paths
+
+
+def _render_hook(draw, w, h, title, sub, bullets, scene, gold, white, muted, card, green, red, blue, _font):
+    """Hook 开场：大标题 + 徽章"""
+    # 徽章
+    badge_text = "• 科普小课堂"
+    bf = _font(24)
+    bb = draw.textbbox((0, 0), badge_text, font=bf)
+    bw = bb[2] - bb[0] + 48
+    bx = (w - bw) // 2
+    by = 480
+    draw.rounded_rectangle([bx, by, bx + bw, by + 44], radius=22, fill=None, outline=gold, width=1)
+    draw.text((bx + 24, by + 8), badge_text, fill=gold, font=bf)
+
+    # 标题
+    if title:
+        f = _font(80)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        tw = bbox[2] - bbox[0]
+        draw.text(((w - tw) // 2, 580), title, fill=gold, font=f)
+
+    # 副标题
+    if sub:
+        f = _font(34)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        tw = bbox[2] - bbox[0]
+        draw.text(((w - tw) // 2, 700), sub, fill=white, font=f)
+
+
+def _render_myth(draw, w, h, title, sub, bullets, scene, gold, white, muted, card, green, red, blue, _font):
+    """误区对比：标题 + 左右两栏"""
+    if title:
+        f = _font(60)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        draw.text(((w - bbox[2] + bbox[0]) // 2, 300), title, fill=gold, font=f)
+    if sub:
+        f = _font(28)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        draw.text(((w - bbox[2] + bbox[0]) // 2, 390), sub, fill=white, font=f)
+
+    # 左栏：误区
+    lx, rx = 100, w // 2 + 30
+    lw, rw = w // 2 - 130, w // 2 - 130
+    card_top = 480
+    card_h = 500
+
+    draw.rounded_rectangle([lx, card_top, lx + lw, card_top + card_h], radius=20, fill=card, outline=red, width=1)
+    draw.rounded_rectangle([rx, card_top, rx + rw, card_top + card_h], radius=20, fill=card, outline=green, width=1)
+
+    # 左栏标签
+    draw.text((lx + 24, card_top + 20), "✗ 常见误区", fill=red, font=_font(24))
+    # 左栏内容
+    y = card_top + 70
+    for b in bullets[:3]:
+        draw.text((lx + 24, y), f"•  {b}", fill=muted, font=_font(26))
+        y += 52
+
+    # 右栏标签
+    draw.text((rx + 24, card_top + 20), "✓ 正确理解", fill=green, font=_font(24))
+    # 右栏内容
+    right_items = ["只是观察工具", "需要结合其他信号", "不能单独使用"]
+    y = card_top + 70
+    for item in right_items:
+        draw.text((rx + 24, y), f"•  {item}", fill=white, font=_font(26))
+        y += 52
+
+
+def _render_concept(draw, w, h, title, sub, bullets, scene, gold, white, muted, card, green, red, blue, _font):
+    """概念卡片：带装饰的卡片"""
+    margin = 80
+    card_top = 380
+    card_bottom = 1050
+    draw.rounded_rectangle([margin, card_top, w - margin, card_bottom], radius=24, fill=card, outline=(242, 201, 76, 60), width=1)
+
+    # 眼眉标签
+    draw.text((margin + 40, card_top + 30), "概念", fill=gold, font=_font(22))
+
+    # 标题
+    if title:
+        f = _font(60)
+        draw.text((margin + 40, card_top + 70), title, fill=white, font=f)
+
+    # 分割线
+    draw.line([(margin + 40, card_top + 155), (margin + 140, card_top + 155)], fill=gold, width=4)
+
+    # 副标题
+    if sub:
+        draw.text((margin + 40, card_top + 175), sub, fill=muted, font=_font(30))
+
+    # 要点标签
+    y = card_top + 240
+    for b in bullets[:3]:
+        bb = draw.textbbox((0, 0), b, font=_font(26))
+        bw = bb[2] - bb[0] + 40
+        draw.rounded_rectangle([margin + 40, y, margin + 40 + bw, y + 48], radius=12, fill=(242, 201, 76, 30), outline=(242, 201, 76, 80), width=1)
+        draw.text((margin + 60, y + 10), b, fill=white, font=_font(26))
+        y += 68
+
+
+def _render_chart(draw, w, h, title, sub, bullets, scene, gold, white, muted, card, green, red, blue, _font):
+    """图表场景：委托给专业图表绘制器"""
+    chart_type = scene.get("chart_type", "macd")
+    _CHART_DRAWERS = {
+        "macd": _draw_macd_chart,
+        "kdj": _draw_kdj_chart,
+        "ma": _draw_ma_chart,
+        "volume": _draw_volume_chart,
+        "support_resistance": _draw_sr_chart,
+        "stop_loss": _draw_stoploss_chart,
+    }
+    drawer = _CHART_DRAWERS.get(chart_type, _draw_macd_chart)
+    drawer(draw, w, h, title, sub, gold, white, muted, green, red, blue, _font)
+
+
+def _render_three(draw, w, h, title, sub, bullets, scene, gold, white, muted, card, green, red, blue, _font):
+    """三点卡片：编号卡片"""
+    if title:
+        f = _font(60)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        draw.text(((w - bbox[2] + bbox[0]) // 2, 320), title, fill=gold, font=f)
+    if sub:
+        f = _font(28)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        draw.text(((w - bbox[2] + bbox[0]) // 2, 410), sub, fill=white, font=f)
+
+    card_top = 500
+    card_h = 150
+    card_gap = 24
+    margin = 100
+    for i, b in enumerate(bullets[:3]):
+        y = card_top + i * (card_h + card_gap)
+        draw.rounded_rectangle([margin, y, w - margin, y + card_h], radius=18, fill=card)
+
+        # 编号圆圈
+        cx = margin + 50
+        cy = y + card_h // 2
+        draw.ellipse([cx - 24, cy - 24, cx + 24, cy + 24], fill=(242, 201, 76, 40), outline=gold, width=2)
+        nf = _font(28)
+        nb = draw.textbbox((0, 0), str(i + 1), font=nf)
+        draw.text((cx - (nb[2] - nb[0]) // 2, cy - (nb[3] - nb[1]) // 2), str(i + 1), fill=gold, font=nf)
+
+        # 文字
+        draw.text((margin + 100, y + card_h // 2 - 16), b, fill=white, font=_font(30))
+
+
+def _render_risk(draw, w, h, title, sub, bullets, scene, gold, white, muted, card, green, red, blue, _font):
+    """风险提醒：红色边框 + 警告图标"""
+    margin = 80
+    card_top = 380
+    card_bottom = 1100
+    draw.rounded_rectangle([margin, card_top, w - margin, card_bottom], radius=24, fill=card, outline=red, width=2)
+
+    # 警告图标
+    icon_x = margin + 40
+    icon_y = card_top + 30
+    draw.polygon([(icon_x + 20, icon_y), (icon_x, icon_y + 36), (icon_x + 40, icon_y + 36)], outline=white, width=2)
+    draw.text((icon_x + 14, icon_y + 8), "!", fill=white, font=_font(20))
+
+    # 标题
+    if title:
+        draw.text((margin + 40, card_top + 60), title, fill=red, font=_font(56))
+
+    # 副标题
+    if sub:
+        draw.text((margin + 40, card_top + 140), sub, fill=white, font=_font(28))
+
+    # 要点
+    y = card_top + 200
+    for b in bullets[:3]:
+        # 感叹号圆圈
+        bx = margin + 50
+        draw.ellipse([bx, y + 2, bx + 28, y + 30], fill=(239, 68, 68, 40), outline=red, width=1)
+        draw.text((bx + 8, y + 4), "!", fill=red, font=_font(18))
+        draw.text((margin + 90, y), b, fill=white, font=_font(28))
+        y += 56
+
+    # 风险提示底栏
+    risk_note = scene.get("risk_note", "")
+    if risk_note:
+        note_y = card_bottom - 70
+        draw.rounded_rectangle([margin + 20, note_y, w - margin - 20, note_y + 50], radius=10, fill=(239, 68, 68, 20))
+        draw.text(((w - draw.textbbox((0, 0), risk_note, font=_font(22))[2] + draw.textbbox((0, 0), risk_note, font=_font(22))[0]) // 2, note_y + 12), risk_note, fill=red, font=_font(22))
+
+
+def _render_summary(draw, w, h, title, sub, bullets, scene, gold, white, muted, card, green, red, blue, _font):
+    """总结金句：引用风格"""
+    margin = 80
+    card_top = 400
+    card_bottom = 1050
+    draw.rounded_rectangle([margin, card_top, w - margin, card_bottom], radius=24, fill=card)
+
+    # 眼眉
+    draw.text(((w - draw.textbbox((0, 0), "总结", font=_font(22))[2] + draw.textbbox((0, 0), "总结", font=_font(22))[0]) // 2, card_top + 30), "总结", fill=gold, font=_font(22))
+
+    # 标题
+    if title:
+        f = _font(52)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        draw.text(((w - bbox[2] + bbox[0]) // 2, card_top + 70), title, fill=white, font=f)
+
+    # 分割线
+    draw.line([(w // 2 - 30, card_top + 145), (w // 2 + 30, card_top + 145)], fill=gold, width=3)
+
+    # 引用内容
+    if sub:
+        f = _font(34)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        draw.text(((w - bbox[2] + bbox[0]) // 2, card_top + 170), sub, fill=muted, font=f)
+
+    # 风险提示
+    disclaimer = "以上内容仅作知识科普，不构成投资建议"
+    df = _font(20)
+    db = draw.textbbox((0, 0), disclaimer, font=df)
+    draw.rounded_rectangle([(w - db[2] + db[0]) // 2 - 16, card_bottom - 80, (w + db[2] - db[0]) // 2 + 16, card_bottom - 40], radius=8, fill=(242, 201, 76, 15))
+    draw.text(((w - db[2] + db[0]) // 2, card_bottom - 75), disclaimer, fill=muted, font=df)
+
+
+def _render_generic(draw, w, h, title, sub, bullets, scene, gold, white, muted, card, green, red, blue, _font):
+    """通用回退"""
+    margin = 48
+    draw.rounded_rectangle([margin, 200, w - margin, h - 200], radius=24, fill=card)
+    if title:
+        f = _font(64)
+        bbox = draw.textbbox((0, 0), title, font=f)
+        draw.text(((w - bbox[2] + bbox[0]) // 2, 440), title, fill=gold, font=f)
+    if sub:
+        f = _font(32)
+        bbox = draw.textbbox((0, 0), sub, font=f)
+        draw.text(((w - bbox[2] + bbox[0]) // 2, 540), sub, fill=white, font=f)
+    if bullets:
+        f = _font(28)
+        y = 660
+        for b in bullets[:3]:
+            text = f"•  {b}"
+            bbox = draw.textbbox((0, 0), text, font=f)
+            draw.text(((w - bbox[2] + bbox[0]) // 2, y), text, fill=muted, font=f)
+            y += 60
 
 
 def _draw_macd_chart(draw, width, height, title, sub, gold, white, muted, green, red, blue, _font):
