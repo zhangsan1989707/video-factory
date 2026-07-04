@@ -24,7 +24,7 @@ CACHE_TTL_SECONDS = {
     "weekly": 2 * 60 * 60,
     "monthly": 6 * 60 * 60,
 }
-CACHE_SCHEMA_VERSION = 6
+CACHE_SCHEMA_VERSION = 7
 ESTIMATED_GROWTH_NOTE = "热度口径：估算日均 star 由当前总 stars 和仓库创建时间折算，不是真实新增 star。"
 TRENDING_SOURCE = "trending"
 SEARCH_API_SOURCE = "search_api"

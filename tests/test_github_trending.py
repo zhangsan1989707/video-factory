@@ -100,6 +100,30 @@ class ParseTrendingHtmlTest(unittest.TestCase):
         repos = github_trending.parse_trending_html(html)
         self.assertEqual(repos[0]["stars_today"], 1234)
 
+    def test_uses_heading_repo_link_when_sponsor_link_appears_first(self) -> None:
+        html = """
+        <article class="Box-row">
+          <a href="/sponsors/simplex-chat">Sponsor</a>
+          <h2 class="h3 lh-condensed">
+            <a href="/simplex-chat/simplex-chat">simplex-chat / simplex-chat</a>
+          </h2>
+          <p class="col-9 color-fg-muted my-1 pr-4">
+            SimpleX private messenger.
+          </p>
+          <div class="f6 color-fg-muted mt-2">
+            <span itemprop="programmingLanguage">Haskell</span>
+            <span class="d-inline-block float-sm-right">5,971 stars this week</span>
+          </div>
+        </article>
+        """
+
+        repos = github_trending.parse_trending_html(html)
+
+        self.assertEqual(repos[0]["full_name"], "simplex-chat/simplex-chat")
+        self.assertEqual(repos[0]["owner"], "simplex-chat")
+        self.assertEqual(repos[0]["name"], "simplex-chat")
+        self.assertEqual(repos[0]["repo_url"], "https://github.com/simplex-chat/simplex-chat")
+
 
 class BuildTrendingUrlTest(unittest.TestCase):
     def test_url_for_all_languages(self) -> None:
