@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -42,7 +42,8 @@ _ARTICLE_RE = re.compile(
     r'<article[^>]*class="[^"]*Box-row[^"]*"[^>]*>(.*?)</article>',
     re.DOTALL,
 )
-_HREF_RE = re.compile(r'href="/([^"/?#][^"?#]*/[^"?#]+)"')
+_HREF_RE = re.compile(r'href="([^"]+)"')
+_HEADING_RE = re.compile(r"<h2[^>]*>(.*?)</h2>", re.DOTALL | re.IGNORECASE)
 _DESCRIPTION_RE = re.compile(
     r'<p class="col-9[^"]*"[^>]*>(.*?)</p>',
     re.DOTALL,
@@ -73,11 +74,41 @@ def _parse_count(text: str) -> int:
     return int(digits) if digits else 0
 
 
+def _repo_path_from_href(href: str) -> str:
+    parsed = urlparse(href)
+    path = parsed.path if parsed.scheme else href.split("?", 1)[0].split("#", 1)[0]
+    parts = [part for part in path.strip("/").split("/") if part]
+    if len(parts) != 2:
+        return ""
+    owner, repo = parts
+    if owner in {
+        "login",
+        "sponsors",
+        "topics",
+        "collections",
+        "apps",
+        "marketplace",
+        "features",
+        "trending",
+    }:
+        return ""
+    return f"{owner}/{repo}"
+
+
+def _repo_path_from_article(raw: str) -> str:
+    heading_match = _HEADING_RE.search(raw)
+    snippets = [heading_match.group(1)] if heading_match else []
+    snippets.append(raw)
+    for snippet in snippets:
+        for href in _HREF_RE.findall(snippet):
+            repo_path = _repo_path_from_href(href)
+            if repo_path:
+                return repo_path
+    return ""
+
+
 def _parse_article(raw: str) -> dict[str, Any] | None:
-    href_match = _HREF_RE.search(raw)
-    if not href_match:
-        return None
-    full_path = href_match.group(1)
+    full_path = _repo_path_from_article(raw)
     if "/" not in full_path:
         return None
     owner, name = full_path.split("/", 1)
