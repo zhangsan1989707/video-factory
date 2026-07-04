@@ -102,7 +102,8 @@ def _stage(callback: Callable[[str, str], None] | None, name: str, message: str)
 def _calibrate_segments_by_audio(
     segments: list[dict[str, Any]], audio_files: list[Path]
 ) -> list[dict[str, Any]]:
-    """根据每段 TTS 音频的实际时长重新校准 segments 时间戳"""
+    """根据每段 TTS 音频的实际时长重新校准 segments 时间戳，段间加 0.5s 间隔"""
+    GAP = 0.5  # 段间呼吸间隔（秒）
     durations: list[float] = []
     for i, seg in enumerate(segments):
         audio_file = audio_files[i] if i < len(audio_files) else None
@@ -119,16 +120,16 @@ def _calibrate_segments_by_audio(
                 pass
         durations.append(duration)
 
-    total = sum(durations)
-    target_total = min(total, 65.0)
-    scale = target_total / total if total > 0 else 1.0
+    total_with_gaps = sum(durations) + GAP * (len(durations) - 1)
+    target_total = min(total_with_gaps, 70.0)
+    scale = target_total / total_with_gaps if total_with_gaps > 0 else 1.0
 
     calibrated: list[dict[str, Any]] = []
     current_ts = 0.0
     for seg, dur in zip(segments, durations):
         scaled_dur = round(dur * scale, 3)
         calibrated.append({**seg, "start": round(current_ts, 3), "duration": scaled_dur})
-        current_ts += scaled_dur
+        current_ts += scaled_dur + GAP
 
     return calibrated
 
@@ -302,37 +303,58 @@ async def _compose_from_frames(
     output_path: Path,
     paths,
 ) -> None:
-    """用 PIL 生成每帧画面 + ffmpeg 合成视频 + 混合音频"""
-    import asyncio
+    """用 PIL 生成每帧画面 + ffmpeg 合成视频 + 混合音频（段间加 0.5s 间隔）"""
+    GAP = 0.5
+    bg_path = paths.base / "black_frame.png"
 
-    # Step 1: 拼接音频
-    concat_list = paths.base / "audio_concat.txt"
-    with open(concat_list, "w", encoding="utf-8") as f:
-        for af in audio_files:
+    # Step 1: 生成黑帧图片
+    try:
+        from PIL import Image
+        Image.new("RGB", (1080, 1920), (7, 10, 15)).save(bg_path)
+    except Exception:
+        bg_path = None
+
+    # Step 2: 拼接音频（段间加静音）
+    silence_path = paths.base / "silence_0.5s.m4a"
+    await _run_subprocess([
+        "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+        "-t", str(GAP), "-c:a", "aac", "-b:a", "128k", str(silence_path),
+    ])
+
+    concat_audio = paths.base / "audio_concat.txt"
+    with open(concat_audio, "w", encoding="utf-8") as f:
+        for i, af in enumerate(audio_files):
             f.write(f"file '{af.resolve()}'\n")
+            if i < len(audio_files) - 1:
+                f.write(f"file '{silence_path.resolve()}'\n")
 
     merged_audio = paths.base / "merged_audio.m4a"
     proc = await _run_subprocess([
         "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-        "-i", str(concat_list),
+        "-i", str(concat_audio),
         "-c:a", "aac", "-b:a", "128k",
         str(merged_audio),
     ])
     if proc.returncode != 0:
         raise RuntimeError(f"音频拼接失败: {proc.stderr[-300:]}")
 
-    # Step 2: 为每个 scene 生成对应时长的帧序列，用 ffmpeg 合成
-    # 用一张图片循环播放对应时长
+    # Step 3: 为每个 scene 生成帧序列（段间加黑帧）
     segments_video = paths.base / "segments.mp4"
     filter_parts = []
     inputs = []
+    idx = 0
     for i, (scene, preview) in enumerate(zip(scenes, preview_paths)):
         dur = scene.get("duration", 5)
         inputs.extend(["-loop", "1", "-t", str(dur), "-i", str(preview)])
-        filter_parts.append(f"[{i}:v]fps=30[v{i}]")
+        filter_parts.append(f"[{idx}:v]fps=30[v{idx}]")
+        idx += 1
+        if i < len(scenes) - 1 and bg_path and bg_path.exists():
+            inputs.extend(["-loop", "1", "-t", str(GAP), "-i", str(bg_path)])
+            filter_parts.append(f"[{idx}:v]fps=30[v{idx}]")
+            idx += 1
 
-    concat_str = "".join(f"[v{i}]" for i in range(len(scenes)))
-    filter_parts.append(f"{concat_str}concat=n={len(scenes)}:v=1:a=0[outv]")
+    concat_str = "".join(f"[v{i}]" for i in range(idx))
+    filter_parts.append(f"{concat_str}concat=n={idx}:v=1:a=0[outv]")
     filter_complex = ";".join(filter_parts)
 
     proc = await _run_subprocess([
