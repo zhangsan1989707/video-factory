@@ -138,7 +138,10 @@ function bindEvents() {
   $("providerEditor").addEventListener("click", testProviderFromButton);
   $("openJobFolderBtn").addEventListener("click", openJobFolder);
   $("runRealSmokeBtn").addEventListener("click", runRealSmoke);
-  $("jobType").addEventListener("change", syncJobTypeFields);
+  $("jobType").addEventListener("change", () => {
+    syncJobTypeFields();
+    syncCandidateCopy(currentJobType());
+  });
   $("visualStyle").addEventListener("change", syncRenderEngineForStyle);
   $("renderEngine").addEventListener("change", syncStyleForRenderEngine);
   $("scheduleVisualStyle").addEventListener("change", syncScheduleRenderEngineForStyle);
@@ -687,6 +690,7 @@ function clearCurrentJob() {
   renderArtifactSummary({});
   renderPublishActions({});
   renderArtifacts({});
+  syncCandidateCopy(currentJobType());
   updateActionState({ stage: "draft_pending", status: "draft_pending" });
 }
 
@@ -745,7 +749,10 @@ async function refreshCandidates() {
     alert("请先创建任务");
     return;
   }
-  if (!confirm("将跳过缓存，直接从 GitHub API 拉取最新候选数据。已选项目和口播不会被清除。继续吗？")) return;
+  const sourceName = ((state.currentJob && state.currentJob.type) || currentJobType()) === "skills_hotlist"
+    ? "Skills 数据源"
+    : "GitHub API";
+  if (!confirm(`将跳过缓存，直接从 ${sourceName} 拉取最新候选数据。已选项目和口播不会被清除。继续吗？`)) return;
   setBusy(true);
   try {
     switchTab("progress");
@@ -1115,6 +1122,7 @@ function renderJob(job) {
   if (job.time_window) $("timeWindow").value = String(job.time_window);
   if (job.project_count) $("projectCount").value = String(job.project_count);
   syncJobTypeFields();
+  syncCandidateCopy(job.type || "github_hotlist");
   $("openJobFolderBtn").disabled = !job.id;
   renderModelCall(job.model_calls || []);
   renderCandidateSourceSummary(job.candidate_source || {});
@@ -1403,7 +1411,7 @@ function updateActionState(job) {
   button.textContent = label;
   button.dataset.action = action;
   button.disabled = disabled;
-  confirmSelection.textContent = "确认项目并生成口播";
+  confirmSelection.textContent = `${candidateItemLabel(job && job.type)}并生成口播`;
   updateSelectionState();
   saveScriptButton.textContent = "确认口播并进入出片";
   saveScriptButton.disabled = action !== "confirm-script";
@@ -1539,6 +1547,36 @@ function renderCandidates() {
     input.addEventListener("change", updateSelectionState);
   });
   updateSelectionState();
+}
+
+function syncCandidateCopy(type) {
+  const isSkills = type === "skills_hotlist";
+  const title = $("candidatePanelTitle");
+  const description = $("candidatePanelDescription");
+  const confirmButton = $("confirmSelectionBtn");
+  const refreshButton = $("refreshCandidatesBtn2");
+  const nameHeader = $("candidateNameHeader");
+  const metricHeader = $("candidateMetricHeader");
+  const metaHeader = $("candidateMetaHeader");
+  if (title) title.textContent = isSkills ? "候选 Skills" : "候选项目";
+  if (description) {
+    description.textContent = isSkills
+      ? "自动拉取后，勾选并调整要进入热榜视频的技能。"
+      : "自动拉取后，勾选并调整要进入热榜视频的项目。";
+  }
+  if (confirmButton) confirmButton.textContent = `${candidateItemLabel(type)}并生成口播`;
+  if (refreshButton) {
+    refreshButton.title = isSkills
+      ? "跳过缓存，直接从 Skills 数据源拉取最新候选数据"
+      : "跳过缓存，直接从 GitHub API 拉取最新候选数据";
+  }
+  if (nameHeader) nameHeader.textContent = isSkills ? "Skill" : "项目";
+  if (metricHeader) metricHeader.textContent = isSkills ? "来源" : "星标";
+  if (metaHeader) metaHeader.textContent = isSkills ? "分类" : "语言";
+}
+
+function candidateItemLabel(type) {
+  return type === "skills_hotlist" ? "确认技能" : "确认项目";
 }
 
 function renderStarsToday(item) {
