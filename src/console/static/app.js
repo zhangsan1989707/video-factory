@@ -1248,7 +1248,7 @@ function updateRegenerateActions(job) {
   const type = job.type || "github_hotlist";
   const hasJob = Boolean(job.id);
   const isRunning = hasBackgroundWork(job);
-  if (type !== "github_hotlist") {
+  if (!jobTypeUsesCandidates(type)) {
     candidatesButton.disabled = true;
     scriptButton.disabled = true;
     videoButton.disabled = !hasJob || isRunning || !["ready_to_render", "completed", "failed"].includes(status);
@@ -1339,7 +1339,7 @@ function renderCandidates() {
         <small class="source-desc">${escapeHtml(item.description || "无英文描述")}</small>
       </td>
       <td class="score">${item.score}</td>
-      <td>${Number(item.stars || 0).toLocaleString()}${renderStarsToday(item)}</td>
+      <td>${renderCandidateMetric(item)}</td>
       <td>${escapeHtml(item.language || "-")}</td>
       <td>${escapeHtml(publicCandidateText(item.recommendation || ""))}<small>${escapeHtml(publicCandidateText(item.ranking_reason || item.visual_potential || ""))}</small></td>
       <td>${escapeHtml(item.risk || "")}</td>
@@ -1362,6 +1362,16 @@ function renderStarsToday(item) {
     return `<small class="source-desc stars-today" data-source="${escapeHtml(source || "trending")}">今日 +${today.toLocaleString()} stars ${escapeHtml(sourceTag)}</small>`;
   }
   return `<small class="source-desc">${escapeHtml((item && item.daily_growth) || "估算日均 star 暂无")}</small>`;
+}
+
+function renderCandidateMetric(item) {
+  if (item && item.data_source === "skills_hotlist") {
+    const sources = Array.isArray(item.sources) && item.sources.length
+      ? item.sources.join(" / ")
+      : item.source_label || item.source || "Skills";
+    return `${escapeHtml(sources)}<small class="source-desc">${escapeHtml(item.daily_growth || "Skills 热榜")}</small>`;
+  }
+  return `${Number(item.stars || 0).toLocaleString()}${renderStarsToday(item)}`;
 }
 
 function publicCandidateText(value) {
@@ -1423,6 +1433,11 @@ function candidateEmptyMessage() {
   if (type === "from_plan_render") {
     return "计划文件继续渲染任务不需要候选列表。点击“生成计划文件”导入计划快照。";
   }
+  if (type === "skills_hotlist") {
+    return state.currentJobId
+      ? "任务已创建。点击“生成候选草稿”拉取 Skills 候选。"
+      : "还没有任务。先选择时间维度和项目数，再点击“创建任务”。";
+  }
   return state.currentJobId
     ? "任务已创建。点击“生成候选草稿”拉取候选项目。"
     : "还没有任务。先选择时间维度和项目数，再点击“创建任务”。";
@@ -1437,8 +1452,13 @@ function jobTypeNeedsRepo(type) {
   return type === "single_project_vertical" || type === "desktop_review";
 }
 
+function jobTypeUsesCandidates(type) {
+  return type === "github_hotlist" || type === "skills_hotlist";
+}
+
 function defaultJobTitle(type) {
   const titles = {
+    skills_hotlist: "Skills 热榜视频",
     single_project_vertical: "单项目竖屏视频",
     desktop_review: "桌面审阅视频",
     from_plan_render: "计划文件继续渲染",
@@ -1450,6 +1470,7 @@ function createdJobMessage(type) {
   if (type === "single_project_vertical") return "单项目竖屏任务已创建。点击“生成计划文件”准备分镜和脚本。\n";
   if (type === "desktop_review") return "桌面审阅任务已创建。点击“生成计划文件”准备桌面分镜。\n";
   if (type === "from_plan_render") return "计划文件继续渲染任务已创建。点击“生成计划文件”导入计划快照。\n";
+  if (type === "skills_hotlist") return "Skills 热榜任务已创建。点击“生成候选草稿”拉取 Skills 候选。\n";
   return "任务已按当前时间维度和项目数创建。点击“生成候选草稿”拉取候选项目。\n";
 }
 
@@ -1459,7 +1480,7 @@ function syncJobTypeFields() {
   const planField = $("planPathField");
   const timeField = $("timeWindow") && $("timeWindow").parentElement;
   const countField = $("projectCount") && $("projectCount").parentElement;
-  const isDirectPlanTask = type !== "github_hotlist";
+  const isDirectPlanTask = !jobTypeUsesCandidates(type);
   if (repoField) repoField.hidden = !jobTypeNeedsRepo(type);
   if (planField) planField.hidden = type !== "from_plan_render";
   if (timeField) timeField.hidden = isDirectPlanTask;
@@ -2411,5 +2432,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions };
+  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, jobTypeUsesCandidates, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidateMetric, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions };
 }

@@ -18,6 +18,7 @@ from src.console.jobs import (
     create_desktop_review_job,
     create_from_plan_render_job,
     create_hotlist_job,
+    create_skills_hotlist_job,
     create_single_project_vertical_job,
     finalize_numbered_output,
     generate_candidates,
@@ -188,6 +189,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 job_type = str(payload.get("type") or "github_hotlist")
                 creators = {
                     "github_hotlist": create_hotlist_job,
+                    "skills_hotlist": create_skills_hotlist_job,
                     "single_project_vertical": create_single_project_vertical_job,
                     "desktop_review": create_desktop_review_job,
                     "from_plan_render": create_from_plan_render_job,

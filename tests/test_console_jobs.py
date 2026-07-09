@@ -141,6 +141,16 @@ class ConsoleJobsTest(unittest.TestCase):
             self.assertEqual(attempts, [first_id, f"GH-HOTLIST-{today}-002"])
             self.assertEqual(job["id"], f"GH-HOTLIST-{today}-002")
 
+    def test_create_skills_hotlist_job_sets_type_and_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with patch("src.console.store.JOBS_DIR", jobs_dir), patch("src.console.jobs.JOBS_DIR", jobs_dir):
+                job = console_jobs.create_skills_hotlist_job({"project_count": 7})
+
+        self.assertTrue(job["id"].startswith("SK-HOTLIST-"))
+        self.assertEqual(job["type"], "skills_hotlist")
+        self.assertEqual(job["project_count"], 7)
+
     def test_create_single_project_vertical_job_records_repo_and_plan_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             jobs_dir = Path(tmp)
@@ -2014,6 +2024,42 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(saved["candidate_source"]["ranking_status"], "ai_success")
                 self.assertIn("analyzing_candidates", [item["stage"] for item in saved["stage_history"]])
 
+    def test_generate_candidates_supports_skills_hotlist_jobs(self) -> None:
+        async def collect(**kwargs):
+            return {
+                "items": _sample_skills(),
+                "cache_status": "fresh",
+                "data_source": "skills_hotlist",
+                "rate_limit": "不适用",
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.collect_skills_candidates_with_meta", side_effect=collect),
+                patch("src.console.jobs._analyze_candidates", side_effect=lambda _job_id, items: items),
+                patch("src.console.jobs._rank_candidates", side_effect=lambda _job_id, items: items),
+                patch("src.console.jobs._sync_all_candidates_to_lark", return_value=None),
+            ):
+                job = create_job("SK-HOTLIST-20990101-001", {"type": "skills_hotlist", "project_count": 2})
+                result = asyncio.run(generate_candidates(job["id"]))
+
+                self.assertEqual(result["candidates"][0]["name"], "Browser Research Skill")
+                saved = read_json(jobs_dir / job["id"] / "task.json", {})
+                self.assertEqual(saved["stage"], "awaiting_project_confirmation")
+                self.assertIn("Skills 热榜数据源", read_log(job["id"]))
+
+    def test_default_narrations_use_skills_hotlist_copy(self) -> None:
+        segments = console_jobs._default_narrations(_sample_skills())
+
+        self.assertIn("AI Skills", segments[0]["text"])
+        self.assertIn("技能名", segments[-1]["text"])
+        self.assertIn("多写提示词", segments[1]["text"])
+        self.assertNotIn("GitHub 项目", segments[0]["text"])
+        self.assertNotIn("项目名", segments[-1]["text"])
+
     def test_generate_candidates_records_analysis_failure_stage(self) -> None:
         async def collect(**kwargs):
             return {"items": _sample_projects(), "rate_limit": "ok"}
@@ -3169,6 +3215,42 @@ def _sample_projects() -> list[dict[str, object]]:
             "viewer_benefit": "少在终端和文档之间来回切换",
             "visual_potential": "终端截图可展示",
             "audience": "开发者",
+        },
+    ]
+
+
+def _sample_skills() -> list[dict[str, object]]:
+    return [
+        {
+            "name": "Browser Research Skill",
+            "full_name": "Browser Research Skill",
+            "repo_url": "https://skillhub.cn/browser-research",
+            "homepage": "https://skillhub.cn/browser-research",
+            "stars": 0,
+            "daily_growth": "来源：SkillHub",
+            "description": "AI browser search and research workflow",
+            "description_zh": "浏览器研究 Skill，适合做操作演示",
+            "recommendation": "适合做一期浏览器研究工作流推荐",
+            "visual_potential": "适合用浏览器操作画面展示效果。",
+            "audience": "AI 工具用户",
+            "topics": ["浏览器", "Agent"],
+            "source": "skillhub",
+            "sources": ["SkillHub"],
+        },
+        {
+            "name": "Code Review Skill",
+            "full_name": "Code Review Skill",
+            "repo_url": "https://clawhub.ai/skills/code-review",
+            "stars": 0,
+            "daily_growth": "来源：ClawHub",
+            "description": "Agent skill for reviewing pull requests",
+            "description_zh": "代码审查 Skill",
+            "recommendation": "适合开发者短视频",
+            "visual_potential": "适合展示代码工作流前后对比。",
+            "audience": "开发者",
+            "topics": ["编程"],
+            "source": "clawhub",
+            "sources": ["ClawHub"],
         },
     ]
 
