@@ -17,6 +17,7 @@ from src.console.background import JobCancelled, is_active, raise_if_cancelled
 from src.console.github_hotlist import ESTIMATED_GROWTH_NOTE, collect_candidates_with_meta
 from src.console.lark_sync import scan_published_full_names, sync_selected_projects
 from src.console.model_router import chat_json_detail, route_snapshot
+from src.console.skills_hotlist import collect_candidates_with_meta as collect_skills_candidates_with_meta
 from src.console.store import (
     DEFAULT_OFFICIAL_OUTPUT_DIR,
     JOBS_DIR,
@@ -88,6 +89,10 @@ def create_finance_edu_job(payload: dict[str, Any]) -> dict[str, Any]:
     """创建炒股科普视频任务（finance_edu）"""
     return _create_job_with_retry("FINEDU", {**payload, "type": "finance_edu"})
 
+
+def create_skills_hotlist_job(payload: dict[str, Any]) -> dict[str, Any]:
+    return _create_job_with_retry("SK-HOTLIST", _with_auto_issue_number({**payload, "type": "skills_hotlist"}))
+
 def create_single_project_vertical_job(payload: dict[str, Any]) -> dict[str, Any]:
     return _create_job_with_retry("GH-SINGLE", {**payload, "type": "single_project_vertical"})
 
@@ -119,7 +124,7 @@ async def generate_candidates(job_id: str, force_refresh: bool = True) -> dict[s
     job = read_job(job_id)
     if not job:
         raise ValueError(f"任务不存在: {job_id}")
-    _require_job_type(job, "github_hotlist", "当前任务类型不支持候选生成")
+    _require_job_type(job, {"github_hotlist", "skills_hotlist"}, "当前任务类型不支持候选生成")
     _require_stage(job, {"draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"}, "当前阶段不能生成候选项目")
     return await _generate_candidates_snapshot(job_id, job, force_refresh=force_refresh)
 
@@ -136,29 +141,46 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_
     else:
         _clear_candidate_artifacts(job_id)
     update_job(job_id, status="running", stage="collecting_candidates", failed_stage="", error="")
-    _set_progress_hint(job_id, kind="pending", text=f"正在拉取 {job.get('time_window', 'weekly')} 候选项目…")
-    append_log(job_id, f"开始拉取 {job.get('time_window', 'weekly')} 候选项目。"
+    is_skills_job = _job_type(job) == "skills_hotlist"
+    item_label = "Skills" if is_skills_job else "项目"
+    _set_progress_hint(job_id, kind="pending", text=f"正在拉取 {job.get('time_window', 'weekly')} 候选{item_label}…")
+    append_log(job_id, f"开始拉取 {job.get('time_window', 'weekly')} 候选{item_label}。"
                + ("（跳过缓存）" if force_refresh else ""))
     try:
-        result = await collect_candidates_with_meta(
-            time_window=str(job.get("time_window") or "weekly"),
-            token=read_github_token(),
-            limit=30,
-            force_refresh=force_refresh,
-        )
+        if is_skills_job:
+            result = await collect_skills_candidates_with_meta(
+                time_window=str(job.get("time_window") or "weekly"),
+                limit=30,
+                force_refresh=force_refresh,
+            )
+        else:
+            result = await collect_candidates_with_meta(
+                time_window=str(job.get("time_window") or "weekly"),
+                token=read_github_token(),
+                limit=30,
+                force_refresh=force_refresh,
+            )
         candidates = result["items"]
-        update_github_rate_limit(str(result.get("rate_limit") or "未检测"))
-        if result.get("cache_status") == "hit":
+        if not is_skills_job:
+            update_github_rate_limit(str(result.get("rate_limit") or "未检测"))
+        if result.get("cache_status") == "hit" and is_skills_job:
+            append_log(job_id, "使用缓存！Skills 热榜候选缓存命中，未请求数据源。")
+        elif result.get("cache_status") == "hit":
             append_log(job_id, "使用缓存！GitHub 候选缓存命中，未请求 API。")
             append_log(job_id, f"GitHub 缓存记录额度: {result.get('rate_limit') or '未检测'}。")
+        elif str(result.get("cache_status") or "").startswith("stale") and is_skills_job:
+            append_log(job_id, f"使用缓存！Skills 热榜数据源异常，已使用最近缓存候选: {result.get('degraded_reason') or '未知原因'}。")
         elif result.get("cache_status") == "stale_rate_limit":
             append_log(job_id, "使用缓存！GitHub 额度受限，已使用最近缓存候选。")
             append_log(job_id, f"GitHub 缓存记录额度: {result.get('rate_limit') or '未检测'}。")
+        elif is_skills_job:
+            append_log(job_id, f"Skills 热榜数据源: {result.get('data_source') or 'skills_hotlist'}。")
         else:
             append_log(job_id, f"GitHub API 额度: {result.get('rate_limit') or '未检测'}。")
-        append_log(job_id, ESTIMATED_GROWTH_NOTE)
+        if not is_skills_job:
+            append_log(job_id, ESTIMATED_GROWTH_NOTE)
         quota_hint = _quota_waiting_hint(str(result.get("rate_limit") or ""))
-        if quota_hint and result.get("cache_status") != "hit":
+        if quota_hint and result.get("cache_status") != "hit" and not is_skills_job:
             _set_progress_hint(job_id, kind="waiting_quota", text="等待 GitHub 配额刷新…", reset_at=quota_hint)
         update_job(job_id, status="running", stage="analyzing_candidates")
         _set_progress_hint(job_id, kind="analyzing", text="候选分析 / 排序进行中…")
@@ -176,7 +198,7 @@ async def _generate_candidates_snapshot(job_id: str, job: dict[str, Any], force_
         # 标注已发布状态，供前端展示
         _annotate_already_published(candidates)
         write_json(JOBS_DIR / job_id / "candidates.json", {"items": candidates})
-        append_log(job_id, f"候选项目拉取完成，共 {len(candidates)} 个。")
+        append_log(job_id, f"候选{item_label}拉取完成，共 {len(candidates)} 个。")
         # 任务级统一时间戳，供飞书同步和后续已选/发布标记使用
         fetch_time = datetime.now().strftime("%Y-%m-%d %H:%M")
         job["fetch_time"] = fetch_time
@@ -627,8 +649,9 @@ def _clear_script_metadata(job_id: str) -> None:
 def _job_type(job: dict[str, Any]) -> str:
     return str(job.get("type") or "github_hotlist")
 
-def _require_job_type(job: dict[str, Any], expected: str, message: str) -> None:
-    if _job_type(job) != expected:
+def _require_job_type(job: dict[str, Any], expected: str | set[str], message: str) -> None:
+    expected_types = {expected} if isinstance(expected, str) else expected
+    if _job_type(job) not in expected_types:
         raise ValueError(f"{message}: {_job_type(job)}")
 
 def prepare_plan(job_id: str) -> dict[str, Any]:
@@ -1270,11 +1293,14 @@ def _analyze_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[d
             "analysis_label": f"启发式评分（{_route_skip_reason(route)}）",
         })
         return candidates
+    is_skills = _is_skills_hotlist(candidates)
+    topic_label = "AI Skills 热榜" if is_skills else "GitHub 热榜"
+    item_label = "技能" if is_skills else "项目"
     prompt = {
         "instruction": (
-            "为中文 GitHub 热榜短视频分析候选项目。只根据输入字段判断，不要夸大。"
-            "区分观众听得懂的项目价值和制作侧画面建议。"
-            "每个项目的 description_zh、project_highlight、viewer_benefit 必须写出具体功能或使用场景，"
+            f"为中文 {topic_label} 短视频分析候选{item_label}。只根据输入字段判断，不要夸大。"
+            f"区分观众听得懂的{item_label}价值和制作侧画面建议。"
+            f"每个{item_label}的 description_zh、project_highlight、viewer_benefit 必须写出具体功能或使用场景，"
             "禁止使用同一句模板，禁止使用“围绕……重点是……”这类万能句。"
         ),
         "items": [
@@ -1353,8 +1379,11 @@ def _rank_candidates(job_id: str, candidates: list[dict[str, Any]]) -> list[dict
             "ranking_label": f"默认顺序（{_route_skip_reason(route)}）",
         })
         return candidates
+    is_skills = _is_skills_hotlist(candidates)
+    topic_label = "AI Skills 热榜" if is_skills else "GitHub 热榜"
+    item_label = "技能" if is_skills else "项目"
     prompt = {
-        "instruction": "为中文 GitHub 热榜短视频给候选项目排序。优先考虑观众价值、可解释性、画面潜力和事实稳妥性。",
+        "instruction": f"为中文 {topic_label} 短视频给候选{item_label}排序。优先考虑观众价值、可解释性、画面潜力和事实稳妥性。",
         "items": [
             {
                 "index": index,
@@ -2180,30 +2209,45 @@ def _model_narrations(job_id: str, projects: list[dict[str, Any]]) -> list[dict[
         append_log(job_id, f"口播生成使用默认模板：{reason}。")
         return None
     project_context = _narration_project_context(projects)
+    is_skills = _is_skills_hotlist(projects)
+    topic_label = "AI Skills 热榜视频" if is_skills else "GitHub 热榜视频"
+    item_label = "技能" if is_skills else "项目"
+    opening_rule = (
+        "开场必须在 3 秒内抓住人，用一个本期技能选择标准或具体工作流痛点切入，不要直接复述第 1 名技能名。"
+        if is_skills
+        else "开场必须在 3 秒内抓住人，用一个本期判断或反常识观点切入，不要直接复述第一名项目名。"
+    )
+    heat_rule = (
+        "如果要提热度，只能说“多源收录”“社区推荐”或“来源榜单靠前”，禁止编造安装量、收藏数或真实增长。"
+        if is_skills
+        else (
+            "daily_growth / growth_note 只表示按当前总 stars 和项目年龄折算的估算日均 star，不是真实新增 star。"
+            "如果要提热度，只能说“估算日均 star”或“热度估算”，禁止说“今天涨了”“新增了”“真实增长”。"
+        )
+    )
     prompt = {
         "instruction": (
-            "你是一个为「GitHub 热榜视频」撰写口播文案的专家。为 GitHub 热榜竖屏短视频生成中文口播。"
-            "单个项目口播要吸引人、有场景感、避免套路；克制、具体、面向观众价值，不要喊口号。"
-            "开场必须在 3 秒内抓住人，用一个本期判断或反常识观点切入，不要直接复述第一名项目名。"
-            "榜单总览只讲整体趋势和选择标准，不展开第 1 名细节；每个项目详情再按痛点、项目怎么解决、适合谁、为什么值得看展开。"
+            f"你是一个为「{topic_label}」撰写口播文案的专家。为 {topic_label} 竖屏短视频生成中文口播。"
+            f"单个{item_label}口播要吸引人、有场景感、避免套路；克制、具体、面向观众价值，不要喊口号。"
+            f"{opening_rule}"
+            f"榜单总览只讲整体趋势和选择标准，不能展开第 1 名细节；每个{item_label}详情再按痛点、它怎么解决、适合谁、为什么值得看展开。"
             "结尾要留下讨论空间或下一期期待，不要只说点赞关注。"
             "每个 project-* 段落控制在 60 到 100 个中文字符左右。"
-            "每个 project-* 必须使用对应项目 feature_extract 里的 core_problem 和 core_action；"
+            f"每个 project-* 必须使用对应{item_label} feature_extract 里的 core_problem 和 core_action；"
             "quantified_benefit 非空时必须自然写入，空时不要编造数字。"
             "禁止使用以下开头句式：如果你纠结、如果你觉得、如果你在找、如果你卡在、先看看它、先看它。"
             "禁止空洞评价：很有价值、值得关注、适合开发者、适合开源项目关注者。"
             "每个 project-* 必须包含：一个反常识或场景化开头；一句具体痛点或爽点；一句锁定目标人群，格式可以用「适合：被 X 折磨的人」。"
             "visual_potential 是制作侧画面建议，禁止直接写入口播；不要把 README 可展示、仓库页做信息卡片、"
             "终端截图可展示、截图可展示、画面潜力、信息卡片当成项目亮点。"
-            "daily_growth / growth_note 只表示按当前总 stars 和项目年龄折算的估算日均 star，不是真实新增 star。"
-            "如果要提热度，只能说“估算日均 star”或“热度估算”，禁止说“今天涨了”“新增了”“真实增长”。"
+            f"{heat_rule}"
         ),
         "projects": project_context,
         "content_strategy": {
             "opening": "一句 20 到 45 字的钩子，讲本期判断，不复述第 1 名详情",
-            "overview": "榜单总览负责建立选择标准和整体趋势，不能重复 project-1 的项目介绍",
-            "per_project": "每个项目按反常识/场景开头 -> 具体痛点或爽点 -> 被什么问题折磨的人组织",
-            "closing": "留下讨论钩子，让观众选择想看哪个项目的实操拆解",
+            "overview": "榜单总览负责建立选择标准和整体趋势，不能重复 project-1 的介绍",
+            "per_project": f"每个{item_label}按反常识/场景开头 -> 具体痛点或爽点 -> 被什么问题折磨的人组织",
+            "closing": f"留下讨论钩子，让观众选择想看哪个{item_label}的实操拆解",
         },
         "project_copy_template": (
             "{{core_problem}} 不是靠收藏项目解决的。{{name}} 的核心动作是：{{core_action}}。"
@@ -2465,13 +2509,26 @@ def _default_narrations(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _intro_line(projects: list[dict[str, Any]]) -> str:
     count = len(projects)
+    if _is_skills_hotlist(projects):
+        return (
+            f"今天不比参数，挑 {count} 个能直接塞进工作流的 AI Skills，"
+            f"看它们分别省掉哪一步。"
+        )
     return (
         f"别再只按 Star 收藏项目了。今天这 {count} 个 GitHub 项目，"
         f"我只看它能不能帮你少走一步弯路。"
     )
 
 def _outro_line(projects: list[dict[str, Any]]) -> str:
-    names = "、".join(str(project.get("name") or "这个项目") for project in projects[:3])
+    is_skills = _is_skills_hotlist(projects)
+    fallback_name = "这个技能" if is_skills else "这个项目"
+    names = "、".join(str(project.get("name") or fallback_name) for project in projects[:3])
+    if is_skills:
+        return (
+            f"这期最值得回看的，不是排名，而是你现在最想自动化哪一步。"
+            f"如果你想让我实测 {names} 里面某一个，评论区直接打技能名；"
+            f"我下一期按真实工作流拆给你看。"
+        )
     return (
         f"这期最值得回看的，不是排名，而是你现在卡在哪一步。"
         f"如果你想让我把 {names} 里面某一个拆成实操教程，评论区直接打项目名；"
@@ -2479,17 +2536,35 @@ def _outro_line(projects: list[dict[str, Any]]) -> str:
     )
 
 def _default_project_narration(project: dict[str, Any]) -> str:
-    name = project.get("name") or project.get("full_name") or "这个项目"
+    is_skill = _is_skill_item(project)
+    name = project.get("name") or project.get("full_name") or ("这个技能" if is_skill else "这个项目")
     feature = _sanitize_feature_extract(project.get("feature_extract")) or _fallback_feature_extract(project)
     pain = feature["core_problem"]
     highlight = feature["core_action"]
     benefit = feature.get("quantified_benefit") or "重点是把一个具体流程缩短"
     audience = _viewer_audience(project)
+    if is_skill:
+        return (
+            f"{pain} 不是靠多写提示词解决的。"
+            f"{name} 的核心动作是：{highlight}。"
+            f"{benefit}。"
+            f"适合：被「{pain}」折磨的{_audience_phrase(audience)}。"
+        )
     return (
         f"{pain} 不是靠多收藏几个项目解决的。"
         f"{name} 的核心动作是：{highlight}。"
         f"{benefit}。"
         f"适合：被「{pain}」折磨的{_audience_phrase(audience)}。"
+    )
+
+def _is_skills_hotlist(projects: list[dict[str, Any]]) -> bool:
+    return bool(projects) and all(_is_skill_item(project) for project in projects)
+
+def _is_skill_item(project: dict[str, Any]) -> bool:
+    return (
+        str(project.get("data_source") or "") == "skills_hotlist"
+        or str(project.get("source") or "") in {"skillhub", "clawhub"}
+        or bool(project.get("sources")) and not str(project.get("repo_url") or "").startswith("https://github.com/")
     )
 
 def _description_phrase(description: str) -> str:

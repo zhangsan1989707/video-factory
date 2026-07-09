@@ -459,7 +459,7 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "stage": "draft_pending",
         "created_at": now,
         "updated_at": now,
-        "title": payload.get("title") or "GitHub 热榜视频",
+        "title": payload.get("title") or ("Skills 热榜视频" if job_type == "skills_hotlist" else "GitHub 热榜视频"),
         "time_window": normalize_time_window(payload.get("time_window"), "weekly"),
         "template": template["name"],
         "template_params": template["params"],
@@ -512,7 +512,15 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_job_type(value: Any) -> str:
     job_type = str(value or "github_hotlist").strip()
-    if job_type not in {"github_hotlist", "single_project_vertical", "desktop_review", "from_plan_render", "stock_education"}:
+    if job_type not in {
+        "github_hotlist",
+        "skills_hotlist",
+        "single_project_vertical",
+        "desktop_review",
+        "from_plan_render",
+        "stock_education",
+        "finance_edu",
+    }:
         raise ValueError(f"未知任务类型: {job_type}")
     return job_type
 
