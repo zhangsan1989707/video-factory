@@ -1072,43 +1072,39 @@ function renderLarkSyncHistory(job) {
   }
   const html = segments.map(seg => {
     const s = sync[seg.key] || { status: "未同步" };
-    const needsRetry = s.status === "partial" || s.status === "failed" || s.error;
-    const errorsHtml = Array.isArray(s.errors) && s.errors.length
-      ? `<ul class="lark-sync-errors">${s.errors.map(e => `<li>${escapeHtml(typeof e === "string" ? e : (e.error || JSON.stringify(e)))}</li>`).join("")}</ul>`
-      : "";
+    const errors = Array.isArray(s.errors) ? s.errors : [];
+    const detailParts = [];
+    if (s.created != null) detailParts.push(`新增 ${s.created}`);
+    if (s.updated != null) detailParts.push(`更新 ${s.updated}`);
+    const shouldRetry = ["failed", "partial"].includes(String(s.status || "")) || Boolean(s.error);
     return `<div class="lark-sync-seg">
-      <strong>${seg.label}</strong>: ${s.status}
+      <strong>${seg.label}</strong>: ${escapeHtml(s.status)}
       ${s.count != null ? `(${s.count} 条)` : ""}
-      ${s.created != null ? `新增 ${s.created}` : ""}
-      ${s.updated != null ? `更新 ${s.updated}` : ""}
-      ${s.at ? ` · ${s.at}` : ""}
+      ${detailParts.length ? ` · ${escapeHtml(detailParts.join(" / "))}` : ""}
+      ${s.at ? ` · ${escapeHtml(s.at)}` : ""}
       ${s.error ? ` · <span class="err">${escapeHtml(s.error)}</span>` : ""}
-      ${errorsHtml}
-      ${needsRetry ? `<button class="lark-resync-btn tiny" data-resync-seg="${seg.key}" data-resync-job="${escapeAttr(job.id)}">重试</button>` : ""}
+      ${errors.length ? `<ul class="lark-sync-errors">${errors.map((item) => `<li>${escapeHtml(typeof item === "string" ? item : (item.error || item.message || JSON.stringify(item)))}</li>`).join("")}</ul>` : ""}
+      ${shouldRetry ? `<button class="tiny lark-resync-btn" data-resync-job="${escapeAttr(job.id || "")}" data-resync-seg="${escapeAttr(seg.key)}">重试</button>` : ""}
     </div>`;
   }).join("");
   container.innerHTML = html;
-  container.querySelectorAll(".lark-resync-btn").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const seg = btn.dataset.resyncSeg;
-      const jid = btn.dataset.resyncJob;
-      btn.disabled = true;
-      btn.textContent = "同步中…";
-      try {
-        const result = await post(`/api/jobs/${jid}/resync-lark`, { segment: seg });
-        if (result.ok) {
-          btn.textContent = "已触发";
-          setTimeout(() => refreshCurrentJob(), 2000);
-        } else {
-          btn.textContent = "失败";
-          setTimeout(() => { btn.textContent = "重试"; btn.disabled = false; }, 3000);
-        }
-      } catch (err) {
-        btn.textContent = "失败";
-        setTimeout(() => { btn.textContent = "重试"; btn.disabled = false; }, 3000);
-      }
-    });
+  container.querySelectorAll(".lark-resync-btn").forEach((button) => {
+    button.addEventListener("click", () => resyncLarkSegment(button.dataset.resyncJob, button.dataset.resyncSeg));
   });
+}
+
+async function resyncLarkSegment(jobId, segment) {
+  if (!jobId) return;
+  setBusy(true);
+  try {
+    const result = await post(`/api/jobs/${encodeURIComponent(jobId)}/resync-lark`, { segment: segment || "all" });
+    if (!result.ok) throw new Error(result.error || "飞书重同步失败");
+    await refreshCurrentJob();
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    setBusy(false);
+  }
 }
 
 function renderJob(job) {

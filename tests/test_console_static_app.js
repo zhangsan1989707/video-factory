@@ -65,6 +65,8 @@ async function run() {
   testRenderCandidatesHidesBadgeWhenNotPublished();
   testRenderLarkSyncHistoryShowsThreeSegments();
   testRenderLarkSyncHistoryHandlesMissingSync();
+  testRenderLarkSyncHistoryShowsErrorListAndRetryButton();
+  testRenderLarkSyncHistoryHidesRetryButtonWhenSynced();
   testToggleBatchModeActivatesAndRendersCheckboxes();
   testExitBatchModeResetsStateAndRendersNormalList();
   testBatchSelectAllExcludesRunningJobs();
@@ -1903,7 +1905,7 @@ function testRenderCandidatesHidesBadgeWhenNotPublished() {
 
 function testRenderLarkSyncHistoryShowsThreeSegments() {
   const nodes = {
-    larkSyncHistory: { innerHTML: "" },
+    larkSyncHistory: { innerHTML: "", querySelectorAll() { return []; } },
   };
   global.document = {
     getElementById(id) {
@@ -1930,7 +1932,7 @@ function testRenderLarkSyncHistoryShowsThreeSegments() {
 
 function testRenderLarkSyncHistoryHandlesMissingSync() {
   const nodes = {
-    larkSyncHistory: { innerHTML: "" },
+    larkSyncHistory: { innerHTML: "", querySelectorAll() { return []; } },
   };
   global.document = {
     getElementById(id) {
@@ -1955,6 +1957,64 @@ function testRenderLarkSyncHistoryHandlesMissingSync() {
   const html = nodes.larkSyncHistory.innerHTML;
   assert.match(html, /全量候选/);
   assert.match(html, /未同步/);
+}
+
+function testRenderLarkSyncHistoryShowsErrorListAndRetryButton() {
+  const state = { job: { id: "GH-TEST", lark_sync: {
+    selected: {
+      status: "partial",
+      count: 2,
+      created: 2,
+      updated: 0,
+      error: "",
+      errors: [
+        { error: "record-upsert 失败: 字段类型不匹配" },
+        { error: "网络超时" },
+      ],
+    },
+  } } };
+  const buttons = [];
+  const nodes = {
+    larkSyncHistory: {
+      innerHTML: "",
+      querySelectorAll(sel) { return buttons; },
+    },
+  };
+  global.document = { getElementById(id) { return nodes[id]; } };
+
+  renderLarkSyncHistory(state.job);
+  const html = nodes.larkSyncHistory.innerHTML;
+
+  // 应展示部分失败明细
+  assert.match(html, /字段类型不匹配/);
+  assert.match(html, /网络超时/);
+  assert.match(html, /新增 2/);
+  // partial 状态应渲染重试按钮
+  assert.match(html, /重试/);
+  assert.match(html, /data-resync-seg="selected"/);
+  assert.match(html, /data-resync-job="GH-TEST"/);
+}
+
+function testRenderLarkSyncHistoryHidesRetryButtonWhenSynced() {
+  const state = { job: { id: "GH-TEST", lark_sync: {
+    all_data: { status: "synced", count: 10, created: 10, updated: 0, error: "" },
+    selected: { status: "synced", count: 3, created: 3, updated: 0, error: "" },
+    publish_mark: { status: "synced", count: 1, error: "" },
+  } } };
+  const nodes = {
+    larkSyncHistory: {
+      innerHTML: "",
+      querySelectorAll() { return []; },
+    },
+  };
+  global.document = { getElementById(id) { return nodes[id]; } };
+
+  renderLarkSyncHistory(state.job);
+  const html = nodes.larkSyncHistory.innerHTML;
+
+  // 全部成功时不应出现重试按钮
+  assert.equal(html.includes("重试"), false);
+  assert.equal(html.includes("lark-resync-btn"), false);
 }
 
 // ---- 批量删除 ----
