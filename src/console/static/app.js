@@ -926,14 +926,39 @@ function renderLarkSyncHistory(job) {
   }
   const html = segments.map(seg => {
     const s = sync[seg.key] || { status: "未同步" };
+    const errors = Array.isArray(s.errors) ? s.errors : [];
+    const detailParts = [];
+    if (s.created != null) detailParts.push(`新增 ${s.created}`);
+    if (s.updated != null) detailParts.push(`更新 ${s.updated}`);
+    const shouldRetry = ["failed", "partial"].includes(String(s.status || ""));
     return `<div class="lark-sync-seg">
-      <strong>${seg.label}</strong>: ${s.status}
+      <strong>${seg.label}</strong>: ${escapeHtml(s.status)}
       ${s.count != null ? `(${s.count} 条)` : ""}
-      ${s.at ? ` · ${s.at}` : ""}
-      ${s.error ? ` · <span class="err">${s.error}</span>` : ""}
+      ${detailParts.length ? ` · ${escapeHtml(detailParts.join(" / "))}` : ""}
+      ${s.at ? ` · ${escapeHtml(s.at)}` : ""}
+      ${s.error ? ` · <span class="err">${escapeHtml(s.error)}</span>` : ""}
+      ${errors.length ? `<ul class="lark-sync-errors">${errors.map((item) => `<li>${escapeHtml(item.error || item.message || item)}</li>`).join("")}</ul>` : ""}
+      ${shouldRetry ? `<button class="tiny lark-resync-btn" data-resync-job="${escapeHtml(job.id || "")}" data-resync-seg="${seg.key}">重试</button>` : ""}
     </div>`;
   }).join("");
   container.innerHTML = html;
+  container.querySelectorAll(".lark-resync-btn").forEach((button) => {
+    button.addEventListener("click", () => resyncLarkSegment(button.dataset.resyncJob, button.dataset.resyncSeg));
+  });
+}
+
+async function resyncLarkSegment(jobId, segment) {
+  if (!jobId) return;
+  setBusy(true);
+  try {
+    const result = await post(`/api/jobs/${encodeURIComponent(jobId)}/resync-lark`, { segment: segment || "all" });
+    if (!result.ok) throw new Error(result.error || "飞书重同步失败");
+    await refreshCurrentJob();
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    setBusy(false);
+  }
 }
 
 function renderJob(job) {

@@ -856,6 +856,60 @@ class ConsoleServerSmokeTest(unittest.TestCase):
 
         self.assertEqual(status, 404)
 
+    def test_resync_lark_endpoint_dispatches_to_resync_lark(self) -> None:
+        captured = {}
+
+        def fake_resync_lark(job_id, segment="all"):
+            captured["job_id"] = job_id
+            captured["segment"] = segment
+            return {"ok": True, "segments": {"selected": "triggered"}}
+
+        with patch("src.console.server.resync_lark", fake_resync_lark):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            try:
+                result = _post(
+                    base_url,
+                    "/api/jobs/GH-HOTLIST-20990101-TEST/resync-lark",
+                    {"segment": "selected"},
+                )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=1)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(captured["job_id"], "GH-HOTLIST-20990101-TEST")
+        self.assertEqual(captured["segment"], "selected")
+
+    def test_resync_lark_endpoint_rejects_missing_job(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+            ):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                try:
+                    result = _post(
+                        base_url,
+                        "/api/jobs/GH-HOTLIST-20990101-GHOST/resync-lark",
+                        {"segment": "all"},
+                    )
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+        self.assertFalse(result["ok"])
+        self.assertIn("不存在", result["error"])
+
     def test_invalid_json_returns_bad_request(self) -> None:
         server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
