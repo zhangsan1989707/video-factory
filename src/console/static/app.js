@@ -362,10 +362,12 @@ async function loadPreflight() {
     $("preflightStatus").textContent = label;
     $("preflightStatus").title = report.summary || "";
     renderRealSmokeStatus(report.latest_real_smoke || {});
+    renderProductionReadiness(report.production_readiness || {});
   } catch (error) {
     $("preflightStatus").textContent = "检测失败";
     $("preflightStatus").title = error.message;
     renderRealSmokeStatus({});
+    renderProductionReadiness({});
   }
 }
 
@@ -402,6 +404,47 @@ function renderRealSmokeStatus(result) {
   };
   node.textContent = `${labels[status] || status}${time && time !== "-" ? ` · ${time}` : ""}`;
   node.title = result.summary || result.error || "";
+}
+
+function renderProductionReadiness(readiness) {
+  const node = $("productionReadiness");
+  if (!node) return;
+  const items = Array.isArray(readiness.items) ? readiness.items : [];
+  if (!items.length) {
+    node.hidden = true;
+    node.innerHTML = "";
+    return;
+  }
+  const status = readiness.status || "warning";
+  const labels = {
+    ready: "良好",
+    warning: "需留意",
+    blocked: "阻塞",
+  };
+  node.hidden = false;
+  node.innerHTML = `
+    <div class="readiness-head">
+      <span class="readiness-summary">${escapeHtml(readiness.summary || "生产链路状态待确认。")}</span>
+      <strong class="readiness-status ${escapeAttr(status)}">${escapeHtml(labels[status] || status)}</strong>
+    </div>
+    <div class="readiness-list">
+      ${items.map((item) => `
+        <div class="readiness-item ${escapeAttr(item.status || "")}" title="${escapeAttr(item.message || "")}">
+          <span>${escapeHtml(item.label || item.id || "")}</span>
+          <strong>${escapeHtml(readinessItemStatusLabel(item.status || ""))}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function readinessItemStatusLabel(status) {
+  const labels = {
+    ok: "ok",
+    warning: "warn",
+    blocked: "stop",
+  };
+  return labels[status] || status || "-";
 }
 
 async function loadJobs() {
@@ -2653,5 +2696,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, jobTypeUsesCandidates, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, pollJobStatus, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidateMetric, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, showTrackUI, startNewJob, state, submitStockForm, syncDetailState, syncJobTypeFields, syncStockContentSource, switchTrack, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions, updateStockStatus };
+  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, jobTypeUsesCandidates, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, pollJobStatus, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidateMetric, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderProductionReadiness, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, showTrackUI, startNewJob, state, submitStockForm, syncDetailState, syncJobTypeFields, syncStockContentSource, switchTrack, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions, updateStockStatus };
 }

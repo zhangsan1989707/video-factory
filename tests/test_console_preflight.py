@@ -20,6 +20,7 @@ class ConsolePreflightTest(unittest.TestCase):
         self.assertIn(report["status"], {"ready", "blocked"})
         self.assertIn("checks", report)
         self.assertIn("latest_real_smoke", report)
+        self.assertIn("production_readiness", report)
         check_ids = {item["id"] for item in report["checks"]}
         self.assertIn("ffmpeg", check_ids)
         self.assertIn("ffprobe", check_ids)
@@ -31,6 +32,64 @@ class ConsolePreflightTest(unittest.TestCase):
         self.assertIn("config.model_provider", check_ids)
         self.assertIn("smoke.ffmpeg_ffprobe", check_ids)
         self.assertIn("smoke.hyperframes_cli", check_ids)
+        readiness_ids = {item["id"] for item in report["production_readiness"]["items"]}
+        self.assertIn("render", readiness_ids)
+        self.assertIn("github", readiness_ids)
+        self.assertIn("skills", readiness_ids)
+        self.assertIn("recent_failure", readiness_ids)
+
+    def test_production_readiness_reports_source_cache_and_recent_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_dir = base / "config"
+            jobs_dir = base / "jobs"
+            github_cache = base / "github-cache"
+            skills_cache = base / "skills-cache"
+            github_cache.mkdir()
+            skills_cache.mkdir()
+            (config_dir / "github.json").parent.mkdir(parents=True)
+            (config_dir / "github.json").write_text(
+                json.dumps({"token": "ghp_1234567890abcdef", "last_rate_limit": "ok"}),
+                encoding="utf-8",
+            )
+            cache_payload = {
+                "created_at": "2026-07-28T01:00:00+00:00",
+                "items": [{"name": "demo"}],
+                "degraded": False,
+                "degraded_reason": "",
+            }
+            (github_cache / "daily.json").write_text(json.dumps(cache_payload), encoding="utf-8")
+            (skills_cache / "daily.json").write_text(json.dumps(cache_payload), encoding="utf-8")
+            failed_dir = jobs_dir / "GH-HOTLIST-20260728-001"
+            failed_dir.mkdir(parents=True)
+            (failed_dir / "task.json").write_text(
+                json.dumps({
+                    "id": "GH-HOTLIST-20260728-001",
+                    "status": "failed",
+                    "stage": "generating_tts",
+                    "failed_stage": "generating_tts",
+                    "error": "voice unavailable",
+                }),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.preflight.CONFIG_DIR", config_dir),
+                patch("src.console.preflight.JOBS_DIR", jobs_dir),
+                patch("src.console.github_hotlist.CACHE_DIR", github_cache),
+                patch("src.console.skills_hotlist.CACHE_DIR", skills_cache),
+            ):
+                report = preflight_snapshot()
+
+        items = {item["id"]: item for item in report["production_readiness"]["items"]}
+        self.assertEqual(items["github"]["status"], "ok")
+        self.assertIn("Token 已配置", items["github"]["message"])
+        self.assertEqual(items["skills"]["status"], "ok")
+        self.assertIn("缓存可用", items["skills"]["message"])
+        self.assertEqual(items["recent_failure"]["status"], "warning")
+        self.assertIn("generating_tts", items["recent_failure"]["message"])
 
     def test_preflight_summary_mentions_smoke_when_all_smoke_checks_pass(self) -> None:
         with (

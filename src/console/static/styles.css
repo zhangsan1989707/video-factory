@@ -444,6 +444,70 @@ code {
   font-weight: 650;
 }
 
+.readiness-box {
+  margin: 10px 0 4px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+
+.readiness-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.readiness-summary {
+  color: var(--soft);
+  line-height: 1.4;
+}
+
+.readiness-status {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.readiness-status.ready,
+.readiness-item.ok {
+  color: var(--success);
+}
+
+.readiness-status.warning,
+.readiness-item.warning {
+  color: var(--warn);
+}
+
+.readiness-status.blocked,
+.readiness-item.blocked {
+  color: var(--error);
+}
+
+.readiness-list {
+  display: grid;
+  gap: 6px;
+}
+
+.readiness-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.readiness-item span {
+  min-width: 0;
+}
+
+.readiness-item strong {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
 .action-title {
   display: flex;
   align-items: center;

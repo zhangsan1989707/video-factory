@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from src.console.store import CONFIG_DIR, config_snapshot, read_json, write_json
+from src.console.store import CONFIG_DIR, JOBS_DIR, config_snapshot, read_json, write_json
 from src.utils.config import ROOT_DIR
 
 
@@ -42,6 +42,7 @@ def preflight_snapshot() -> dict[str, Any]:
         "warning_count": len(warnings),
         "checks": checks,
         "latest_real_smoke": latest_real_smoke(),
+        "production_readiness": _production_readiness(checks),
     }
 
 
@@ -311,6 +312,169 @@ def _smoke_result(check_id: str, label: str, ok: bool, message: str) -> dict[str
         "severity": "blocking",
         "message": message,
     }
+
+
+def _production_readiness(checks: list[dict[str, Any]]) -> dict[str, Any]:
+    by_id = {str(item.get("id") or ""): item for item in checks}
+    items = [
+        _readiness_item(
+            "render",
+            "渲染依赖",
+            _worst_status(by_id, ["ffmpeg", "ffprobe", "smoke.ffmpeg_ffprobe"]),
+            _join_messages(by_id, ["ffmpeg", "ffprobe", "smoke.ffmpeg_ffprobe"]),
+        ),
+        _readiness_item(
+            "hyperframes",
+            "HyperFrames",
+            _worst_status(by_id, ["node", "npx", "node.hyperframes", "smoke.hyperframes_cli"]),
+            _join_messages(by_id, ["node", "npx", "node.hyperframes", "smoke.hyperframes_cli"]),
+        ),
+        _readiness_item(
+            "playwright",
+            "Playwright",
+            _check_status(by_id.get("playwright.browsers")),
+            str(by_id.get("playwright.browsers", {}).get("message") or ""),
+        ),
+        _readiness_item(
+            "tts",
+            "TTS",
+            _check_status(by_id.get("python.edge_tts")),
+            str(by_id.get("python.edge_tts", {}).get("message") or ""),
+        ),
+        _readiness_item(
+            "model",
+            "模型供应商",
+            _check_status(by_id.get("config.model_provider")),
+            str(by_id.get("config.model_provider", {}).get("message") or ""),
+        ),
+        _source_readiness("github", "GitHub 数据源"),
+        _source_readiness("skills", "Skills 数据源"),
+        _latest_failure_readiness(),
+    ]
+    blocking = [item for item in items if item["status"] == "blocked"]
+    warnings = [item for item in items if item["status"] == "warning"]
+    status = "blocked" if blocking else "warning" if warnings else "ready"
+    return {
+        "status": status,
+        "summary": _readiness_summary(status, len(blocking), len(warnings)),
+        "blocking_count": len(blocking),
+        "warning_count": len(warnings),
+        "items": items,
+    }
+
+
+def _readiness_item(check_id: str, label: str, status: str, message: str) -> dict[str, str]:
+    return {
+        "id": check_id,
+        "label": label,
+        "status": status,
+        "message": message,
+    }
+
+
+def _check_status(check: dict[str, Any] | None) -> str:
+    if not check:
+        return "blocked"
+    if check.get("status") == "ok":
+        return "ok"
+    if check.get("severity") == "warning":
+        return "warning"
+    return "blocked"
+
+
+def _worst_status(by_id: dict[str, dict[str, Any]], ids: list[str]) -> str:
+    statuses = [_check_status(by_id.get(check_id)) for check_id in ids]
+    if "blocked" in statuses:
+        return "blocked"
+    if "warning" in statuses:
+        return "warning"
+    return "ok"
+
+
+def _join_messages(by_id: dict[str, dict[str, Any]], ids: list[str]) -> str:
+    messages = [str(by_id.get(check_id, {}).get("message") or "") for check_id in ids]
+    return "；".join(message for message in messages if message)
+
+
+def _source_readiness(source_id: str, label: str) -> dict[str, str]:
+    config = config_snapshot()
+    if source_id == "github":
+        configured = bool(config.get("github", {}).get("configured"))
+        cache = _latest_cache_payload(_cache_dir("github"))
+        parts = ["Token 已配置" if configured else "Token 未配置，候选生成可能受限"]
+    else:
+        configured = True
+        cache = _latest_cache_payload(_cache_dir("skills"))
+        parts = ["Skills 数据源可尝试实时抓取"]
+
+    if cache:
+        created_at = str(cache.get("created_at") or "")
+        cache_label = f"缓存可用{f'：{created_at}' if created_at else ''}"
+        if cache.get("degraded"):
+            cache_label += f"，最近降级：{cache.get('degraded_reason') or '未知原因'}"
+        parts.append(cache_label)
+    else:
+        parts.append("暂无缓存")
+
+    status = "ok" if configured and cache else "warning"
+    return _readiness_item(source_id, label, status, "；".join(parts))
+
+
+def _cache_dir(source_id: str) -> Path:
+    if source_id == "github":
+        from src.console import github_hotlist
+
+        return github_hotlist.CACHE_DIR
+    from src.console import skills_hotlist
+
+    return skills_hotlist.CACHE_DIR
+
+
+def _latest_cache_payload(cache_dir: Path) -> dict[str, Any]:
+    try:
+        files = [path for path in cache_dir.glob("*.json") if path.is_file() and not path.is_symlink()]
+    except OSError:
+        return {}
+    if not files:
+        return {}
+    latest = max(files, key=lambda path: path.stat().st_mtime)
+    return read_json(latest, {})
+
+
+def _latest_failure_readiness() -> dict[str, str]:
+    latest = _latest_failed_job()
+    if not latest:
+        return _readiness_item("recent_failure", "最近失败", "ok", "没有发现失败任务")
+    job_id = str(latest.get("id") or "unknown")
+    stage = str(latest.get("failed_stage") or latest.get("stage") or "unknown")
+    error = str(latest.get("error") or "").strip()
+    message = f"{job_id} 卡在 {stage}"
+    if error:
+        message += f"：{error[:120]}"
+    return _readiness_item("recent_failure", "最近失败", "warning", message)
+
+
+def _latest_failed_job() -> dict[str, Any]:
+    try:
+        tasks = [path for path in JOBS_DIR.glob("*/task.json") if path.is_file() and not path.is_symlink()]
+    except OSError:
+        return {}
+    failed: list[tuple[float, dict[str, Any]]] = []
+    for task_path in tasks:
+        job = read_json(task_path, {})
+        if isinstance(job, dict) and job.get("status") == "failed":
+            failed.append((task_path.stat().st_mtime, job))
+    if not failed:
+        return {}
+    return max(failed, key=lambda item: item[0])[1]
+
+
+def _readiness_summary(status: str, blocking_count: int, warning_count: int) -> str:
+    if status == "blocked":
+        return f"生产链路有 {blocking_count} 项阻塞，建议先修复再出片。"
+    if warning_count:
+        return f"生产链路可继续使用，但有 {warning_count} 项需要留意。"
+    return "生产链路状态良好，可以开始出片。"
 
 
 def _config_checks() -> list[dict[str, Any]]:

@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions } = require("../src/console/static/app.js");
+const { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderProductionReadiness, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions } = require("../src/console/static/app.js");
 const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
 
 async function run() {
@@ -21,6 +21,7 @@ async function run() {
   testApplyTemplateParamsRestoresBgmVolume();
   testRenderArtifactsShowsPreviewAndOfficialVideo();
   testRenderArtifactSummaryShowsPublishMetadata();
+  testRenderProductionReadinessShowsSummaryAndItems();
   testRenderHistoryJobsShowsOpenAndDeleteActions();
   testRenderScheduleQueueShowsPendingAndFailedScheduledJobs();
   testRenderStageTimelineShowsRecentHistory();
@@ -804,6 +805,37 @@ function testRenderArtifactSummaryShowsPublishMetadata() {
   assert.match(nodes.artifactSummary.innerHTML, /历史版本 · 2 KB · 1:01/);
   assert.match(nodes.artifactSummary.innerHTML, /脚本质检 · Mock \/ mock-model · success/);
   assert.match(nodes.artifactSummary.innerHTML, /口播: AI Mock \/ mock-model/);
+}
+
+function testRenderProductionReadinessShowsSummaryAndItems() {
+  const nodes = {
+    productionReadiness: { hidden: true, innerHTML: "" },
+  };
+  global.document = {
+    getElementById(id) {
+      return nodes[id];
+    },
+  };
+
+  renderProductionReadiness({
+    status: "warning",
+    summary: "生产链路可继续使用，但有 1 项需要留意。",
+    items: [
+      { id: "render", label: "渲染依赖", status: "ok", message: "ffmpeg ok" },
+      { id: "github", label: "GitHub 数据源", status: "warning", message: "Token 未配置" },
+      { id: "hyperframes", label: "HyperFrames", status: "blocked", message: "缺少 npx" },
+    ],
+  });
+
+  assert.equal(nodes.productionReadiness.hidden, false);
+  assert.match(nodes.productionReadiness.innerHTML, /生产链路可继续使用/);
+  assert.match(nodes.productionReadiness.innerHTML, /GitHub 数据源/);
+  assert.match(nodes.productionReadiness.innerHTML, /warn/);
+  assert.match(nodes.productionReadiness.innerHTML, /stop/);
+
+  renderProductionReadiness({});
+  assert.equal(nodes.productionReadiness.hidden, true);
+  assert.equal(nodes.productionReadiness.innerHTML, "");
 }
 
 function testRenderHistoryJobsShowsOpenAndDeleteActions() {
