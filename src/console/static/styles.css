@@ -1681,3 +1681,284 @@ textarea {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ---- Dashboard / Diagnostics ---- */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.dashboard-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.dashboard-card-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--mono);
+  color: var(--soft);
+  text-transform: uppercase;
+}
+
+/* pipeline stages inside dashboard */
+
+.dashboard-pipeline-stages {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-stage-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  font-size: 13px;
+}
+
+.dashboard-stage-item .stage-label {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.dashboard-stage-item .stage-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 650;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.dashboard-stage-item.status-ok .stage-status {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.dashboard-stage-item.status-warning .stage-status {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+
+.dashboard-stage-item.status-blocked .stage-status {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+}
+
+/* data sources */
+
+.dashboard-sources {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-source-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.dashboard-source-item .source-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dashboard-source-item .source-name {
+  font-weight: 650;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.dashboard-source-item .source-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.dashboard-source-item.status-ok .source-status {
+  color: var(--success);
+}
+
+.dashboard-source-item.status-warning .source-status {
+  color: var(--warn);
+}
+
+.dashboard-source-item .source-meta {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.dashboard-source-item .source-meta .freshness-fresh {
+  color: var(--success);
+}
+
+.dashboard-source-item .source-meta .freshness-stale {
+  color: var(--warn);
+}
+
+.dashboard-source-item .source-meta .freshness-old {
+  color: var(--error);
+}
+
+.dashboard-source-item .source-meta .degraded-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+/* model provider */
+
+.dashboard-model {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboard-model-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.dashboard-model-stat {
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--surface-2);
+  text-align: center;
+}
+
+.dashboard-model-stat .stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  font-family: var(--mono);
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.dashboard-model-stat .stat-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.dashboard-model-stat.stat-passed .stat-value {
+  color: var(--success);
+}
+
+.dashboard-model-stat.stat-warning .stat-value {
+  color: var(--warn);
+}
+
+.dashboard-fallback-hint {
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  font-size: 12px;
+  color: var(--accent-deep);
+  line-height: 1.4;
+}
+
+/* recent failure */
+
+.dashboard-failure {
+  display: grid;
+  gap: 8px;
+}
+
+.dashboard-failure-none {
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.dashboard-failure-detail {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--danger-line);
+  border-radius: 6px;
+  background: var(--danger-bg);
+}
+
+.dashboard-failure-detail .failure-stage {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--error);
+  font-weight: 650;
+}
+
+.dashboard-failure-detail .failure-error {
+  font-size: 12px;
+  color: var(--soft);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.dashboard-failure-detail .failure-action {
+  font-size: 12px;
+  color: var(--accent-deep);
+  font-weight: 650;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  line-height: 1.4;
+}
+
+/* dashboard overall status banner */
+
+.dashboard-overall {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.dashboard-overall.overall-ready {
+  border: 1px solid var(--success);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+  color: var(--success);
+}
+
+.dashboard-overall.overall-warning {
+  border: 1px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  color: var(--warn);
+}
+
+.dashboard-overall.overall-blocked {
+  border: 1px solid var(--error);
+  background: color-mix(in srgb, var(--error) 8%, transparent);
+  color: var(--error);
+}

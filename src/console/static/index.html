@@ -231,6 +231,7 @@
             <button class="tab active" data-tab="candidates">候选项目</button>
             <button class="tab" data-tab="script">口播脚本</button>
             <button class="tab" data-tab="progress">进度日志</button>
+            <button class="tab" data-tab="diagnostics">诊断</button>
           </nav>
 
           <section id="candidatesTab" class="tab-panel active">
@@ -291,6 +292,41 @@
             </div>
             <div id="stageTimeline" class="stage-timeline empty">暂无阶段记录。</div>
             <pre id="logBox" class="logbox">暂无日志。</pre>
+          </section>
+
+          <section id="diagnosticsTab" class="tab-panel">
+            <div class="panel-head">
+              <div>
+                <div class="subtle-title">pipeline.diagnostics</div>
+                <h2>生产链路诊断</h2>
+                <p id="dashboardSummary">一页看清当前能否顺利出片，以及失败会卡在哪一层。</p>
+              </div>
+              <div class="panel-head-actions">
+                <button id="refreshDashboardBtn" class="ghost" type="button">刷新诊断</button>
+              </div>
+            </div>
+
+            <div id="dashboardContent" class="dashboard-grid">
+              <div class="dashboard-card" id="dashboardPipelineCard">
+                <h3 class="dashboard-card-title">渲染管线</h3>
+                <div id="dashboardPipelineStages" class="dashboard-pipeline-stages">加载中...</div>
+              </div>
+
+              <div class="dashboard-card" id="dashboardSourcesCard">
+                <h3 class="dashboard-card-title">数据源</h3>
+                <div id="dashboardSources" class="dashboard-sources">加载中...</div>
+              </div>
+
+              <div class="dashboard-card" id="dashboardModelCard">
+                <h3 class="dashboard-card-title">模型供应商</h3>
+                <div id="dashboardModel" class="dashboard-model">加载中...</div>
+              </div>
+
+              <div class="dashboard-card" id="dashboardFailureCard">
+                <h3 class="dashboard-card-title">最近失败</h3>
+                <div id="dashboardFailure" class="dashboard-failure">加载中...</div>
+              </div>
+            </div>
           </section>
         </main>
 

@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from src.console.background import is_active, request_cancel, start_async_job
 from src.console.model_router import test_provider
-from src.console.preflight import preflight_snapshot, run_real_smoke_check
+from src.console.preflight import dashboard_snapshot, preflight_snapshot, run_real_smoke_check
 from src.console.scheduler import run_due_scheduled_draft, start_scheduler_loop
 from src.console.jobs import (
     create_desktop_review_job,
@@ -139,6 +139,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/preflight":
             self._json(preflight_snapshot())
+            return
+        if parsed.path == "/api/dashboard":
+            self._json(dashboard_snapshot())
             return
         if parsed.path == "/api/config":
             self._json(config_snapshot())

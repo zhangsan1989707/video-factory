@@ -363,13 +363,16 @@ def _production_readiness(checks: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _readiness_item(check_id: str, label: str, status: str, message: str) -> dict[str, str]:
-    return {
+def _readiness_item(check_id: str, label: str, status: str, message: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    item: dict[str, Any] = {
         "id": check_id,
         "label": label,
         "status": status,
         "message": message,
     }
+    if extra:
+        item.update(extra)
+    return item
 
 
 def _check_status(check: dict[str, Any] | None) -> str:
@@ -396,7 +399,7 @@ def _join_messages(by_id: dict[str, dict[str, Any]], ids: list[str]) -> str:
     return "；".join(message for message in messages if message)
 
 
-def _source_readiness(source_id: str, label: str) -> dict[str, str]:
+def _source_readiness(source_id: str, label: str) -> dict[str, Any]:
     config = config_snapshot()
     if source_id == "github":
         configured = bool(config.get("github", {}).get("configured"))
@@ -407,17 +410,42 @@ def _source_readiness(source_id: str, label: str) -> dict[str, str]:
         cache = _latest_cache_payload(_cache_dir("skills"))
         parts = ["Skills 数据源可尝试实时抓取"]
 
+    extra: dict[str, Any] = {
+        "last_success_time": "",
+        "item_count": 0,
+        "cache_status": "none",
+        "freshness": "unknown",
+    }
+
     if cache:
         created_at = str(cache.get("created_at") or "")
         cache_label = f"缓存可用{f'：{created_at}' if created_at else ''}"
         if cache.get("degraded"):
             cache_label += f"，最近降级：{cache.get('degraded_reason') or '未知原因'}"
         parts.append(cache_label)
+
+        extra["last_success_time"] = created_at
+        extra["item_count"] = len(cache.get("items") or [])
+        extra["cache_status"] = str(cache.get("cache_status") or "fresh")
+        if created_at:
+            try:
+                cache_dt = datetime.fromisoformat(created_at)
+                age_hours = (datetime.now(timezone.utc) - cache_dt).total_seconds() / 3600
+                if age_hours < 1:
+                    extra["freshness"] = "fresh"
+                elif age_hours < 24:
+                    extra["freshness"] = "stale"
+                else:
+                    extra["freshness"] = "old"
+            except (ValueError, TypeError):
+                extra["freshness"] = "unknown"
+        extra["degraded"] = bool(cache.get("degraded"))
+        extra["degraded_reason"] = str(cache.get("degraded_reason") or "")
     else:
         parts.append("暂无缓存")
 
     status = "ok" if configured and cache else "warning"
-    return _readiness_item(source_id, label, status, "；".join(parts))
+    return _readiness_item(source_id, label, status, "；".join(parts), extra=extra)
 
 
 def _cache_dir(source_id: str) -> Path:
@@ -441,7 +469,7 @@ def _latest_cache_payload(cache_dir: Path) -> dict[str, Any]:
     return read_json(latest, {})
 
 
-def _latest_failure_readiness() -> dict[str, str]:
+def _latest_failure_readiness() -> dict[str, Any]:
     latest = _latest_failed_job()
     if not latest:
         return _readiness_item("recent_failure", "最近失败", "ok", "没有发现失败任务")
@@ -451,7 +479,31 @@ def _latest_failure_readiness() -> dict[str, str]:
     message = f"{job_id} 卡在 {stage}"
     if error:
         message += f"：{error[:120]}"
-    return _readiness_item("recent_failure", "最近失败", "warning", message)
+
+    retryable_stages = {
+        "capturing_assets": "素材采集失败，可重试渲染（检查网络或 Playwright 浏览器）",
+        "generating_tts": "TTS 生成失败，可重试渲染（检查 Edge TTS 网络连接）",
+        "composing_html": "HTML 组合失败，可重试渲染（检查模板配置）",
+        "rendering_hyperframes": "HyperFrames 渲染失败，可重试渲染（运行 npx hyperframes doctor）",
+        "mixing_audio": "音频混合失败，可重试渲染（检查 ffmpeg 和音频文件）",
+        "composing_video": "视频合成失败，可重试渲染（检查 ffmpeg 和输出目录空间）",
+        "post_processing": "后处理失败，可重试渲染（检查 ffmpeg 配置）",
+        "preparing_plan": "计划生成失败，可返回确认项目后重新生成计划",
+        "generating_candidates": "候选生成失败，可重新创建任务",
+        "generating_script": "口播生成失败，可返回确认项目后重新生成口播",
+    }
+    suggested_action = retryable_stages.get(stage, "可重试该任务")
+    if stage == "unknown":
+        suggested_action = "未知失败阶段，建议查看日志后手动重试"
+
+    extra = {
+        "failed_job_id": job_id,
+        "failed_stage": stage,
+        "error_summary": error[:200],
+        "retryable": stage in retryable_stages,
+        "suggested_action": suggested_action,
+    }
+    return _readiness_item("recent_failure", "最近失败", "warning", message, extra=extra)
 
 
 def _latest_failed_job() -> dict[str, Any]:
@@ -503,7 +555,7 @@ def _config_checks() -> list[dict[str, Any]]:
 
 def _model_provider_status(providers: list[dict[str, Any]]) -> tuple[str, str]:
     if not providers:
-        return "warning", "未配置可用模型供应商，AI 阶段将使用默认/跳过逻辑"
+        return "warning", "未配置可用模型供应商，可使用模板回退出片"
 
     passed = [provider for provider in providers if str(provider.get("last_test") or "").startswith("连接成功")]
     if passed:
@@ -511,10 +563,87 @@ def _model_provider_status(providers: list[dict[str, Any]]) -> tuple[str, str]:
 
     failed = [provider for provider in providers if str(provider.get("last_test") or "").startswith("连接失败")]
     if failed:
-        return "warning", f"{len(providers)} 个供应商已配置，但最近连接测试失败"
+        return "warning", f"{len(providers)} 个供应商已配置，但最近连接测试失败，可使用模板回退"
 
-    return "warning", f"{len(providers)} 个供应商已配置，但尚未通过连接测试"
-
+    return "warning", f"{len(providers)} 个供应商已配置，但尚未通过连接测试，可使用模板回退"
 
 def _short_error(exc: Exception) -> str:
     return str(exc).replace("\n", " ")[:180] or exc.__class__.__name__
+
+
+def dashboard_snapshot() -> dict[str, Any]:
+    """Return a comprehensive production pipeline dashboard.
+
+    Merges the preflight snapshot with data source freshness, model
+    fallback hints, and actionable failure summaries into a single
+    structured payload that the frontend can render as a diagnostics
+    view.
+    """
+    snapshot = preflight_snapshot()
+    readiness = snapshot.get("production_readiness") or {}
+    items = readiness.get("items") or []
+
+    # --- data source freshness summary ---
+    sources: list[dict[str, Any]] = []
+    for item in items:
+        if item.get("id") in ("github", "skills"):
+            sources.append({
+                "id": item.get("id"),
+                "label": item.get("label"),
+                "status": item.get("status"),
+                "message": item.get("message"),
+                "last_success_time": item.get("last_success_time", ""),
+                "item_count": item.get("item_count", 0),
+                "cache_status": item.get("cache_status", "none"),
+                "freshness": item.get("freshness", "unknown"),
+                "degraded": item.get("degraded", False),
+                "degraded_reason": item.get("degraded_reason", ""),
+            })
+
+    # --- model provider summary ---
+    config = config_snapshot()
+    providers = config.get("providers", {}).get("providers", [])
+    model_info: dict[str, Any] = {
+        "total": len(providers),
+        "enabled": len([p for p in providers if p.get("enabled") and p.get("configured")]),
+        "passed": len([p for p in providers if str(p.get("last_test") or "").startswith("连接成功")]),
+        "has_template_fallback": True,
+        "template_fallback_note": "未配置模型时，可使用模板回退出片",
+    }
+
+    # --- recent failure ---
+    failure_item = next((item for item in items if item.get("id") == "recent_failure"), None)
+    recent_failure: dict[str, Any] = {"has_failure": False}
+    if failure_item and failure_item.get("status") != "ok":
+        recent_failure = {
+            "has_failure": True,
+            "failed_job_id": failure_item.get("failed_job_id", ""),
+            "failed_stage": failure_item.get("failed_stage", ""),
+            "error_summary": failure_item.get("error_summary", ""),
+            "retryable": failure_item.get("retryable", False),
+            "suggested_action": failure_item.get("suggested_action", ""),
+        }
+
+    # --- pipeline stage summary ---
+    stages = [item for item in items if item.get("id") in (
+        "render", "hyperframes", "playwright", "tts", "model",
+    )]
+    stage_summary = {
+        "total": len(stages),
+        "ok": len([s for s in stages if s.get("status") == "ok"]),
+        "warning": len([s for s in stages if s.get("status") == "warning"]),
+        "blocked": len([s for s in stages if s.get("status") == "blocked"]),
+        "items": stages,
+    }
+
+    return {
+        "overall_status": readiness.get("status", "warning"),
+        "summary": readiness.get("summary", "生产链路状态待确认。"),
+        "blocking_count": readiness.get("blocking_count", 0),
+        "warning_count": readiness.get("warning_count", 0),
+        "data_sources": sources,
+        "model_provider": model_info,
+        "recent_failure": recent_failure,
+        "pipeline_stages": stage_summary,
+        "latest_real_smoke": snapshot.get("latest_real_smoke") or {},
+    }

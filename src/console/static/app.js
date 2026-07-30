@@ -138,6 +138,7 @@ function bindEvents() {
   $("providerEditor").addEventListener("click", testProviderFromButton);
   $("openJobFolderBtn").addEventListener("click", openJobFolder);
   $("runRealSmokeBtn").addEventListener("click", runRealSmoke);
+  $("refreshDashboardBtn").addEventListener("click", loadDashboard);
   $("jobType").addEventListener("change", () => {
     syncJobTypeFields();
     syncCandidateCopy(currentJobType());
@@ -176,6 +177,9 @@ function switchTab(name) {
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.remove("active"));
   $(`${name}Tab`).classList.add("active");
+  if (name === "diagnostics") {
+    loadDashboard();
+  }
 }
 
 function switchTrack(track) {
@@ -445,6 +449,140 @@ function readinessItemStatusLabel(status) {
     blocked: "stop",
   };
   return labels[status] || status || "-";
+}
+
+// ---- Dashboard / Diagnostics tab ----
+
+async function loadDashboard() {
+  try {
+    const data = await api("/api/dashboard");
+    renderDashboard(data);
+  } catch (error) {
+    const content = $("dashboardContent");
+    if (content) content.innerHTML = `<div class="job-error">诊断数据加载失败: ${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function renderDashboard(data) {
+  if (!data) return;
+  const summary = $("dashboardSummary");
+  if (summary) summary.textContent = data.summary || "生产链路状态待确认。";
+
+  renderDashboardStages(data.pipeline_stages);
+  renderDashboardSources(data.data_sources);
+  renderDashboardModel(data.model_provider);
+  renderDashboardFailure(data.recent_failure);
+}
+
+function renderDashboardStages(stages) {
+  const node = $("dashboardPipelineStages");
+  if (!node) return;
+  if (!stages || !stages.items || !stages.items.length) {
+    node.innerHTML = '<div class="dashboard-failure-none">无管线数据</div>';
+    return;
+  }
+  const statusLabels = { ok: "正常", warning: "需留意", blocked: "阻塞" };
+  node.innerHTML = stages.items.map((item) => `
+    <div class="dashboard-stage-item status-${escapeAttr(item.status || "")}">
+      <span class="stage-label">${escapeHtml(item.label || item.id || "")}</span>
+      <span class="stage-status">${escapeHtml(statusLabels[item.status] || item.status || "-")}</span>
+    </div>
+  `).join("");
+}
+
+function renderDashboardSources(sources) {
+  const node = $("dashboardSources");
+  if (!node) return;
+  if (!sources || !sources.length) {
+    node.innerHTML = '<div class="dashboard-failure-none">无数据源信息</div>';
+    return;
+  }
+  const freshnessLabels = {
+    fresh: "最近",
+    stale: "稍旧",
+    old: "旧",
+    unknown: "未知",
+  };
+  const freshnessClass = {
+    fresh: "freshness-fresh",
+    stale: "freshness-stale",
+    old: "freshness-old",
+    unknown: "",
+  };
+  node.innerHTML = sources.map((src) => {
+    const meta = [];
+    if (src.last_success_time) {
+      meta.push(`最近成功: ${escapeHtml(src.last_success_time.slice(0, 16).replace("T", " "))}`);
+    }
+    if (src.item_count) {
+      meta.push(`缓存条目: ${src.item_count}`);
+    }
+    const freshLabel = freshnessLabels[src.freshness] || src.freshness;
+    const freshCls = freshnessClass[src.freshness] || "";
+    const freshText = src.freshness !== "unknown" ? `<span class="${freshCls}">(${freshLabel})</span>` : "";
+    if (src.cache_status && src.cache_status !== "none") {
+      meta.push(`缓存状态: ${src.cache_status} ${freshText}`);
+    }
+    const degradedHtml = src.degraded
+      ? `<div class="degraded-tag">降级: ${escapeHtml((src.degraded_reason || "").slice(0, 80))}</div>`
+      : "";
+    return `
+      <div class="dashboard-source-item status-${escapeAttr(src.status || "")}">
+        <div class="source-head">
+          <span class="source-name">${escapeHtml(src.label || src.id || "")}</span>
+          <span class="source-status">${escapeHtml(src.status === "ok" ? "正常" : "需留意")}</span>
+        </div>
+        <div class="source-meta">${meta.map((m) => `<span>${m}</span>`).join("")}${degradedHtml}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderDashboardModel(model) {
+  const node = $("dashboardModel");
+  if (!node) return;
+  if (!model) {
+    node.innerHTML = '<div class="dashboard-failure-none">无模型供应商信息</div>';
+    return;
+  }
+  const passedClass = model.passed > 0 ? "stat-passed" : "stat-warning";
+  node.innerHTML = `
+    <div class="dashboard-model-stats">
+      <div class="dashboard-model-stat">
+        <div class="stat-value">${model.total}</div>
+        <div class="stat-label">总供应商</div>
+      </div>
+      <div class="dashboard-model-stat">
+        <div class="stat-value">${model.enabled}</div>
+        <div class="stat-label">已启用</div>
+      </div>
+      <div class="dashboard-model-stat ${passedClass}">
+        <div class="stat-value">${model.passed}</div>
+        <div class="stat-label">已通过测试</div>
+      </div>
+      <div class="dashboard-model-stat">
+        <div class="stat-value">${model.total - model.enabled}</div>
+        <div class="stat-label">未配置</div>
+      </div>
+    </div>
+    ${model.has_template_fallback ? `<div class="dashboard-fallback-hint">${escapeHtml(model.template_fallback_note || "未配置模型时，可使用模板回退出片")}</div>` : ""}
+  `;
+}
+
+function renderDashboardFailure(failure) {
+  const node = $("dashboardFailure");
+  if (!node) return;
+  if (!failure || !failure.has_failure) {
+    node.innerHTML = '<div class="dashboard-failure-none">最近没有失败任务</div>';
+    return;
+  }
+  node.innerHTML = `
+    <div class="dashboard-failure-detail">
+      <div class="failure-stage">${escapeHtml(failure.failed_stage || "unknown")}</div>
+      ${failure.error_summary ? `<div class="failure-error">${escapeHtml(failure.error_summary)}</div>` : ""}
+      ${failure.suggested_action ? `<div class="failure-action">${escapeHtml(failure.suggested_action)}</div>` : ""}
+    </div>
+  `;
 }
 
 async function loadJobs() {
