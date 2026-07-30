@@ -354,7 +354,7 @@ class ConsoleSchedulerTest(unittest.TestCase):
             self.assertFalse(result["started"])
             self.assertEqual(result["reason"], "not_due")
 
-    def test_failed_scheduled_draft_does_not_mark_day_as_run(self) -> None:
+    def test_failed_scheduled_draft_still_marks_day_as_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp) / "config"
             jobs_dir = Path(tmp) / "jobs"
@@ -378,13 +378,16 @@ class ConsoleSchedulerTest(unittest.TestCase):
                 patch("src.console.jobs.JOBS_DIR", jobs_dir),
                 patch("src.console.scheduler.generate_candidates", side_effect=fail_generate),
             ):
-                with self.assertRaises(RuntimeError):
-                    run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+                # 即使 pipeline 失败也必须标记本轮已运行，否则下个循环会重复创建任务。
+                result = run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
 
+            self.assertTrue(result["started"])
+            self.assertEqual(result["reason"], "due_failed")
+            self.assertIn("candidate failure", result["error"])
             saved = read_json(config_dir / "scheduler.json", {})
-            self.assertEqual(saved["last_run_date"], "")
+            self.assertEqual(saved["last_run_date"], "2099-01-02")
 
-    def test_failed_auto_script_schedule_does_not_mark_day_as_run(self) -> None:
+    def test_failed_auto_script_schedule_still_marks_day_as_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp) / "config"
             jobs_dir = Path(tmp) / "jobs"
@@ -413,13 +416,14 @@ class ConsoleSchedulerTest(unittest.TestCase):
                 patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
                 patch("src.console.scheduler.save_selection", side_effect=fail_save_selection),
             ):
-                with self.assertRaisesRegex(RuntimeError, "script generation failed"):
-                    run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+                result = run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
 
+            self.assertEqual(result["reason"], "due_failed")
+            self.assertIn("script generation failed", result["error"])
             saved = read_json(config_dir / "scheduler.json", {})
-            self.assertEqual(saved["last_run_date"], "")
+            self.assertEqual(saved["last_run_date"], "2099-01-02")
 
-    def test_failed_auto_video_quality_gate_does_not_mark_day_as_run(self) -> None:
+    def test_failed_auto_video_quality_gate_still_marks_day_as_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp) / "config"
             jobs_dir = Path(tmp) / "jobs"
@@ -465,11 +469,12 @@ class ConsoleSchedulerTest(unittest.TestCase):
                 patch("src.console.scheduler.save_selection", side_effect=fake_save_selection),
                 patch("src.console.scheduler.save_script", side_effect=fake_save_script),
             ):
-                with self.assertRaisesRegex(RuntimeError, "脚本质检未通过"):
-                    run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+                result = run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
 
+            self.assertEqual(result["reason"], "due_failed")
+            self.assertIn("脚本质检未通过", result["error"])
             saved = read_json(config_dir / "scheduler.json", {})
-            self.assertEqual(saved["last_run_date"], "")
+            self.assertEqual(saved["last_run_date"], "2099-01-02")
 
     def test_successful_schedule_preserves_concurrent_config_edits(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1047,12 +1052,13 @@ class ConsoleSchedulerTest(unittest.TestCase):
                 patch("src.console.jobs.JOBS_DIR", jobs_dir),
                 patch("src.console.scheduler.generate_candidates", side_effect=fake_generate),
             ):
-                with self.assertRaisesRegex(Exception, "取消|取消"):
-                    run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
+                # 取消属于中断性失败，仍应标记本轮已运行以避免调度器立刻重起任务。
+                result = run_due_scheduled_draft(datetime(2099, 1, 2, 9, 1))
 
-            # 失败时不应推进 last_run_date
+            self.assertEqual(result["reason"], "due_failed")
+            self.assertIn("取消", result["error"])
             saved = read_json(config_dir / "scheduler.json", {})
-            self.assertEqual(saved["last_run_date"], "", "被取消的任务不应推进 last_run_date")
+            self.assertEqual(saved["last_run_date"], "2099-01-02")
 
     def test_update_scheduler_last_run_uses_file_lock(self) -> None:
         """update_scheduler_last_run 在 macOS/Linux 下应通过 fcntl.flock 串行化写。"""

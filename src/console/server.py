@@ -303,9 +303,6 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                     if action == "finalize":
                         self._json(finalize_numbered_output(job_id, str(payload.get("title") or "")))
                         return
-                    if action == "resync-lark":
-                        self._json(resync_lark(job_id, str(payload.get("segment") or "all")))
-                        return
             self._not_found()
         except (json.JSONDecodeError, ValueError) as exc:
             self._json({"error": str(exc)}, status=_error_status(exc))

@@ -68,27 +68,47 @@ function applyTheme(mode) {
 const $ = (id) => document.getElementById(id);
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  const text = await response.text();
-  let data = {};
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch (error) {
-      data = { error: text };
+  const { timeout = 30000, signal: externalSignal, ...rest } = options;
+  const controller = new AbortController();
+  const timer = timeout > 0 ? setTimeout(() => controller.abort(new Error("请求超时")), timeout) : null;
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort(externalSignal.reason);
+    } else {
+      externalSignal.addEventListener("abort", () => controller.abort(externalSignal.reason), { once: true });
     }
   }
-  if (!response.ok) {
-    throw new Error(data.error || `HTTP ${response.status}`);
+  try {
+    const response = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      ...rest,
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        data = { error: text };
+      }
+    }
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return data;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("请求超时，请稍后重试");
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return data;
 }
 
-function post(path, body = {}) {
-  return api(path, { method: "POST", body: JSON.stringify(body) });
+function post(path, body = {}, options = {}) {
+  return api(path, { method: "POST", body: JSON.stringify(body), ...options });
 }
 
 function del(path) {
@@ -139,6 +159,8 @@ function bindEvents() {
   $("openJobFolderBtn").addEventListener("click", openJobFolder);
   $("runRealSmokeBtn").addEventListener("click", runRealSmoke);
   $("refreshDashboardBtn").addEventListener("click", loadDashboard);
+  $("autoOpenToggle").addEventListener("change", toggleAutoOpen);
+  $("themeSelect").addEventListener("change", (event) => setTheme(event.target.value));
   $("jobType").addEventListener("change", () => {
     syncJobTypeFields();
     syncCandidateCopy(currentJobType());
@@ -380,7 +402,7 @@ async function runRealSmoke() {
   button.disabled = true;
   $("realSmokeStatus").textContent = "运行中";
   try {
-    const result = await post("/api/preflight/smoke", {});
+    const result = await post("/api/preflight/smoke", {}, { timeout: 300000 });
     renderRealSmokeStatus(result);
     await loadPreflight();
   } catch (error) {
@@ -860,6 +882,7 @@ function autoTabForCompletedBackground(job) {
 }
 
 function clearCurrentJob() {
+  stopPollingCurrentJob();
   state.currentJobId = "";
   state.currentJob = null;
   state.candidates = [];
@@ -982,7 +1005,9 @@ async function confirmSelection() {
     if (!isBackgroundStart(result)) switchTab("script");
   } catch (error) {
     alert(error.message);
+    await refreshCurrentJob();
   } finally {
+    stopPollingCurrentJob();
     setBusy(false);
   }
 }
@@ -1007,6 +1032,7 @@ async function regenerateScript() {
     alert(error.message);
     await refreshCurrentJob();
   } finally {
+    stopPollingCurrentJob();
     setBusy(false);
   }
 }
@@ -1035,7 +1061,9 @@ async function saveScript() {
     await refreshCurrentJob();
   } catch (error) {
     alert(error.message);
+    await refreshCurrentJob();
   } finally {
+    stopPollingCurrentJob();
     setBusy(false);
   }
 }
@@ -1057,6 +1085,7 @@ async function preparePlan() {
     alert(error.message);
     await refreshCurrentJob();
   } finally {
+    stopPollingCurrentJob();
     setBusy(false);
   }
 }
@@ -1078,6 +1107,7 @@ async function validatePlan() {
     alert(error.message);
     await refreshCurrentJob();
   } finally {
+    stopPollingCurrentJob();
     setBusy(false);
   }
 }
@@ -1098,6 +1128,7 @@ async function renderVideo() {
   } catch (error) {
     alert(error.message);
     await refreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -2639,7 +2670,7 @@ async function testProviderFromButton(event) {
   button.disabled = true;
   button.textContent = "测试中";
   try {
-    const result = await post(`/api/providers/${encodeURIComponent(providerId)}/test`, { model, provider });
+    const result = await post(`/api/providers/${encodeURIComponent(providerId)}/test`, { model, provider }, { timeout: 60000 });
     if (result.saved) {
       state.config = result.config;
       $("routingStatus").textContent = providerStatusLabel(result.config.providers.providers || []);

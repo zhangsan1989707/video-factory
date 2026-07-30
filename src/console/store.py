@@ -449,7 +449,12 @@ def create_job(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     job_dir = JOBS_DIR / job_id
     if job_dir.exists():
         raise ValueError(f"任务目录已存在: {job_id}")
-    job_dir.mkdir(parents=True, exist_ok=True)
+    # 使用 exist_ok=False 让并发创建同一 job_id 时第二个调用抛 FileExistsError，
+    # 转为 ValueError 以便 _create_job_with_retry 捕获后重试，避免静默覆盖 task.json。
+    try:
+        job_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise ValueError(f"任务目录已存在: {job_id}") from exc
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     template = _normalize_job_template(str(payload.get("template") or "github_hotlist_vertical_v1"), payload.get("template_params") or {})
     job = {

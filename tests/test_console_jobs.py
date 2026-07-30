@@ -3153,7 +3153,8 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertFalse((job_dir / "final.mp4").exists())
                 self.assertTrue((job_dir / "GH-HOTLIST-20990101-007-旧正式版.mp4").exists())
                 self.assertTrue((job_dir / "shot_plan.json").exists())
-                self.assertEqual(detail["job"]["official_video"], "")
+                # 渲染失败后应保留 official_video 引用，避免历史正式版本在 UI 中丢失
+                self.assertEqual(detail["job"]["official_video"], str(jobs_dir / job["id"] / "GH-HOTLIST-20990101-007-旧正式版.mp4"))
                 self.assertIn("历史正式视频版本仍保留", detail["log_tail"])
 
     def test_reselecting_projects_preserves_historical_official_video(self) -> None:

@@ -1047,7 +1047,7 @@ async def render_video(job_id: str) -> dict[str, Any]:
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
         append_log(job_id, f"视频生成失败: {exc}")
-        _clear_video_outputs(job_id)
+        _clear_current_video_output(job_id)
         if _video_versions(job_id):
             append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
         update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False, render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "渲染失败"})
@@ -2931,9 +2931,30 @@ async def run_stock_pipeline_job(job_id: str) -> dict[str, Any]:
         append_log(job_id, f"视频生成完成: {final_path}")
 
         return finalize_stock_output(job_id, theme)
+    except JobCancelled as exc:
+        failed_stage = str(read_job(job_id).get("stage") or "generating_script")
+        append_log(job_id, str(exc))
+        update_job(
+            job_id,
+            status="failed",
+            stage=failed_stage,
+            failed_stage=failed_stage,
+            error=str(exc),
+            cancel_requested=False,
+            render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "已取消"},
+        )
+        raise
     except Exception as exc:
+        failed_stage = str(read_job(job_id).get("stage") or "generating_script")
         append_log(job_id, f"视频生成失败: {exc}")
-        update_job(job_id, status="failed", stage="failed_stage", error=str(exc))
+        update_job(
+            job_id,
+            status="failed",
+            stage=failed_stage,
+            failed_stage=failed_stage,
+            error=str(exc),
+            render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "渲染失败"},
+        )
         raise
 
 
@@ -2986,12 +3007,27 @@ async def _run_finance_edu_pipeline(job_id: str, job: dict[str, Any]) -> dict[st
     except JobCancelled as exc:
         failed_stage = str(read_job(job_id).get("stage") or "generating_script")
         append_log(job_id, str(exc))
-        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
+        update_job(
+            job_id,
+            status="failed",
+            stage=failed_stage,
+            failed_stage=failed_stage,
+            error=str(exc),
+            cancel_requested=False,
+            render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "已取消"},
+        )
         raise
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "generating_script")
         append_log(job_id, f"炒股科普视频生成失败: {exc}")
-        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc))
+        update_job(
+            job_id,
+            status="failed",
+            stage=failed_stage,
+            failed_stage=failed_stage,
+            error=str(exc),
+            render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "渲染失败"},
+        )
         raise
 
 
