@@ -1163,6 +1163,7 @@ function renderJob(job) {
   syncJobTypeFields();
   syncCandidateCopy(job.type || "github_hotlist");
   $("openJobFolderBtn").disabled = !job.id;
+  renderProgressBar(job);
   renderModelCall(job.model_calls || []);
   renderCandidateSourceSummary(job.candidate_source || {});
   renderNarrationSourceSummary(job.narration_source || {});
@@ -1934,6 +1935,50 @@ function renderStageTimeline(history) {
   `).join("");
 }
 
+function renderProgressBar(job) {
+  const box = $("renderProgressBar");
+  if (!box) return;
+  const progress = job && typeof job.render_progress === "object" ? job.render_progress : null;
+  const status = String(job && job.status || "");
+  const visibleStages = new Set([
+    "capturing_assets",
+    "generating_tts",
+    "composing_video",
+    "composing_html",
+    "rendering_hyperframes",
+    "mixing_audio",
+    "post_processing",
+    "preparing_plan",
+    "completed",
+  ]);
+  const stage = String(job && job.stage || "");
+  const showByStatus = progress && (status === "running" || status === "completed" || status === "failed");
+  const showByStage = visibleStages.has(stage);
+  if (!progress || (!showByStatus && !showByStage)) {
+    box.hidden = true;
+    return;
+  }
+  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+  const stageText = stageLabel(progress.stage || stage || "");
+  const stepCurrent = Number(progress.step_current || 0);
+  const stepTotal = Number(progress.step_total || 0);
+  const stepLabel = stepTotal > 1 ? ` · ${stepCurrent}/${stepTotal}` : "";
+  const message = String(progress.message || "").trim();
+  box.hidden = false;
+  box.dataset.status = status;
+  const stageNode = box.querySelector(".render-progress-stage");
+  const percentNode = box.querySelector(".render-progress-percent");
+  const fillNode = box.querySelector(".render-progress-fill");
+  const messageNode = box.querySelector(".render-progress-message");
+  if (stageNode) stageNode.textContent = `${stageText}${stepLabel}`;
+  if (percentNode) percentNode.textContent = `${percent}%`;
+  if (fillNode) fillNode.style.width = `${percent}%`;
+  if (messageNode) {
+    messageNode.textContent = message;
+    messageNode.hidden = !message;
+  }
+}
+
 function stageLabel(stage) {
   const labels = {
     draft_pending: "等待草稿",
@@ -2696,5 +2741,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, jobTypeUsesCandidates, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, pollJobStatus, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidateMetric, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderProductionReadiness, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, showTrackUI, startNewJob, state, submitStockForm, syncDetailState, syncJobTypeFields, syncStockContentSource, switchTrack, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions, updateStockStatus };
+  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, jobTypeUsesCandidates, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, pollJobStatus, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidateMetric, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderProgressBar, renderProductionReadiness, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, showTrackUI, startNewJob, state, submitStockForm, syncDetailState, syncJobTypeFields, syncStockContentSource, switchTrack, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions, updateStockStatus };
 }

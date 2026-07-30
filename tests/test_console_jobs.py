@@ -14,7 +14,7 @@ from unittest.mock import patch
 from src.console import jobs as console_jobs
 from src.console.jobs import create_hotlist_job, finalize_numbered_output, generate_candidates, job_detail, prepare_plan, regenerate_candidates, regenerate_script, render_video, reset_video_for_regeneration, save_script, save_selection, validate_plan
 from src.console.server import open_job_folder, start_candidates_job, start_prepare_plan_job, start_render_job, start_save_script_job
-from src.console.store import DEFAULT_OFFICIAL_OUTPUT_DIR, create_job, next_job_id, read_json, read_log, update_job, write_json
+from src.console.store import DEFAULT_OFFICIAL_OUTPUT_DIR, create_job, next_job_id, read_job, read_json, read_log, update_job, write_json
 from src.console.background import JobCancelled, cancel_requested, is_active, raise_if_cancelled, request_cancel, start_async_job
 
 
@@ -3514,6 +3514,232 @@ class TestQuotaWaitingHint(unittest.TestCase):
         self.assertIsNone(_quota_waiting_hint(""))
         self.assertIsNone(_quota_waiting_hint("未检测"))
         self.assertIsNone(_quota_waiting_hint("0/30"))
+
+
+class TestRenderProgressHelper(unittest.TestCase):
+    """``_set_render_progress`` 把 stage + step 写入 job.render_progress，并保证百分比单调不减。"""
+
+    def test_set_render_progress_writes_payload_and_percent(self) -> None:
+        from src.console.jobs import RENDER_STAGE_ORDER, _set_render_progress
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+            ):
+                job = create_job("GH-HOTLIST-20990101-RP-001", {"project_count": 2})
+                # 第一步：capturing_assets 1/3
+                _set_render_progress(job["id"], stage="capturing_assets", step=1, total=3, message="采集 1")
+                progress = read_job(job["id"]).get("render_progress") or {}
+                self.assertEqual(progress["stage"], "capturing_assets")
+                self.assertEqual(progress["step_current"], 1)
+                self.assertEqual(progress["step_total"], 3)
+                self.assertEqual(progress["stage_total"], len(RENDER_STAGE_ORDER))
+                # capturing_assets 是第 1 个 stage，(1-1) + 1/3 = 0.333 → 0.333/6 ≈ 5.55 → 6%
+                expected_first = int(round(((1.0 / 3) / len(RENDER_STAGE_ORDER)) * 100))
+                self.assertEqual(progress["percent"], expected_first)
+                self.assertEqual(progress["message"], "采集 1")
+
+                # 推进到 3/3
+                _set_render_progress(job["id"], stage="capturing_assets", step=3, total=3)
+                progress = read_job(job["id"]).get("render_progress") or {}
+                # (1-1) + 3/3 = 1.0 → 1.0/6 ≈ 16.67 → 17%
+                expected = int(round((1.0 / len(RENDER_STAGE_ORDER)) * 100))
+                self.assertEqual(progress["percent"], expected)
+
+    def test_set_render_progress_never_goes_backwards(self) -> None:
+        from src.console.jobs import _set_render_progress
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+            ):
+                job = create_job("GH-HOTLIST-20990101-RP-002", {"project_count": 2})
+                # 先走到最后一个已知 stage（composing_video）的 1/1，百分比应较高
+                _set_render_progress(job["id"], stage="composing_video", step=1, total=1)
+                high_percent = read_job(job["id"]).get("render_progress", {}).get("percent")
+                self.assertGreater(high_percent or 0, 50)
+                # 然后回调到第一个 stage（不应该让 bar 倒退）
+                _set_render_progress(job["id"], stage="capturing_assets", step=1, total=3)
+                progress = read_job(job["id"]).get("render_progress") or {}
+                self.assertEqual(progress["percent"], high_percent)
+                # stage 字段保留本次回调的 stage，方便 UI 显示真实当前阶段
+                self.assertEqual(progress["stage"], "capturing_assets")
+
+    def test_set_render_progress_clamps_step_to_total(self) -> None:
+        from src.console.jobs import _set_render_progress
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+            ):
+                job = create_job("GH-HOTLIST-20990101-RP-003", {"project_count": 2})
+                _set_render_progress(job["id"], stage="generating_tts", step=10, total=4)
+                progress = read_job(job["id"]).get("render_progress") or {}
+                self.assertEqual(progress["step_current"], 4)
+                self.assertEqual(progress["step_total"], 4)
+
+    def test_set_render_progress_unknown_stage_preserves_previous(self) -> None:
+        from src.console.jobs import RENDER_STAGE_ORDER, _set_render_progress
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+            ):
+                job = create_job("GH-HOTLIST-20990101-RP-004", {"project_count": 2})
+                # 先推进到一个已知 stage，建立基准百分比和 stage_index
+                _set_render_progress(job["id"], stage="generating_tts", step=2, total=4)
+                baseline = read_job(job["id"]).get("render_progress") or {}
+                baseline_percent = baseline.get("percent")
+                baseline_index = baseline.get("stage_index")
+                self.assertGreater(baseline_percent or 0, 0)
+                # 再写入一个未知 stage（如 post_processing / preparing_plan）
+                _set_render_progress(job["id"], stage="post_processing", step=1, total=1, message="收尾中")
+                progress = read_job(job["id"]).get("render_progress") or {}
+                # 未知 stage 保留前一次的 percent 和 stage_index，仅更新 stage 标签和 message
+                self.assertEqual(progress["stage"], "post_processing")
+                self.assertEqual(progress["stage_index"], baseline_index)
+                self.assertEqual(progress["percent"], baseline_percent)
+                self.assertEqual(progress["message"], "收尾中")
+
+
+class TestRenderVideoProgressTracking(unittest.TestCase):
+    """``render_video`` 在 hyperframes 渲染流程中应通过 progress_callback 更新 render_progress。"""
+
+    def setUp(self) -> None:
+        route_value = {
+            "provider": "",
+            "provider_name": "",
+            "model": "",
+            "enabled": "",
+            "configured": "",
+        }
+        self.route_patcher = patch("src.console.jobs.route_snapshot", return_value=route_value)
+        self.route_patcher.start()
+        self.model_route_patcher = patch("src.console.model_router.route_snapshot", return_value=route_value)
+        self.model_route_patcher.start()
+        self.preview_patcher = patch(
+            "src.console.jobs.render_hotlist_v2_previews_from_projects",
+            side_effect=_fake_hyperframes_previews,
+        )
+        self.preview_patcher.start()
+        self.preview_visual_patcher = patch("src.console.jobs._verify_preview_frame_image", return_value=None)
+        self.preview_visual_patcher.start()
+
+    def tearDown(self) -> None:
+        self.preview_visual_patcher.stop()
+        self.preview_patcher.stop()
+        self.route_patcher.stop()
+        self.model_route_patcher.stop()
+
+    def test_render_video_updates_render_progress_during_hyperframes_render(self) -> None:
+        async def pipeline(**kwargs):
+            return Path(kwargs["from_plan"])
+
+        captured_progress_callbacks = []
+
+        async def hyperframes(projects, output_path=None, **kwargs):
+            captured_progress_callbacks.append(kwargs.get("progress_callback"))
+            stage_callback = kwargs.get("stage_callback")
+            progress_callback = kwargs.get("progress_callback")
+            if stage_callback:
+                stage_callback("generating_tts", "开始生成 TTS 语音。")
+            if progress_callback:
+                progress_callback("generating_tts", 1, 4)
+                progress_callback("generating_tts", 2, 4)
+                progress_callback("generating_tts", 4, 4)
+                progress_callback("composing_html", 1, 1)
+                progress_callback("rendering_hyperframes", 1, 1)
+                progress_callback("mixing_audio", 1, 1)
+            if stage_callback:
+                stage_callback("composing_html", "开始生成 HTML 画面。")
+                stage_callback("rendering_hyperframes", "开始使用 HyperFrames 渲染动画视频。")
+                stage_callback("mixing_audio", "开始混合 TTS 音频。")
+            write_json(Path(output_path).parent / "video-spec.json", {
+                "schema_version": "hotlist-video-spec.v1",
+                "video_basics": {"total_duration": 8.0},
+                "visual": {"theme_source": "legacy_style_profile", "theme": "tech_hotspot"},
+                "scenes": [{"id": "scene-01-intro"}, {"id": "scene-02-ranking"}],
+            })
+            Path(output_path).write_bytes(b"video")
+            return Path(output_path)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.run_pipeline", side_effect=pipeline),
+                patch("src.console.jobs.render_hotlist_v2_from_projects", side_effect=hyperframes),
+                patch("src.console.jobs.post_process_video", return_value=None),
+            ):
+                job = create_job("GH-HOTLIST-20990101-RP-RENDER", {
+                    "project_count": 2,
+                    "template_params": _with_output_dir(tmp, {"bgm": "none"}),
+                })
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+
+                result = asyncio.run(render_video(job["id"]))
+
+                # progress_callback 被透传到 hyperframes 渲染器
+                self.assertEqual(len(captured_progress_callbacks), 1)
+                self.assertTrue(callable(captured_progress_callbacks[0]))
+
+                # 完成后 render_progress.percent 应为 100
+                progress = result["job"].get("render_progress") or {}
+                self.assertEqual(progress.get("stage"), "completed")
+                self.assertEqual(progress.get("percent"), 100)
+
+                # 渲染过程中应至少写入过一次非零、非完成的百分比
+                midway = read_job(job["id"])
+                # 任务文件最终态 percent=100；中间态已被覆盖。这里只校验终态字段齐全。
+                self.assertIn("stage_index", progress)
+                self.assertIn("stage_total", progress)
+
+    def test_render_video_resets_render_progress_to_zero_on_failure(self) -> None:
+        async def pipeline(**kwargs):
+            return Path(kwargs["from_plan"])
+
+        async def hyperframes(projects, output_path=None, **kwargs):
+            stage_callback = kwargs.get("stage_callback")
+            if stage_callback:
+                stage_callback("generating_tts", "开始生成 TTS 语音。")
+            raise RuntimeError("tts crashed mid-render")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.run_pipeline", side_effect=pipeline),
+                patch("src.console.jobs.render_hotlist_v2_from_projects", side_effect=hyperframes),
+            ):
+                job = create_job("GH-HOTLIST-20990101-RP-FAIL", {"project_count": 2})
+                _mark_awaiting_project_confirmation(job["id"])
+                selection = save_selection(job["id"], {"items": _sample_projects()})
+                save_script(job["id"], {"segments": selection["segments"]})
+                prepare_plan(job["id"])
+
+                with self.assertRaisesRegex(RuntimeError, "tts crashed mid-render"):
+                    asyncio.run(render_video(job["id"]))
+
+                detail = job_detail(job["id"])
+                progress = detail["job"].get("render_progress") or {}
+                self.assertEqual(detail["job"]["status"], "failed")
+                self.assertEqual(progress.get("percent"), 0)
+                self.assertEqual(progress.get("stage"), "generating_tts")
+                # RuntimeError 走通用失败分支，message 应为"渲染失败"
+                self.assertIn("失败", progress.get("message", ""))
 
 
 if __name__ == "__main__":

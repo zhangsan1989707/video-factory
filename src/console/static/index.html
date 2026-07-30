@@ -303,6 +303,16 @@
             <div class="job-card">
               <code id="currentJobId">未创建</code>
               <div id="currentStage">等待创建任务</div>
+              <div id="renderProgressBar" class="render-progress" hidden>
+                <div class="render-progress-head">
+                  <span class="render-progress-stage">-</span>
+                  <span class="render-progress-percent">0%</span>
+                </div>
+                <div class="render-progress-track">
+                  <div class="render-progress-fill" style="width: 0%;"></div>
+                </div>
+                <div class="render-progress-message">-</div>
+              </div>
               <div id="currentModelCall" class="job-meta">model: -</div>
               <div id="currentError" class="job-error" hidden></div>
               <div id="recoveryHint" class="job-recovery" hidden></div>

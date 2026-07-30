@@ -87,6 +87,7 @@ async def render_hotlist_v2_from_projects(
     issue_number: int | None = None,
     voice: str | None = None,
     rate: str | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     """Render a hotlist v2 video from already selected console project data."""
     data = _data_from_projects(projects, issue_number=issue_number)
@@ -100,6 +101,7 @@ async def render_hotlist_v2_from_projects(
         limit=limit,
         voice=voice,
         rate=rate,
+        progress_callback=progress_callback,
     )
 
 
@@ -143,6 +145,7 @@ async def render_hotlist_v2_from_data(
     limit: int = 10,
     voice: str | None = None,
     rate: str | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     """Render a hotlist v2 video from normalized template data."""
     out = output_path or OUTPUT_DIR / "final.mp4"
@@ -153,11 +156,12 @@ async def render_hotlist_v2_from_data(
 
     # Step 2: Generate TTS narration first so the visual timeline can follow real speech length.
     _emit_stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
+    _emit_progress(progress_callback, "generating_tts", 1, 1)
     console.print("[bold cyan]Step 2/5:[/] Generating TTS narration...")
     script = _build_script_from_timeline(timeline)
     script_path = work_dir / "script.json"
     shutil.rmtree(work_dir / "audio", ignore_errors=True)
-    await generate_all_audio(script, work_dir, voice=voice, rate=rate)
+    await generate_all_audio(script, work_dir, voice=voice, rate=rate, progress_callback=progress_callback)
     audio_dir = work_dir / "audio"
     segment_durations = _audio_segment_durations(script, audio_dir)
     timeline = _timeline_context(data, durations, narration_segments, segment_durations=segment_durations, limit=limit)
@@ -172,6 +176,7 @@ async def render_hotlist_v2_from_data(
 
     # Step 3: Render HTML composition
     _emit_stage(stage_callback, "composing_html", "开始生成 HTML 画面。")
+    _emit_progress(progress_callback, "composing_html", 1, 1)
     console.print("[bold cyan]Step 3/5:[/] Rendering HTML composition...")
     render_data = _render_data_from_spec(data, video_spec)
     data_path = work_dir / "trending-data.json"
@@ -182,6 +187,7 @@ async def render_hotlist_v2_from_data(
 
     # Step 4: Render video with HyperFrames
     _emit_stage(stage_callback, "rendering_hyperframes", "开始使用 HyperFrames 渲染动画视频。")
+    _emit_progress(progress_callback, "rendering_hyperframes", 1, 1)
     console.print("[bold cyan]Step 4/5:[/] Rendering video with HyperFrames...")
     raw_video = work_dir / "raw.mp4"
     _render_hyperframes(html_path, raw_video)
@@ -189,6 +195,7 @@ async def render_hotlist_v2_from_data(
 
     # Step 5: Mix TTS audio into video
     _emit_stage(stage_callback, "mixing_audio", "开始混合 TTS 音频。")
+    _emit_progress(progress_callback, "mixing_audio", 1, 1)
     console.print("[bold cyan]Step 5/5:[/] Mixing TTS audio...")
     _mix_audio(raw_video, script, audio_dir, out)
     console.print(f"  ✓ [bold green]Final video:[/] {out}")
@@ -199,6 +206,20 @@ async def render_hotlist_v2_from_data(
 def _emit_stage(stage_callback: Callable[[str, str], None] | None, stage: str, message: str) -> None:
     if stage_callback:
         stage_callback(stage, message)
+
+
+def _emit_progress(
+    progress_callback: Callable[[str, int, int], None] | None,
+    stage: str,
+    step: int,
+    total: int,
+) -> None:
+    if progress_callback:
+        try:
+            progress_callback(stage, max(1, min(int(step), max(1, int(total)))), max(1, int(total)))
+        except Exception:
+            # Progress reporting must never break the render pipeline.
+            pass
 
 
 def _resolve_issue_number(explicit: int | None = None) -> int:

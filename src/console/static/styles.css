@@ -524,6 +524,66 @@ code {
   background: var(--surface);
 }
 
+.render-progress {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--accent-soft);
+}
+
+.render-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.render-progress-stage {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.render-progress-percent {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.render-progress-track {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.render-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  border-radius: inherit;
+  background: var(--accent, #4f7bff);
+  transition: width 0.35s ease-out;
+}
+
+.render-progress[data-status="completed"] .render-progress-fill {
+  background: var(--success, #2ea043);
+}
+
+.render-progress[data-status="failed"] .render-progress-fill {
+  background: var(--error, #d23f31);
+}
+
+.render-progress-message {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 .regen-actions {
   display: grid;
   grid-template-columns: 1fr;

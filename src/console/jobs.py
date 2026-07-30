@@ -391,7 +391,15 @@ def reset_video_for_regeneration(job_id: str) -> dict[str, Any]:
     if _job_type(job) == "single_project_vertical":
         _clear_current_video_output(job_id)
         append_log(job_id, "已请求重新生成单项目最终视频；保留计划文件和历史正式版本。")
-        return update_job(job_id, status="ready_to_render", stage="preparing_plan", failed_stage="", error="", official_video="")
+        return update_job(
+            job_id,
+            status="ready_to_render",
+            stage="preparing_plan",
+            failed_stage="",
+            error="",
+            official_video="",
+            render_progress={"stage": "preparing_plan", "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "等待重新渲染"},
+        )
     selected = read_json(JOBS_DIR / job_id / "selected_projects.json", {}).get("items") or []
     segments = read_json(JOBS_DIR / job_id / "narration.json", {}).get("segments") or []
     if not selected:
@@ -400,7 +408,15 @@ def reset_video_for_regeneration(job_id: str) -> dict[str, Any]:
         raise ValueError("请先确认口播脚本，再重新生成最终视频")
     _clear_current_video_output(job_id)
     append_log(job_id, "已请求重新生成最终视频；保留当前项目和口播脚本。")
-    return update_job(job_id, status="ready_to_render", stage="preparing_plan", failed_stage="", error="", official_video="")
+    return update_job(
+        job_id,
+        status="ready_to_render",
+        stage="preparing_plan",
+        failed_stage="",
+        error="",
+        official_video="",
+        render_progress={"stage": "preparing_plan", "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "等待重新渲染"},
+    )
 
 def _require_regenerable_job(job_id: str) -> dict[str, Any]:
     job = read_job(job_id)
@@ -957,12 +973,24 @@ async def render_video(job_id: str) -> dict[str, Any]:
         _ = _bgm_path(job)
 
         append_log(job_id, "开始生成最终视频。这个阶段会生成语音并合成 mp4。")
-        update_job(job_id, status="running", failed_stage="", error="", cancel_requested=False)
+        update_job(
+            job_id,
+            status="running",
+            failed_stage="",
+            error="",
+            cancel_requested=False,
+            render_progress={"stage": "preparing_plan", "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "开始渲染"},
+        )
 
         def on_pipeline_stage(stage: str, message: str) -> None:
             raise_if_cancelled(job_id)
             update_job(job_id, status="running", stage=stage)
             append_log(job_id, message)
+            _set_render_progress(job_id, stage=stage, step=1, total=1, message=message)
+
+        def on_pipeline_progress(stage: str, step: int, total: int) -> None:
+            raise_if_cancelled(job_id)
+            _set_render_progress(job_id, stage=stage, step=step, total=total)
 
         selected = read_json(job_dir / "selected_projects.json", {}).get("items") or []
         output_path = job_dir / "final.mp4"
@@ -980,10 +1008,12 @@ async def render_video(job_id: str) -> dict[str, Any]:
                 issue_number=_issue_number(job),
                 voice=_tts_voice(job),
                 rate=_tts_rate(job),
+                progress_callback=on_pipeline_progress,
             )
             _write_video_spec_report(job_id)
             raise_if_cancelled(job_id)
             update_job(job_id, status="running", stage="post_processing")
+            _set_render_progress(job_id, stage="post_processing", step=1, total=1, message="开始执行视频后处理。")
             append_log(job_id, "开始执行视频后处理。")
             post_process_video(output_path, no_bgm=_no_bgm(job), bgm_volume=_bgm_volume(job), bgm_path=_bgm_path(job))
         else:
@@ -999,9 +1029,11 @@ async def render_video(job_id: str) -> dict[str, Any]:
                 stage_callback=on_pipeline_stage,
                 voice=_tts_voice(job),
                 rate=_tts_rate(job),
+                progress_callback=on_pipeline_progress,
             )
         raise_if_cancelled(job_id)
         update_job(job_id, status="running", stage="post_processing")
+        _set_render_progress(job_id, stage="post_processing", step=1, total=1, message=f"视频合成完成: {output_path}")
         append_log(job_id, f"视频合成完成: {output_path}")
         return finalize_numbered_output(job_id, str(job.get("title") or "GitHub热榜视频"))
     except JobCancelled as exc:
@@ -1010,7 +1042,7 @@ async def render_video(job_id: str) -> dict[str, Any]:
         _clear_current_video_output(job_id)
         if _video_versions(job_id):
             append_log(job_id, "已保留历史正式视频版本；仅清理本次未完成输出。")
-        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False, render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "已取消"})
         raise
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
@@ -1018,7 +1050,7 @@ async def render_video(job_id: str) -> dict[str, Any]:
         _clear_video_outputs(job_id)
         if _video_versions(job_id):
             append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
-        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False, render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "渲染失败"})
         raise
 
 async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
@@ -1051,12 +1083,24 @@ async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict
         raise_if_cancelled(job_id)
 
         append_log(job_id, f"开始生成{_job_type_label(job)}最终视频。这个阶段会采集素材、生成语音并合成 mp4。")
-        update_job(job_id, status="running", failed_stage="", error="", cancel_requested=False)
+        update_job(
+            job_id,
+            status="running",
+            failed_stage="",
+            error="",
+            cancel_requested=False,
+            render_progress={"stage": "preparing_plan", "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "开始渲染"},
+        )
 
         def on_pipeline_stage(stage: str, message: str) -> None:
             raise_if_cancelled(job_id)
             update_job(job_id, status="running", stage=stage)
             append_log(job_id, message)
+            _set_render_progress(job_id, stage=stage, step=1, total=1, message=message)
+
+        def on_pipeline_progress(stage: str, step: int, total: int) -> None:
+            raise_if_cancelled(job_id)
+            _set_render_progress(job_id, stage=stage, step=step, total=total)
 
         await run_pipeline(
             url="",
@@ -1070,9 +1114,11 @@ async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict
             stage_callback=on_pipeline_stage,
             voice=_tts_voice(job),
             rate=_tts_rate(job),
+            progress_callback=on_pipeline_progress,
         )
         raise_if_cancelled(job_id)
         update_job(job_id, status="running", stage="post_processing")
+        _set_render_progress(job_id, stage="post_processing", step=1, total=1, message=f"{_job_type_label(job)}视频合成完成: {job_dir / 'final.mp4'}")
         append_log(job_id, f"{_job_type_label(job)}视频合成完成: {job_dir / 'final.mp4'}")
         return finalize_numbered_output(job_id, str(job.get("title") or _job_type_label(job)))
     except JobCancelled as exc:
@@ -1081,7 +1127,7 @@ async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict
         _clear_current_video_output(job_id)
         if _video_versions(job_id):
             append_log(job_id, "已保留历史正式视频版本；仅清理本次未完成输出。")
-        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False, render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "已取消"})
         raise
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
@@ -1089,7 +1135,7 @@ async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict
         _clear_video_outputs(job_id)
         if _video_versions(job_id):
             append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
-        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False)
+        update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False, render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "渲染失败"})
         raise
 
 def finalize_numbered_output(job_id: str, title: str = "") -> dict[str, Any]:
@@ -1110,7 +1156,22 @@ def finalize_numbered_output(job_id: str, title: str = "") -> dict[str, Any]:
     append_log(job_id, f"正式视频文件已输出到指定目录: {target}")
     params = dict(job.get("template_params") or {})
     params["official_output_dir"] = str(target.parent)
-    update_job(job_id, status="completed", stage="completed", official_video=str(target), template_params=params)
+    update_job(
+        job_id,
+        status="completed",
+        stage="completed",
+        official_video=str(target),
+        template_params=params,
+        render_progress={
+            "stage": "completed",
+            "stage_index": len(RENDER_STAGE_ORDER),
+            "stage_total": len(RENDER_STAGE_ORDER),
+            "step_current": 1,
+            "step_total": 1,
+            "percent": 100,
+            "message": "渲染完成",
+        },
+    )
     _mark_published_in_lark(job_id)
     return {"job": read_job(job_id), "artifacts": job_artifacts(job_id)}
 
@@ -2448,6 +2509,81 @@ def _set_progress_hint(job_id: str, *, kind: str, text: str, reset_at: str | Non
     if reset_at:
         hint["reset_at"] = str(reset_at)
     update_job(job_id, progress_hint=hint)
+
+
+# Render pipeline stage order, used to compute overall render progress percentage.
+# Stages that share the same step (e.g. capturing_assets + generating_tts running
+# concurrently) are listed in the order they typically finish. ``post_processing``
+# is intentionally excluded — it is short and finalize-driven, so the bar jumps
+# to 100% only when ``finalize_numbered_output`` runs. Unknown stages (e.g.
+# ``preparing_plan`` / ``post_processing``) preserve the previous percent.
+RENDER_STAGE_ORDER = (
+    "capturing_assets",
+    "generating_tts",
+    "composing_html",
+    "rendering_hyperframes",
+    "mixing_audio",
+    "composing_video",
+)
+
+
+def _set_render_progress(
+    job_id: str,
+    *,
+    stage: str,
+    step: int,
+    total: int,
+    message: str | None = None,
+) -> None:
+    """Persist a fine-grained render progress snapshot to the job for UI display.
+
+    Stores ``render_progress`` on the job dict with ``stage``, ``step_current``,
+    ``step_total``, ``stage_index``, ``stage_total``, ``percent``, ``message``.
+    The ``percent`` is clamped to ``[0, 100]`` and is monotonically non-decreasing
+    within a single render attempt so the UI bar never moves backwards.
+    """
+    step_total = max(1, int(total))
+    step_current = max(1, min(int(step), step_total))
+    stage_total = len(RENDER_STAGE_ORDER)
+    job = read_job(job_id)
+    if not job:
+        return
+    previous = job.get("render_progress") or {}
+    previous_percent = int(previous.get("percent") or 0)
+    try:
+        stage_index = RENDER_STAGE_ORDER.index(stage) + 1
+    except ValueError:
+        # Unknown stage (e.g. preparing_plan / post_processing): keep previous
+        # percent, just refresh stage label + message so the UI shows real status.
+        payload = {
+            "stage": stage,
+            "stage_index": int(previous.get("stage_index") or 0),
+            "stage_total": stage_total,
+            "step_current": step_current,
+            "step_total": step_total,
+            "percent": previous_percent,
+        }
+        if message:
+            payload["message"] = str(message)[:200]
+        update_job(job_id, render_progress=payload)
+        return
+    stage_factor = (stage_index - 1) + (step_current / step_total)
+    percent = int(round((stage_factor / stage_total) * 100))
+    percent = max(0, min(100, percent))
+    if percent < previous_percent:
+        # Don't let the bar move backwards within a render attempt.
+        percent = previous_percent
+    payload = {
+        "stage": stage,
+        "stage_index": stage_index,
+        "stage_total": stage_total,
+        "step_current": step_current,
+        "step_total": step_total,
+        "percent": percent,
+    }
+    if message:
+        payload["message"] = str(message)[:200]
+    update_job(job_id, render_progress=payload)
 
 
 def _quota_waiting_hint(rate_limit_label: str) -> str | None:
