@@ -134,6 +134,12 @@ class ConsoleHandler(BaseHTTPRequestHandler):
         if static_path:
             self._send_file(static_path)
             return
+        try:
+            self._handle_api_get(parsed)
+        except Exception as exc:
+            self._json({"error": str(exc)[:500]}, status=500)
+
+    def _handle_api_get(self, parsed) -> None:
         if parsed.path == "/api/health":
             self._json({"ok": True, "service": "video-factory-console"})
             return

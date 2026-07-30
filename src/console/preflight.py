@@ -430,6 +430,9 @@ def _source_readiness(source_id: str, label: str) -> dict[str, Any]:
         if created_at:
             try:
                 cache_dt = datetime.fromisoformat(created_at)
+                # 兼容无时区信息的 naive datetime（假设为 UTC）
+                if cache_dt.tzinfo is None:
+                    cache_dt = cache_dt.replace(tzinfo=timezone.utc)
                 age_hours = (datetime.now(timezone.utc) - cache_dt).total_seconds() / 3600
                 if age_hours < 1:
                     extra["freshness"] = "fresh"
@@ -489,8 +492,12 @@ def _latest_failure_readiness() -> dict[str, Any]:
         "composing_video": "视频合成失败，可重试渲染（检查 ffmpeg 和输出目录空间）",
         "post_processing": "后处理失败，可重试渲染（检查 ffmpeg 配置）",
         "preparing_plan": "计划生成失败，可返回确认项目后重新生成计划",
-        "generating_candidates": "候选生成失败，可重新创建任务",
+        "collecting_candidates": "候选拉取失败，可重新创建任务（检查 GitHub Token 或网络）",
+        "analyzing_candidates": "候选分析失败，可重试候选生成；模型不可用时会回退到启发式结果",
         "generating_script": "口播生成失败，可返回确认项目后重新生成口播",
+        "awaiting_project_confirmation": "等待项目确认阶段被中断，可重新确认项目后继续",
+        "awaiting_script_confirmation": "等待口播确认阶段被中断，可重新确认口播后继续",
+        "awaiting_validation": "计划校验失败，可重新生成计划",
     }
     suggested_action = retryable_stages.get(stage, "可重试该任务")
     if stage == "unknown":

@@ -392,6 +392,42 @@ class DashboardSnapshotTest(unittest.TestCase):
         self.assertTrue(failure["retryable"])
         self.assertIn("HyperFrames", failure["suggested_action"])
 
+    def test_dashboard_failed_candidate_stage_is_retryable(self) -> None:
+        """Bug #1 回归：候选阶段失败时 retryable 应为 True，suggested_action 应指向候选重试。"""
+        for stage, expected_hint in [
+            ("collecting_candidates", "候选拉取"),
+            ("analyzing_candidates", "候选分析"),
+            ("generating_script", "口播"),
+        ]:
+            with tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                config_dir = base / "config"
+                jobs_dir = base / "jobs"
+                failed_dir = jobs_dir / f"GH-HOTLIST-20260730-{stage}"
+                failed_dir.mkdir(parents=True)
+                (failed_dir / "task.json").write_text(
+                    json.dumps({
+                        "id": f"GH-HOTLIST-20260730-{stage}",
+                        "status": "failed",
+                        "stage": stage,
+                        "failed_stage": stage,
+                        "error": f"{stage} failed",
+                    }),
+                    encoding="utf-8",
+                )
+                with (
+                    patch("src.console.store.CONFIG_DIR", config_dir),
+                    patch("src.console.store.JOBS_DIR", jobs_dir),
+                    patch("src.console.preflight.CONFIG_DIR", config_dir),
+                    patch("src.console.preflight.JOBS_DIR", jobs_dir),
+                ):
+                    data = dashboard_snapshot()
+
+            failure = data["recent_failure"]
+            self.assertTrue(failure["has_failure"], f"{stage} should be detected as failure")
+            self.assertTrue(failure["retryable"], f"{stage} should be retryable")
+            self.assertIn(expected_hint, failure["suggested_action"], f"{stage} hint mismatch")
+
     def test_dashboard_endpoint_returns_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp) / "config"
@@ -417,6 +453,33 @@ class DashboardSnapshotTest(unittest.TestCase):
         self.assertIn("model_provider", data)
         self.assertIn("recent_failure", data)
         self.assertIn("pipeline_stages", data)
+
+    def test_dashboard_endpoint_returns_500_on_error(self) -> None:
+        """Bug #2 回归：GET /api/dashboard 异常时应返回 500 JSON 而非连接重置。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+                patch("src.console.server.dashboard_snapshot", side_effect=RuntimeError("boom")),
+            ):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    with self.assertRaises(urllib.error.HTTPError) as ctx:
+                        urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/api/dashboard", timeout=10)
+                    self.assertEqual(ctx.exception.code, 500)
+                    body = ctx.exception.read().decode("utf-8")
+                    data = json.loads(body)
+                    self.assertIn("error", data)
+                    self.assertIn("boom", data["error"])
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
 
 
 if __name__ == "__main__":

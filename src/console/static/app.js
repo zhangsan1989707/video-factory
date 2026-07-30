@@ -454,12 +454,17 @@ function readinessItemStatusLabel(status) {
 // ---- Dashboard / Diagnostics tab ----
 
 async function loadDashboard() {
+  // 防重入：快速重复点击 tab 或刷新按钮时避免并发请求乱序覆盖
+  if (state._dashboardInFlight) return;
+  state._dashboardInFlight = true;
   try {
     const data = await api("/api/dashboard");
     renderDashboard(data);
   } catch (error) {
     const content = $("dashboardContent");
     if (content) content.innerHTML = `<div class="job-error">诊断数据加载失败: ${escapeHtml(error.message)}</div>`;
+  } finally {
+    state._dashboardInFlight = false;
   }
 }
 
@@ -519,9 +524,9 @@ function renderDashboardSources(sources) {
     }
     const freshLabel = freshnessLabels[src.freshness] || src.freshness;
     const freshCls = freshnessClass[src.freshness] || "";
-    const freshText = src.freshness !== "unknown" ? `<span class="${freshCls}">(${freshLabel})</span>` : "";
+    const freshText = src.freshness && src.freshness !== "unknown" ? `<span class="${freshCls}">(${freshLabel})</span>` : "";
     if (src.cache_status && src.cache_status !== "none") {
-      meta.push(`缓存状态: ${src.cache_status} ${freshText}`);
+      meta.push(`缓存状态: ${escapeHtml(src.cache_status)} ${freshText}`);
     }
     const degradedHtml = src.degraded
       ? `<div class="degraded-tag">降级: ${escapeHtml((src.degraded_reason || "").slice(0, 80))}</div>`
@@ -545,23 +550,27 @@ function renderDashboardModel(model) {
     node.innerHTML = '<div class="dashboard-failure-none">无模型供应商信息</div>';
     return;
   }
-  const passedClass = model.passed > 0 ? "stat-passed" : "stat-warning";
+  const total = Number(model.total) || 0;
+  const enabled = Number(model.enabled) || 0;
+  const passed = Number(model.passed) || 0;
+  const passedClass = passed > 0 ? "stat-passed" : (total > 0 ? "stat-warning" : "");
+  const unconfigured = Math.max(0, total - enabled);
   node.innerHTML = `
     <div class="dashboard-model-stats">
       <div class="dashboard-model-stat">
-        <div class="stat-value">${model.total}</div>
+        <div class="stat-value">${total}</div>
         <div class="stat-label">总供应商</div>
       </div>
       <div class="dashboard-model-stat">
-        <div class="stat-value">${model.enabled}</div>
+        <div class="stat-value">${enabled}</div>
         <div class="stat-label">已启用</div>
       </div>
       <div class="dashboard-model-stat ${passedClass}">
-        <div class="stat-value">${model.passed}</div>
+        <div class="stat-value">${passed}</div>
         <div class="stat-label">已通过测试</div>
       </div>
       <div class="dashboard-model-stat">
-        <div class="stat-value">${model.total - model.enabled}</div>
+        <div class="stat-value">${unconfigured}</div>
         <div class="stat-label">未配置</div>
       </div>
     </div>
@@ -1762,7 +1771,7 @@ function renderStarsToday(item) {
   if (today > 0) {
     const source = String(item.data_source || "");
     const sourceTag = source === "search_api" ? "（估算）" : "";
-    return `<small class="source-desc stars-today" data-source="${escapeHtml(source || "trending")}">今日 +${today.toLocaleString()} stars ${escapeHtml(sourceTag)}</small>`;
+    return `<small class="source-desc stars-today" data-source="${escapeAttr(source || "trending")}">今日 +${today.toLocaleString()} stars ${escapeHtml(sourceTag)}</small>`;
   }
   return `<small class="source-desc">${escapeHtml((item && item.daily_growth) || "估算日均 star 暂无")}</small>`;
 }
@@ -2692,7 +2701,10 @@ function selectionButtonState(selectedCount, limit, canConfirm) {
 function setBusy(isBusy) {
   document.querySelectorAll("button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleSideBtn):not(#openScheduleFromSettingsBtn)").forEach((button) => {
     if (isBusy) {
-      button.dataset.wasDisabled = button.disabled ? "1" : "0";
+      // 仅在首次 busy 时记录原状态，避免重复调用丢失原始 disabled 值
+      if (button.dataset.wasDisabled === undefined) {
+        button.dataset.wasDisabled = button.disabled ? "1" : "0";
+      }
       button.disabled = true;
       return;
     }
@@ -2703,6 +2715,7 @@ function setBusy(isBusy) {
 }
 
 function escapeHtml(value) {
+  if (value == null) return "";
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
