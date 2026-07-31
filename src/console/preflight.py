@@ -7,6 +7,8 @@ import json
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,7 +17,37 @@ from src.console.store import CONFIG_DIR, JOBS_DIR, config_snapshot, read_json, 
 from src.utils.config import ROOT_DIR
 
 
+# preflight_snapshot 调用 ffmpeg/npx 等 subprocess，耗时 1-5 秒。
+# 用 TTL 缓存避免 /api/preflight 和 /api/dashboard 每次请求都重跑 smoke。
+_PREFLIGHT_CACHE_TTL = 60.0
+_preflight_lock = threading.Lock()
+_preflight_cache: dict[str, Any] = {"snapshot": None, "ts": 0.0}
+
+
+def invalidate_preflight_cache() -> None:
+    """清除 preflight 缓存，供测试或手动 smoke 后强制刷新使用。"""
+    _preflight_cache["snapshot"] = None
+    _preflight_cache["ts"] = 0.0
+
+
 def preflight_snapshot() -> dict[str, Any]:
+    # TTL 缓存：避免 /api/preflight 和 /api/dashboard 每次请求都重跑 ffmpeg/npx smoke。
+    now = time.monotonic()
+    cached = _preflight_cache["snapshot"]
+    if cached and (now - _preflight_cache["ts"]) < _PREFLIGHT_CACHE_TTL:
+        return cached
+    with _preflight_lock:
+        # 双重检查：可能已有其他线程在等锁期间完成了刷新。
+        cached = _preflight_cache["snapshot"]
+        if cached and (time.monotonic() - _preflight_cache["ts"]) < _PREFLIGHT_CACHE_TTL:
+            return cached
+        snapshot = _compute_preflight_snapshot()
+        _preflight_cache["snapshot"] = snapshot
+        _preflight_cache["ts"] = time.monotonic()
+        return snapshot
+
+
+def _compute_preflight_snapshot() -> dict[str, Any]:
     checks = [
         _module_check("python.openai", "openai"),
         _module_check("python.edge_tts", "edge_tts"),
@@ -84,6 +116,8 @@ def run_real_smoke_check() -> dict[str, Any]:
             "error": _short_error(exc),
         })
     write_json(CONFIG_DIR / "real-smoke.json", result)
+    # 手动 smoke 完成后清除 preflight 缓存，确保下次 /api/preflight 返回最新结果。
+    invalidate_preflight_cache()
     return result
 
 

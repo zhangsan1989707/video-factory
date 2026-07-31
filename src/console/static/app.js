@@ -776,7 +776,12 @@ function renderHistoryJobs(jobs) {
 }
 
 async function loadJob(jobId) {
+  // 并发守卫：快速点击历史任务时，旧响应可能后到并覆盖新选择。
+  // 用递增序号确保只有最后一次 loadJob 的响应才会渲染。
+  state._loadJobSeq = (state._loadJobSeq || 0) + 1;
+  const seq = state._loadJobSeq;
   const detail = await api(`/api/jobs/${jobId}`);
+  if (seq !== state._loadJobSeq) return; // 已被更新的 loadJob 取代，丢弃旧响应
   state.currentJobId = jobId;
   syncDetailState(detail);
   renderJob(detail.job);
@@ -924,7 +929,8 @@ async function collectCandidatesForCurrentJob() {
     if (!isBackgroundStart(result)) switchTab("candidates");
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -951,7 +957,8 @@ async function regenerateCandidates() {
     if (!isBackgroundStart(result)) switchTab("candidates");
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -978,7 +985,8 @@ async function refreshCandidates() {
     if (!isBackgroundStart(result)) switchTab("candidates");
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -1005,7 +1013,7 @@ async function confirmSelection() {
     if (!isBackgroundStart(result)) switchTab("script");
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
   } finally {
     stopPollingCurrentJob();
     setBusy(false);
@@ -1030,7 +1038,7 @@ async function regenerateScript() {
     if (!isBackgroundStart(result)) switchTab("script");
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
   } finally {
     stopPollingCurrentJob();
     setBusy(false);
@@ -1061,7 +1069,7 @@ async function saveScript() {
     await refreshCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
   } finally {
     stopPollingCurrentJob();
     setBusy(false);
@@ -1083,7 +1091,7 @@ async function preparePlan() {
     await refreshCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
   } finally {
     stopPollingCurrentJob();
     setBusy(false);
@@ -1105,7 +1113,7 @@ async function validatePlan() {
     await refreshCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
   } finally {
     stopPollingCurrentJob();
     setBusy(false);
@@ -1127,7 +1135,7 @@ async function renderVideo() {
     startPollingCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
     stopPollingCurrentJob();
   } finally {
     setBusy(false);
@@ -1150,7 +1158,8 @@ async function regenerateVideo() {
     startPollingCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -1172,7 +1181,8 @@ async function cancelCurrentJob() {
     startPollingCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -1209,7 +1219,8 @@ async function renderStockVideo() {
     startPollingCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -1250,6 +1261,16 @@ async function refreshCurrentJob() {
     if (currentTrack === "stock") updateStockStatus(state.currentJob);
   } finally {
     state._refreshInFlight = false;
+  }
+}
+
+// catch 块中安全刷新：refreshCurrentJob 本身只有 try/finally 无 catch，
+// 在 catch 块里直接 await 会导致二次抛错变成 unhandled rejection。
+async function safeRefreshCurrentJob() {
+  try {
+    await refreshCurrentJob();
+  } catch (error) {
+    console.error("safeRefreshCurrentJob failed:", error);
   }
 }
 
@@ -1751,7 +1772,7 @@ function renderCandidates() {
         <small>${escapeHtml(item.description_zh || "需要打开仓库确认用途")}</small>
         <small class="source-desc">${escapeHtml(item.description || "无英文描述")}</small>
       </td>
-      <td class="score">${item.score}</td>
+      <td class="score">${escapeHtml(item.score)}</td>
       <td>${renderCandidateMetric(item)}</td>
       <td>${escapeHtml(item.language || "-")}</td>
       <td>${escapeHtml(publicCandidateText(item.recommendation || ""))}<small>${escapeHtml(publicCandidateText(item.ranking_reason || item.visual_potential || ""))}</small></td>

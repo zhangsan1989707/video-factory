@@ -1047,9 +1047,14 @@ async def render_video(job_id: str) -> dict[str, Any]:
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
         append_log(job_id, f"视频生成失败: {exc}")
-        _clear_current_video_output(job_id)
-        if _video_versions(job_id):
-            append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
+        # 若失败发生在 post_processing（finalize 阶段，如复制到正式目录失败），
+        # final.mp4 已渲染成功，不能删除，否则用户被迫重新渲染整段视频。
+        if failed_stage != "post_processing":
+            _clear_current_video_output(job_id)
+            if _video_versions(job_id):
+                append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
+        else:
+            append_log(job_id, "渲染已完成但输出到正式目录失败，final.mp4 已保留，可手动重试 finalize。")
         update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False, render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "渲染失败"})
         raise
 
@@ -1132,9 +1137,14 @@ async def _render_single_project_video(job_id: str, job: dict[str, Any]) -> dict
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "composing_video")
         append_log(job_id, f"{_job_type_label(job)}视频生成失败: {exc}")
-        _clear_video_outputs(job_id)
-        if _video_versions(job_id):
-            append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
+        # 与 render_video 保持一致：post_processing 阶段失败时不删 final.mp4；
+        # 其它阶段失败只删 final.mp4，保留 official_video 引用（避免历史正式版本丢失）。
+        if failed_stage != "post_processing":
+            _clear_current_video_output(job_id)
+            if _video_versions(job_id):
+                append_log(job_id, "历史正式视频版本仍保留；仅清理本次失败输出。")
+        else:
+            append_log(job_id, "渲染已完成但输出到正式目录失败，final.mp4 已保留，可手动重试 finalize。")
         update_job(job_id, status="failed", stage=failed_stage, failed_stage=failed_stage, error=str(exc), cancel_requested=False, render_progress={"stage": failed_stage, "stage_index": 0, "stage_total": len(RENDER_STAGE_ORDER), "step_current": 1, "step_total": 1, "percent": 0, "message": "渲染失败"})
         raise
 
@@ -2934,6 +2944,8 @@ async def run_stock_pipeline_job(job_id: str) -> dict[str, Any]:
     except JobCancelled as exc:
         failed_stage = str(read_job(job_id).get("stage") or "generating_script")
         append_log(job_id, str(exc))
+        # 清理可能写了一半的 final.mp4，避免下次 finalize_stock_output 把坏文件复制到正式目录
+        _clear_current_video_output(job_id)
         update_job(
             job_id,
             status="failed",
@@ -2947,6 +2959,7 @@ async def run_stock_pipeline_job(job_id: str) -> dict[str, Any]:
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "generating_script")
         append_log(job_id, f"视频生成失败: {exc}")
+        _clear_current_video_output(job_id)
         update_job(
             job_id,
             status="failed",
@@ -3007,6 +3020,7 @@ async def _run_finance_edu_pipeline(job_id: str, job: dict[str, Any]) -> dict[st
     except JobCancelled as exc:
         failed_stage = str(read_job(job_id).get("stage") or "generating_script")
         append_log(job_id, str(exc))
+        _clear_current_video_output(job_id)
         update_job(
             job_id,
             status="failed",
@@ -3020,6 +3034,7 @@ async def _run_finance_edu_pipeline(job_id: str, job: dict[str, Any]) -> dict[st
     except Exception as exc:
         failed_stage = str(read_job(job_id).get("stage") or "generating_script")
         append_log(job_id, f"炒股科普视频生成失败: {exc}")
+        _clear_current_video_output(job_id)
         update_job(
             job_id,
             status="failed",
@@ -3047,5 +3062,19 @@ def finalize_stock_output(job_id: str, theme: str) -> dict[str, Any]:
     target = _write_to_official_output_dir(job, source, base_name)
 
     append_log(job_id, f"正式视频已输出: {target}")
-    update_job(job_id, status="completed", stage="completed", official_video=str(target))
+    update_job(
+        job_id,
+        status="completed",
+        stage="completed",
+        official_video=str(target),
+        render_progress={
+            "stage": "completed",
+            "stage_index": len(RENDER_STAGE_ORDER),
+            "stage_total": len(RENDER_STAGE_ORDER),
+            "step_current": 1,
+            "step_total": 1,
+            "percent": 100,
+            "message": "渲染完成",
+        },
+    )
     return {"job": read_job(job_id), "artifacts": job_artifacts(job_id)}

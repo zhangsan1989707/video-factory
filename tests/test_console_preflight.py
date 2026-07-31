@@ -9,11 +9,15 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from src.console.preflight import dashboard_snapshot, preflight_snapshot, run_real_smoke_check
+from src.console.preflight import dashboard_snapshot, invalidate_preflight_cache, preflight_snapshot, run_real_smoke_check
 from src.console.server import ConsoleHandler
 
 
 class ConsolePreflightTest(unittest.TestCase):
+    def setUp(self) -> None:
+        # preflight_snapshot 使用 TTL 缓存，测试间需清除以避免脏数据。
+        invalidate_preflight_cache()
+
     def test_preflight_snapshot_reports_required_render_checks(self) -> None:
         report = preflight_snapshot()
 
@@ -264,6 +268,9 @@ class ConsolePreflightTest(unittest.TestCase):
 class DashboardSnapshotTest(unittest.TestCase):
     """``dashboard_snapshot`` 汇总生产链路全景，供前端诊断标签页渲染。"""
 
+    def setUp(self) -> None:
+        invalidate_preflight_cache()
+
     def test_dashboard_includes_pipeline_stages(self) -> None:
         data = dashboard_snapshot()
         self.assertIn("pipeline_stages", data)
@@ -421,6 +428,7 @@ class DashboardSnapshotTest(unittest.TestCase):
                     patch("src.console.preflight.CONFIG_DIR", config_dir),
                     patch("src.console.preflight.JOBS_DIR", jobs_dir),
                 ):
+                    invalidate_preflight_cache()
                     data = dashboard_snapshot()
 
             failure = data["recent_failure"]
