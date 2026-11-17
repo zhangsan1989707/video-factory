@@ -2587,6 +2587,8 @@ class ConsoleJobsTest(unittest.TestCase):
 
                 pack = result["publish_pack"]
                 self.assertEqual(pack["title"], "GitHub热榜2个项目")
+                self.assertEqual(len(pack["title_options"]), 3)
+                self.assertIn("评论区直接回复序号或项目名", pack["comment_guide"])
                 self.assertIn("本期项目：", pack["description"])
                 self.assertIn("demo/alpha", pack["description"])
                 self.assertIn("数据说明：", pack["description"])
@@ -2600,6 +2602,52 @@ class ConsoleJobsTest(unittest.TestCase):
                 self.assertEqual(saved["source_projects"], ["demo/alpha", "demo/beta"])
                 detail = job_detail(job["id"])
                 self.assertEqual(detail["publish_pack"]["title"], "GitHub热榜2个项目")
+
+    def test_save_script_writes_skills_hotlist_publish_pack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_dir = Path(tmp)
+            with (
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.jobs.JOBS_DIR", jobs_dir),
+            ):
+                job = console_jobs.create_skills_hotlist_job({"project_count": 2})
+                skills_candidates = [
+                    {
+                        "name": "Browser Research Skill",
+                        "full_name": "Browser Research Skill",
+                        "description": "AI browser search and research workflow",
+                        "description_zh": "Browser Research Skill 聚焦网页或信息获取流程。",
+                        "source": "skillhub",
+                        "source_label": "SkillHub",
+                        "sources": ["SkillHub", "ClawHub"],
+                        "repo_url": "https://skillhub.cn/browser-research",
+                        "topics": ["浏览器", "Agent"],
+                        "language": "SkillHub",
+                        "stars": 1200,
+                        "daily_growth": "来源：SkillHub",
+                        "data_source": "skills_hotlist",
+                        "workflow_step": "省去手动切网页检索、交叉比对与摘录步骤",
+                        "live_highlight": "实测看它能否一次拉回带来源引用的可用结论",
+                        "audience": "需要高频检索与核验多源信息的开发者或研究员",
+                        "score": 88,
+                    }
+                ]
+                write_json(jobs_dir / job["id"] / "candidates.json", {"items": skills_candidates})
+                update_job(job["id"], status="awaiting_input", stage="awaiting_project_confirmation")
+                selection = save_selection(job["id"], {"items": skills_candidates})
+                result = save_script(job["id"], {"segments": selection["segments"]})
+
+                pack = result["publish_pack"]
+                self.assertEqual(pack["title"], "AI Skills热榜1个技能")
+                self.assertEqual(len(pack["title_options"]), 3)
+                self.assertIn("本期技能：", pack["description"])
+                self.assertNotIn("估算日均 star", pack["description"])
+                self.assertIn("SkillHub / ClawHub", pack["data_note"])
+                self.assertIn("AISkills", pack["hashtags"])
+                self.assertNotIn("GitHub", pack["hashtags"])
+                self.assertIn("焦点技能：Browser Research Skill", pack["cover_text"]["subhead"])
+                self.assertNotIn("本周黑马", pack["cover_text"]["subhead"])
+                self.assertIn("AI Skill 接入真实工作流实测", pack["comment_guide"])
 
     def test_save_script_flags_growth_overclaim_in_quality_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

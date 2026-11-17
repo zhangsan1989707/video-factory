@@ -29,6 +29,7 @@ SOURCE_LABELS = {
     "skillhub": "SkillHub",
     "clawhub": "ClawHub",
 }
+SKILLS_SOURCE_NOTE = "候选与热度来自 SkillHub / ClawHub 社区公开收录，建议实测后再接入生产工作流。"
 
 
 async def collect_candidates(
@@ -312,6 +313,11 @@ def _merge_and_rank(items: list[dict[str, Any]], limit: int) -> list[dict[str, A
         score, breakdown = _score(item)
         item["score"] = score
         item["score_breakdown"] = breakdown
+        item["audience"] = _skill_audience(item)
+        item["workflow_step"] = _skill_workflow_step(item)
+        item["live_highlight"] = _skill_live_highlight(item)
+        item["project_highlight"] = item["workflow_step"]
+        item["viewer_benefit"] = item["live_highlight"]
         item["recommendation"] = _recommendation_reason(item)
         item["visual_potential"] = _visual_potential(item)
         item["risk"] = _risk_note(item)
@@ -353,6 +359,39 @@ def _recommendation_reason(item: dict[str, Any]) -> str:
     topics = "、".join(item.get("topics") or []) or "AI 工作流"
     sources = " / ".join(item.get("sources") or [item.get("source_label") or "Skills 社区"])
     return f"{sources} 收录，适合做一期围绕 {topics} 的实用技能推荐。"
+
+
+def _skill_audience(item: dict[str, Any]) -> str:
+    text = _item_text(item)
+    if any(word in text for word in ("browser", "web", "crawl", "search", "网页", "搜索")):
+        return "需要高频检索与核验多源信息的开发者或研究员"
+    if any(word in text for word in ("code", "coding", "repo", "github", "编程", "代码")):
+        return "日常写代码、审 PR 或跑终端工作流的开发者"
+    if any(word in text for word in ("ppt", "slide", "image", "video", "design", "图片", "视频", "设计")):
+        return "高频制作演示文稿、短视频或视觉素材的创作者"
+    return "希望把重复指令封装进 Agent 工作流的开发者"
+
+
+def _skill_workflow_step(item: dict[str, Any]) -> str:
+    text = _item_text(item)
+    if any(word in text for word in ("browser", "web", "crawl", "search", "网页", "搜索")):
+        return "省去手动切网页检索、交叉比对与摘录步骤"
+    if any(word in text for word in ("code", "coding", "repo", "github", "编程", "代码")):
+        return "把代码审查、仓库巡检或命令执行压进同一条工作流指令"
+    if any(word in text for word in ("ppt", "slide", "image", "video", "design", "图片", "视频", "设计")):
+        return "把结构化提纲、版式编排与画面生成合并成一步输出"
+    return "把散乱提示词沉淀成可复用的标准 Agent 技能节点"
+
+
+def _skill_live_highlight(item: dict[str, Any]) -> str:
+    text = _item_text(item)
+    if any(word in text for word in ("browser", "web", "crawl", "search", "网页", "搜索")):
+        return "实测看它能否一次拉回带来源引用的可用结论"
+    if any(word in text for word in ("code", "coding", "repo", "github", "编程", "代码")):
+        return "实测看它在真实仓库变更上的问题定位准确度"
+    if any(word in text for word in ("ppt", "slide", "image", "video", "design", "图片", "视频", "设计")):
+        return "实测看它生成的版式或成片素材能不能直接上屏"
+    return "实测看它接入现有 Agent 后的触发稳定性与输出一致性"
 
 
 def _visual_potential(item: dict[str, Any]) -> str:

@@ -1281,6 +1281,7 @@ function testRenderPublishActionsShowsCopyButtons() {
       title: "标题",
       hashtags: ["GitHub", "AI"],
       description: "描述",
+      comment_guide: "评论区回复序号拆解",
     },
   });
 
@@ -1288,6 +1289,7 @@ function testRenderPublishActionsShowsCopyButtons() {
   assert.match(publishActions.innerHTML, /复制标题/);
   assert.match(publishActions.innerHTML, /复制标签/);
   assert.match(publishActions.innerHTML, /复制描述/);
+  assert.match(publishActions.innerHTML, /复制评论引导/);
   assert.equal(handlers.length, 1);
 }
 

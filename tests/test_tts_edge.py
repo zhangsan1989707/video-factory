@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.models import ScriptSegment, VideoScript
-from src.tts.edge_tts import generate_all_audio
+from src.tts.edge_tts import generate_all_audio, generate_audio_segment
+from src.utils.config import TTS_VOICE
 
 
 def _script(count: int) -> VideoScript:
@@ -73,6 +74,26 @@ class EdgeTtsTest(unittest.TestCase):
 
             generate.assert_called_once()
             self.assertEqual(result, [audio_dir / "segment-000.mp3", audio_dir / "segment-001.mp3"])
+
+    def test_generate_audio_segment_falls_back_to_default_voice_when_none(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "segment.mp3"
+            calls: list[tuple[str, str, str]] = []
+
+            class FakeCommunicate:
+                def __init__(self, text: str, voice: str, rate: str = "") -> None:
+                    if not isinstance(voice, str) or not voice:
+                        raise TypeError("voice must be str")
+                    calls.append((text, voice, rate))
+
+                async def save(self, path: str) -> None:
+                    Path(path).write_bytes(b"mp3")
+
+            with patch("src.tts.edge_tts.edge_tts.Communicate", FakeCommunicate):
+                asyncio.run(generate_audio_segment("测试文本", output_path, voice=None))
+
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0][1], TTS_VOICE)
 
 
 if __name__ == "__main__":

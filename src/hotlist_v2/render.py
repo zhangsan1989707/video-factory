@@ -21,6 +21,7 @@ from src.hotlist_v2.fetch import fetch_trending, LANG_COLORS
 from src.hotlist_v2.template import DEFAULT_STYLE, render_composition
 from src.tts.edge_tts import generate_all_audio, get_audio_duration
 from src.models import VideoScript, ScriptSegment
+from src.utils.config import TTS_VOICE
 
 console = Console()
 
@@ -161,7 +162,7 @@ async def render_hotlist_v2_from_data(
     script = _build_script_from_timeline(timeline)
     script_path = work_dir / "script.json"
     shutil.rmtree(work_dir / "audio", ignore_errors=True)
-    await generate_all_audio(script, work_dir, voice=voice, rate=rate, progress_callback=progress_callback)
+    await generate_all_audio(script, work_dir, voice=voice or TTS_VOICE, rate=rate, progress_callback=progress_callback)
     audio_dir = work_dir / "audio"
     segment_durations = _audio_segment_durations(script, audio_dir)
     timeline = _timeline_context(data, durations, narration_segments, segment_durations=segment_durations, limit=limit)
@@ -315,12 +316,12 @@ def _data_from_projects(projects: list[dict], issue_number: int | None = None) -
             "forks": _fork_display(item),
             "issues": int(item.get("issues") or item.get("open_issues_count") or 0),
             "topics": topics,
-            "tech_tags": _tech_tags(topics, language),
-            "audience_tags": _audience_tags(item, topics),
-            "display_tags": _display_tags(item, topics, language),
+            "tech_tags": list(item.get("tech_tags") or _tech_tags(topics, language)),
+            "audience_tags": list(item.get("audience_tags") or _audience_tags(item, topics)),
+            "display_tags": list(item.get("display_tags") or _display_tags(item, topics, language)),
             "preview_url": str(item.get("homepage") or ""),
             "star_history": _star_history(stars, index),
-            "reason": fact_card["detail_reason"],
+            "reason": str(item.get("reason") or fact_card["detail_reason"]),
             "repo_url": str(item.get("repo_url") or item.get("html_url") or ""),
         })
     _dedupe_project_copy(normalized)
@@ -424,13 +425,13 @@ def _project_outcome(item: dict, description: str) -> str:
 
 
 def _project_hook(item: dict, name: str) -> str:
-    feature = item.get("feature_extract") if isinstance(item.get("feature_extract"), dict) else {}
-    if feature.get("core_problem"):
-        return _short_text(str(feature.get("core_problem")), 15)
     for key in ("hook", "project_hook", "headline"):
         text = _clean_viewer_text(str(item.get(key) or ""))
         if text:
             return _short_text(text, 15)
+    feature = item.get("feature_extract") if isinstance(item.get("feature_extract"), dict) else {}
+    if feature.get("core_problem"):
+        return _short_text(str(feature.get("core_problem")), 15)
 
     text = _project_text(item)
     name_text = name.lower()
@@ -973,7 +974,11 @@ def _timeline_context(
         "intro",
         f"这期 GitHub 热榜，我挑了 {data.get('total_projects', len(projects))} 个真实项目，{data.get('theme_highlight', '开源新星')}。",
     )
-    list_text = _list_narration(projects)
+    list_text = _narration_text(
+        narration,
+        "list",
+        str(data.get("list_narration") or "").strip() or _list_narration(projects),
+    )
     hook_text = _narration_text(
         narration,
         "outro",
@@ -1447,8 +1452,20 @@ def _split_project_narration(text: str, project: dict) -> tuple[str, str]:
     hook = str(project.get("hook") or project.get("core_problem") or "先看它解决什么问题").strip()
     punch = f"第 {rank} 个，{name}。{hook}。"
     proof = text
-    if proof.startswith(punch):
-        proof = proof[len(punch):].strip()
+    for candidate_hook in dict.fromkeys([
+        hook,
+        str(project.get("core_problem") or "").strip(),
+    ]):
+        if not candidate_hook:
+            continue
+        candidate_punch = f"第 {rank} 个，{name}。{candidate_hook}。"
+        if proof.startswith(candidate_punch):
+            proof = proof[len(candidate_punch):].strip()
+            break
+    else:
+        rank_prefix = f"第 {rank} 个，{name}。"
+        if proof.startswith(rank_prefix):
+            proof = proof[len(rank_prefix):].strip()
     if not proof or proof == punch:
         proof = str(project.get("reason") or project.get("viewer_benefit") or project.get("description") or "具体价值还需要结合项目说明继续核对。")
     return punch, proof

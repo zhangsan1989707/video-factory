@@ -31,6 +31,11 @@ class SkillsHotlistTest(unittest.TestCase):
         self.assertGreaterEqual(first["score"], 80)
         self.assertIn("实用技能推荐", first["recommendation"])
         self.assertIn("浏览器", first["topics"])
+        self.assertIn("检索", first["audience"])
+        self.assertIn("网页检索", first["workflow_step"])
+        self.assertIn("实测看", first["live_highlight"])
+        self.assertEqual(first["project_highlight"], first["workflow_step"])
+        self.assertEqual(first["viewer_benefit"], first["live_highlight"])
 
     def test_collect_candidates_uses_html_fallback_for_clawhub(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:

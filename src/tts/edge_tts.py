@@ -51,14 +51,15 @@ def _is_valid_audio(path: Path) -> bool:
 async def generate_audio_segment(
     text: str,
     output_path: Path,
-    voice: str = TTS_VOICE,
+    voice: str | None = TTS_VOICE,
     rate: str | None = None,
 ) -> Path:
     """生成单段语音（带重试）"""
+    effective_voice = voice or TTS_VOICE
     effective_rate = rate if rate is not None else current_tts_rate()
     for attempt in range(MAX_RETRIES):
         try:
-            communicate = edge_tts.Communicate(text, voice, rate=effective_rate)
+            communicate = edge_tts.Communicate(text, effective_voice, rate=effective_rate)
             await communicate.save(str(output_path))
             return output_path
         except Exception as e:
@@ -72,11 +73,12 @@ async def generate_audio_segment(
 async def generate_all_audio(
     script: VideoScript,
     output_dir: Path,
-    voice: str = TTS_VOICE,
+    voice: str | None = TTS_VOICE,
     rate: str | None = None,
     progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> list[Path]:
     """为脚本的所有片段生成语音"""
+    effective_voice = voice or TTS_VOICE
     effective_rate = rate if rate is not None else current_tts_rate()
     audio_dir = output_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
@@ -107,7 +109,7 @@ async def generate_all_audio(
             await generate_audio_segment(
                 segment.narration,
                 output_path,
-                voice=voice,
+                voice=effective_voice,
                 rate=effective_rate,
             )
         audio_files[index] = output_path

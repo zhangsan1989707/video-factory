@@ -1775,7 +1775,7 @@ function renderCandidates() {
       <td class="score">${escapeHtml(item.score)}</td>
       <td>${renderCandidateMetric(item)}</td>
       <td>${escapeHtml(item.language || "-")}</td>
-      <td>${escapeHtml(publicCandidateText(item.recommendation || ""))}<small>${escapeHtml(publicCandidateText(item.ranking_reason || item.visual_potential || ""))}</small></td>
+      <td>${escapeHtml(publicCandidateText(item.recommendation || ""))}<small>${escapeHtml(publicCandidateText(item.ranking_reason || item.visual_potential || ""))}</small>${item.workflow_step || item.live_highlight ? `<small class="source-desc">${escapeHtml([item.workflow_step, item.live_highlight].filter(Boolean).join(" · "))}</small>` : ""}</td>
       <td>${escapeHtml(item.risk || "")}</td>
     </tr>
   `).join("");
@@ -2322,7 +2322,8 @@ function renderPublishActions(detail) {
   const title = String(publish.title || "").trim();
   const hashtags = (publish.hashtags || []).join(" / ");
   const description = String(publish.description || "").trim();
-  const hasPublish = title || hashtags || description;
+  const commentGuide = String(publish.comment_guide || "").trim();
+  const hasPublish = title || hashtags || description || commentGuide;
   box.hidden = !hasPublish;
   if (!hasPublish) {
     box.innerHTML = "";
@@ -2332,11 +2333,18 @@ function renderPublishActions(detail) {
     <button class="tiny" type="button" data-copy-publish="title">复制标题</button>
     <button class="tiny" type="button" data-copy-publish="hashtags">复制标签</button>
     <button class="tiny" type="button" data-copy-publish="description">复制描述</button>
+    ${commentGuide ? '<button class="tiny" type="button" data-copy-publish="comment_guide">复制评论引导</button>' : ""}
   `;
   box.querySelectorAll("[data-copy-publish]").forEach((button) => {
     button.addEventListener("click", async () => {
       const kind = button.dataset.copyPublish || "";
-      const value = kind === "title" ? title : kind === "hashtags" ? hashtags : description;
+      const value = kind === "title"
+        ? title
+        : kind === "hashtags"
+        ? hashtags
+        : kind === "comment_guide"
+        ? commentGuide
+        : description;
       await copyText(value, kind);
     });
   });
