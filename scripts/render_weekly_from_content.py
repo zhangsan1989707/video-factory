@@ -85,6 +85,9 @@ def _install_period_branding_patch(period_label: str | None, report_label: str |
             html = html.replace("本周<br>", f"{period_label}<br>")
         if report_label:
             html = html.replace("周报速递", report_label)
+        if period_label:
+            html = html.replace("每周更新", f"{period_label}更新")
+            html = html.replace("每周精选", f"{period_label}精选")
         path.write_text(html, encoding="utf-8")
         return result
 
