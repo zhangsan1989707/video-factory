@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from urllib.parse import urlparse
+from typing import Callable
 
 import asyncio
 import httpx
@@ -87,17 +88,35 @@ async def _capture_page(browser, asset: VisualAsset, output_dir: Path) -> Path:
         await context.close()
 
 
-async def capture_assets(manifest: AssetManifest, output_dir: Path) -> AssetManifest:
+async def capture_assets(
+    manifest: AssetManifest,
+    output_dir: Path,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+) -> AssetManifest:
     """Download or screenshot assets and update their local paths."""
     output_dir.mkdir(parents=True, exist_ok=True)
     browser = None
     image_tasks = {}
+
+    total = max(1, len(manifest.assets))
+    completed = 0
+
+    def _emit_progress() -> None:
+        if progress_callback is None:
+            return
+        nonlocal completed
+        try:
+            progress_callback("capturing_assets", min(completed + 1, total), total)
+        except Exception:
+            # Progress reporting must never break asset capture.
+            pass
 
     for asset in manifest.assets:
         if asset.type == "image":
             console.print(f"  采集素材 {asset.id}: {asset.caption}")
             image_tasks[asset.id] = asyncio.create_task(_download_image(asset, output_dir))
 
+    _emit_progress()
     async with async_playwright() as playwright:
         for asset in manifest.assets:
             if asset.type == "image":
@@ -111,6 +130,8 @@ async def capture_assets(manifest: AssetManifest, output_dir: Path) -> AssetMani
                     )
                 local_path = await _capture_page(browser, asset, output_dir)
             asset.path = str(local_path)
+            completed += 1
+            _emit_progress()
 
         if browser is not None:
             await browser.close()

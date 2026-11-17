@@ -125,7 +125,7 @@ class PipelineFromPlanTest(unittest.TestCase):
 
             starts: dict[str, float] = {}
 
-            async def fake_capture(manifest: AssetManifest, output_dir: Path) -> AssetManifest:
+            async def fake_capture(manifest: AssetManifest, output_dir: Path, **kwargs) -> AssetManifest:
                 starts["capture"] = time.perf_counter()
                 await asyncio.sleep(0.03)
                 for asset in manifest.assets:
@@ -181,7 +181,7 @@ class PipelineFromPlanTest(unittest.TestCase):
                     repo_url=f"https://github.com/{owner}/{repo}",
                 )
 
-            async def fake_capture(manifest, output_dir):
+            async def fake_capture(manifest, output_dir, **kwargs):
                 await asyncio.sleep(0)
                 return manifest
 

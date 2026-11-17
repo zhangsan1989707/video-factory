@@ -4,6 +4,7 @@ import asyncio
 import subprocess
 from contextvars import ContextVar
 from pathlib import Path
+from typing import Callable
 
 import edge_tts
 from rich.console import Console
@@ -50,14 +51,15 @@ def _is_valid_audio(path: Path) -> bool:
 async def generate_audio_segment(
     text: str,
     output_path: Path,
-    voice: str = TTS_VOICE,
+    voice: str | None = TTS_VOICE,
     rate: str | None = None,
 ) -> Path:
     """生成单段语音（带重试）"""
+    effective_voice = voice or TTS_VOICE
     effective_rate = rate if rate is not None else current_tts_rate()
     for attempt in range(MAX_RETRIES):
         try:
-            communicate = edge_tts.Communicate(text, voice, rate=effective_rate)
+            communicate = edge_tts.Communicate(text, effective_voice, rate=effective_rate)
             await communicate.save(str(output_path))
             return output_path
         except Exception as e:
@@ -71,16 +73,34 @@ async def generate_audio_segment(
 async def generate_all_audio(
     script: VideoScript,
     output_dir: Path,
-    voice: str = TTS_VOICE,
+    voice: str | None = TTS_VOICE,
     rate: str | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> list[Path]:
     """为脚本的所有片段生成语音"""
+    effective_voice = voice or TTS_VOICE
     effective_rate = rate if rate is not None else current_tts_rate()
     audio_dir = output_dir / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
 
+    total_segments = max(1, len(script.segments))
     audio_files: list[Path | None] = [None] * len(script.segments)
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_SEGMENTS)
+    completed = 0
+
+    def _emit_progress() -> None:
+        if progress_callback is None:
+            return
+        nonlocal completed
+        # Only count segments that have actually produced a valid file so the
+        # bar never advances past reality if a task is still pending.
+        done = sum(1 for path in audio_files if path is not None)
+        completed = done
+        try:
+            progress_callback("generating_tts", min(done + 1, total_segments), total_segments)
+        except Exception:
+            # Progress reporting must never break TTS generation.
+            pass
 
     async def _generate_one(index: int) -> None:
         segment = script.segments[index]
@@ -89,10 +109,11 @@ async def generate_all_audio(
             await generate_audio_segment(
                 segment.narration,
                 output_path,
-                voice=voice,
+                voice=effective_voice,
                 rate=effective_rate,
             )
         audio_files[index] = output_path
+        _emit_progress()
 
     for i, segment in enumerate(script.segments):
         output_path = audio_dir / f"segment-{i:03d}.mp3"
@@ -102,6 +123,7 @@ async def generate_all_audio(
             continue
         console.print(f"  生成语音 {i + 1}: {segment.narration[:20]}...")
 
+    _emit_progress()
     tasks = [
         asyncio.create_task(_generate_one(i))
         for i, path in enumerate(audio_files)
@@ -111,6 +133,11 @@ async def generate_all_audio(
         await asyncio.gather(*tasks)
 
     ordered_files = [path for path in audio_files if path is not None]
+    if progress_callback is not None:
+        try:
+            progress_callback("generating_tts", total_segments, total_segments)
+        except Exception:
+            pass
     console.print(f"  ✓ 生成 {len(ordered_files)} 段语音")
     return ordered_files
 

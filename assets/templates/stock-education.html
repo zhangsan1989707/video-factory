@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>股票科普 · {{ theme }}</title>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=Noto+Serif+SC:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+{% set default_style = {
+  "canvas_bg": "#0F0F1A",
+  "bg_card": "rgba(26, 26, 46, 0.85)",
+  "bg_panel": "rgba(255, 255, 255, 0.05)",
+  "accent_gold": "#E8B04B",
+  "accent_gold_rgb": "232, 176, 75",
+  "accent_gold_soft": "rgba(232, 176, 75, 0.18)",
+  "text_primary": "#FFFFFF",
+  "text_secondary": "rgba(255, 255, 255, 0.72)",
+  "text_dim": "rgba(255, 255, 255, 0.48)",
+  "font_display": "'Noto Serif SC', 'STSong', serif",
+  "font_body": "'Noto Sans SC', -apple-system, sans-serif",
+  "card_radius": "28px"
+} %}
+{% set palette = style_profile | default(default_style, true) %}
+
+:root {
+  --canvas-bg: {{ palette.canvas_bg }};
+  --bg-card: {{ palette.bg_card }};
+  --bg-panel: {{ palette.bg_panel }};
+  --accent-gold: {{ palette.accent_gold }};
+  --accent-gold-rgb: {{ palette.accent_gold_rgb }};
+  --accent-gold-soft: {{ palette.accent_gold_soft }};
+  --text-primary: {{ palette.text_primary }};
+  --text-secondary: {{ palette.text_secondary }};
+  --text-dim: {{ palette.text_dim }};
+  --font-display: {{ palette.font_display | safe }};
+  --font-body: {{ palette.font_body | safe }};
+  --card-radius: {{ palette.card_radius }};
+  --safe-top: 200px;
+  --safe-bottom: 160px;
+}
+
+body {
+  background: var(--canvas-bg);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  overflow: hidden;
+  width: 1080px;
+  height: 1920px;
+}
+
+/* === SHELL === */
+.screen {
+  position: absolute;
+  inset: 0;
+  width: 1080px;
+  height: 1920px;
+  overflow: hidden;
+  visibility: hidden;
+  background: var(--canvas-bg);
+}
+
+/* === GLOBAL DECORATIONS === */
+.glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  pointer-events: none;
+  z-index: 0;
+}
+.glow-orb.gold {
+  background: rgba(var(--accent-gold-rgb), 0.18);
+}
+.glow-orb.purple {
+  background: rgba(139, 92, 246, 0.12);
+}
+.glow-orb.blue {
+  background: rgba(59, 130, 246, 0.10);
+}
+
+.grid-bg {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(var(--accent-gold-rgb), 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--accent-gold-rgb), 0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 42%, black, transparent);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.4) 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.top-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
+  opacity: 0.6;
+  z-index: 5;
+}
+
+/* === TYPOGRAPHY === */
+.mag-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+
+.section-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-body);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: var(--accent-gold);
+  text-transform: uppercase;
+  margin-bottom: 24px;
+}
+.section-eyebrow::before {
+  content: '';
+  width: 32px;
+  height: 2px;
+  background: var(--accent-gold);
+}
+
+/* === INTRO SCREEN === */
+.intro-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--safe-top) 64px var(--safe-bottom);
+  position: relative;
+  z-index: 2;
+}
+.intro-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.4);
+  background: rgba(var(--accent-gold-rgb), 0.1);
+  border-radius: 999px;
+  padding: 12px 28px;
+  font-size: 22px;
+  color: var(--accent-gold);
+  letter-spacing: 0.12em;
+  margin-bottom: 48px;
+}
+.intro-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-gold);
+}
+.intro-term {
+  font-family: var(--font-display);
+  font-size: 56px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  letter-spacing: 0.08em;
+}
+.intro-title {
+  font-size: 120px;
+  text-align: center;
+  margin-bottom: 40px;
+}
+.intro-title .gold { color: var(--accent-gold); }
+.intro-accent-bar {
+  width: 180px;
+  height: 8px;
+  background: var(--accent-gold);
+  border-radius: 4px;
+  margin-bottom: 48px;
+  transform-origin: left center;
+}
+.intro-subtitle {
+  font-size: 32px;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.5;
+  max-width: 820px;
+}
+
+/* === CONCEPT SCREEN === */
+.concept-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--safe-top) 72px var(--safe-bottom);
+  position: relative;
+  z-index: 2;
+}
+.concept-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.25);
+  border-radius: var(--card-radius);
+  padding: 64px;
+  box-shadow: 0 40px 100px rgba(0,0,0,0.35);
+  backdrop-filter: blur(10px);
+}
+.concept-term {
+  font-size: 26px;
+  color: var(--accent-gold);
+  letter-spacing: 0.12em;
+  margin-bottom: 16px;
+}
+.concept-title {
+  font-size: 68px;
+  margin-bottom: 36px;
+}
+.concept-divider {
+  width: 80px;
+  height: 4px;
+  background: var(--accent-gold);
+  border-radius: 2px;
+  margin-bottom: 36px;
+}
+.concept-desc {
+  font-size: 32px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+  margin-bottom: 44px;
+}
+.concept-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+.concept-keyword {
+  background: rgba(var(--accent-gold-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.3);
+  color: var(--text-primary);
+  border-radius: 14px;
+  padding: 16px 28px;
+  font-size: 26px;
+  font-weight: 500;
+}
+
+/* === CHART SCREEN === */
+.chart-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--safe-top) 72px var(--safe-bottom);
+  position: relative;
+  z-index: 2;
+}
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--card-radius);
+  padding: 56px;
+}
+.chart-header {
+  margin-bottom: 56px;
+}
+.chart-title {
+  font-size: 58px;
+  margin-bottom: 16px;
+}
+.chart-subtitle {
+  font-size: 26px;
+  color: var(--text-secondary);
+}
+.chart-area {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 28px;
+  height: 520px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.chart-bar-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+.chart-bar {
+  width: 100%;
+  max-width: 110px;
+  background: linear-gradient(180deg, var(--accent-gold) 0%, rgba(var(--accent-gold-rgb), 0.45) 100%);
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 0 40px rgba(var(--accent-gold-rgb), 0.2);
+}
+.chart-bar-label {
+  font-size: 22px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.chart-legend {
+  margin-top: 36px;
+  display: flex;
+  gap: 32px;
+  justify-content: center;
+}
+.chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 22px;
+  color: var(--text-secondary);
+}
+.chart-legend-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-gold);
+}
+
+/* === COMPARISON SCREEN === */
+.comparison-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--safe-top) 64px var(--safe-bottom);
+  position: relative;
+  z-index: 2;
+}
+.comparison-header {
+  text-align: center;
+  margin-bottom: 56px;
+}
+.comparison-title {
+  font-size: 62px;
+  margin-bottom: 16px;
+}
+.comparison-subtitle {
+  font-size: 26px;
+  color: var(--text-secondary);
+}
+.comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 36px;
+}
+.comparison-col {
+  background: var(--bg-card);
+  border-radius: var(--card-radius);
+  padding: 44px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.comparison-col.gold {
+  border-color: rgba(var(--accent-gold-rgb), 0.35);
+}
+.comparison-col-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 36px;
+}
+.comparison-col-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  background: rgba(var(--accent-gold-rgb), 0.15);
+}
+.comparison-col-title {
+  font-size: 34px;
+  font-weight: 700;
+}
+.comparison-items {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.comparison-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  font-size: 28px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.comparison-item::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-gold);
+  margin-top: 14px;
+  flex-shrink: 0;
+}
+
+/* === SUMMARY SCREEN === */
+.summary-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--safe-top) 72px var(--safe-bottom);
+  position: relative;
+  z-index: 2;
+}
+.summary-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.25);
+  border-radius: var(--card-radius);
+  padding: 64px;
+}
+.summary-title {
+  font-size: 64px;
+  margin-bottom: 48px;
+}
+.summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  margin-bottom: 56px;
+}
+.summary-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  font-size: 30px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.summary-item-num {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(var(--accent-gold-rgb), 0.15);
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.4);
+  color: var(--accent-gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.summary-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  background: linear-gradient(90deg, rgba(var(--accent-gold-rgb), 0.25), rgba(var(--accent-gold-rgb), 0.08));
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.45);
+  border-radius: 20px;
+  padding: 26px 40px;
+  font-size: 28px;
+  color: var(--accent-gold);
+  font-weight: 700;
+}
+
+/* === SUBTITLE OVERLAY === */
+.subtitle-overlay {
+  position: absolute;
+  left: 64px;
+  right: 64px;
+  bottom: 64px;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.subtitle-pill {
+  max-width: 880px;
+  padding: 20px 32px;
+  border-radius: 20px;
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(var(--accent-gold-rgb), 0.25);
+  color: var(--text-primary);
+  font-size: 30px;
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.3);
+}
+</style>
+</head>
+<body>
+
+<div data-composition-id="main" data-style="stock_magazine" data-start="0" data-width="1080" data-height="1920" data-duration="{{ total_duration }}" style="position:relative;width:1080px;height:1920px;overflow:hidden;background:var(--canvas-bg);">
+
+{% for screen in screens %}
+{% set default_keywords = [screen.term, '资金流向', '市场情绪', '趋势确认', '核心指标'] %}
+{% set keywords = screen.keywords | default(default_keywords, true) %}
+{% set bullet_items = screen.bullets | default(keywords[:4], true) %}
+
+<!-- ======== SCREEN {{ loop.index }}: {{ screen.type | upper }} ======== -->
+<div class="screen clip screen-{{ screen.type }}" data-start="{{ screen.start }}" data-duration="{{ screen.duration }}" data-type="{{ screen.type }}" id="{{ screen.id }}">
+  <div class="grid-bg"></div>
+  <div class="vignette"></div>
+  <div class="top-line"></div>
+  <div class="glow-orb gold" style="top:-140px;right:-120px;width:420px;height:420px;"></div>
+  <div class="glow-orb purple" style="bottom:180px;left:-160px;width:360px;height:360px;"></div>
+
+  {% if screen.type == 'intro' %}
+  <div class="intro-screen">
+    <div class="intro-badge">
+      <span class="intro-badge-dot"></span>
+      股票小课堂
+    </div>
+    <div class="intro-term">{{ screen.term }}</div>
+    <h1 class="mag-title intro-title">
+      <span class="gold">{{ theme }}</span><br>
+      深度解析
+    </h1>
+    <div class="intro-accent-bar"></div>
+    <p class="intro-subtitle">{{ screen.subtitle }}</p>
+  </div>
+
+  {% elif screen.type == 'concept' %}
+  <div class="concept-screen">
+    <div class="section-eyebrow">概念</div>
+    <div class="concept-card">
+      <div class="concept-term">{{ screen.term }}</div>
+      <h2 class="mag-title concept-title">{{ screen.subtitle }}</h2>
+      <div class="concept-divider"></div>
+      <p class="concept-desc">{{ screen.narration }}</p>
+      <div class="concept-keywords">
+        {% for kw in keywords[:5] %}
+        <span class="concept-keyword">{{ kw }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {% elif screen.type == 'chart' %}
+  <div class="chart-screen">
+    <div class="section-eyebrow">数据</div>
+    <div class="chart-card">
+      <div class="chart-header">
+        <h2 class="mag-title chart-title">{{ screen.subtitle }}</h2>
+        <p class="chart-subtitle">{{ screen.narration }}</p>
+      </div>
+      <div class="chart-area">
+        {% set bar_labels = screen.bar_labels | default(['低', '中', '高', '极高', '爆发'], true) %}
+        {% set bar_values = screen.bar_values | default([35, 52, 68, 84, 95], true) %}
+        {% for value in bar_values %}
+        <div class="chart-bar-wrap">
+          <div class="chart-bar" data-value="{{ value }}"></div>
+          <div class="chart-bar-label">{{ bar_labels[loop.index0] | default('' ~ loop.index, true) }}</div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="chart-legend">
+        <div class="chart-legend-item"><span class="chart-legend-dot"></span>{{ screen.term }} 趋势示意</div>
+      </div>
+    </div>
+  </div>
+
+  {% elif screen.type == 'comparison' %}
+  <div class="comparison-screen">
+    <div class="comparison-header">
+      <div class="section-eyebrow">对比</div>
+      <h2 class="mag-title comparison-title">{{ screen.subtitle }}</h2>
+      <p class="comparison-subtitle">{{ screen.narration }}</p>
+    </div>
+    <div class="comparison-grid">
+      <div class="comparison-col gold">
+        <div class="comparison-col-head">
+          <div class="comparison-col-icon">+</div>
+          <div class="comparison-col-title">积极信号</div>
+        </div>
+        <div class="comparison-items">
+          {% for item in bullet_items[:3] %}
+          <div class="comparison-item">{{ item }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="comparison-col">
+        <div class="comparison-col-head">
+          <div class="comparison-col-icon">−</div>
+          <div class="comparison-col-title">风险提示</div>
+        </div>
+        <div class="comparison-items">
+          {% for item in screen.risk_items | default(bullet_items[3:] + ['需结合趋势判断', '避免单一指标决策', '注意市场大环境'], true) %}
+          <div class="comparison-item">{{ item }}</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% elif screen.type == 'summary' %}
+  <div class="summary-screen">
+    <div class="section-eyebrow">总结</div>
+    <div class="summary-card">
+      <h2 class="mag-title summary-title">{{ screen.subtitle }}</h2>
+      <div class="summary-list">
+        {% for item in bullet_items[:4] %}
+        <div class="summary-item">
+          <span class="summary-item-num">{{ loop.index }}</span>
+          <span>{{ item }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="summary-cta">
+        <span>✦</span>
+        关注更多股票知识
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="subtitle-overlay"><div class="subtitle-pill">{{ screen.subtitle }}</div></div>
+</div>
+{% endfor %}
+
+<script>
+window.__timelines = window.__timelines || {};
+const mainTl = gsap.timeline({ paused: true });
+
+// Utility to build per-screen entrance animations
+document.querySelectorAll('.screen.clip').forEach(screen => {
+  const start = parseFloat(screen.dataset.start || 0);
+  const dur = parseFloat(screen.dataset.duration || 5);
+  const type = screen.dataset.type;
+
+  // Visibility: hidden -> visible, fade in / out
+  if (start <= 0) {
+    gsap.set(screen, { opacity: 1, visibility: 'visible' });
+  } else {
+    gsap.set(screen, { opacity: 0, visibility: 'visible' });
+    mainTl.to(screen, { opacity: 1, duration: 0.05, ease: "power1.out" }, start);
+  }
+  mainTl.to(screen, { opacity: 0, duration: 0.05, ease: "power1.in" }, start + dur - 0.05);
+
+  // Entrance animations per screen type
+  const entranceTl = gsap.timeline({ paused: true });
+
+  if (type === 'intro') {
+    const title = screen.querySelector('.intro-title');
+    const bar = screen.querySelector('.intro-accent-bar');
+    const sub = screen.querySelector('.intro-subtitle');
+    const badge = screen.querySelector('.intro-badge');
+    const term = screen.querySelector('.intro-term');
+
+    gsap.set([badge, term, title, bar, sub], { opacity: 0 });
+    gsap.set(title, { y: 120 });
+    gsap.set(bar, { scaleX: 0 });
+    gsap.set(sub, { y: 40 });
+
+    entranceTl
+      .to(badge, { opacity: 1, duration: 0.5 }, 0)
+      .to(term, { opacity: 1, duration: 0.5 }, 0.1)
+      .to(title, { opacity: 1, y: 0, duration: 0.9, ease: "power3.out" }, 0.15)
+      .to(bar, { opacity: 1, scaleX: 1, duration: 0.7, ease: "power2.out" }, 0.5)
+      .to(sub, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 0.7);
+
+  } else if (type === 'concept') {
+    const card = screen.querySelector('.concept-card');
+    const term = screen.querySelector('.concept-term');
+    const title = screen.querySelector('.concept-title');
+    const divider = screen.querySelector('.concept-divider');
+    const desc = screen.querySelector('.concept-desc');
+    const keywords = screen.querySelectorAll('.concept-keyword');
+
+    gsap.set(card, { x: 180, opacity: 0 });
+    gsap.set([term, title, divider, desc], { opacity: 0, y: 30 });
+    gsap.set(keywords, { opacity: 0, y: 20 });
+
+    entranceTl
+      .to(card, { x: 0, opacity: 1, duration: 0.7, ease: "power3.out" }, 0)
+      .to(term, { opacity: 1, y: 0, duration: 0.5 }, 0.25)
+      .to(title, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 0.35)
+      .to(divider, { opacity: 1, y: 0, duration: 0.4 }, 0.5)
+      .to(desc, { opacity: 1, y: 0, duration: 0.6 }, 0.6)
+      .to(keywords, { opacity: 1, y: 0, duration: 0.45, stagger: 0.1, ease: "power2.out" }, 0.8);
+
+  } else if (type === 'chart') {
+    const title = screen.querySelector('.chart-title');
+    const subtitle = screen.querySelector('.chart-subtitle');
+    const bars = screen.querySelectorAll('.chart-bar');
+    const labels = screen.querySelectorAll('.chart-bar-label');
+    const legend = screen.querySelector('.chart-legend');
+
+    gsap.set([title, subtitle, legend], { opacity: 0, y: 30 });
+    gsap.set(labels, { opacity: 0 });
+    bars.forEach(bar => {
+      const target = parseFloat(bar.dataset.value || 50);
+      gsap.set(bar, { height: 0 });
+    });
+
+    entranceTl
+      .to(title, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 0)
+      .to(subtitle, { opacity: 1, y: 0, duration: 0.5 }, 0.2)
+      .to(bars, {
+        height: (i, el) => el.dataset.value + '%',
+        duration: 1,
+        stagger: 0.12,
+        ease: "power2.out"
+      }, 0.4)
+      .to(labels, { opacity: 1, duration: 0.4, stagger: 0.08 }, 1)
+      .to(legend, { opacity: 1, y: 0, duration: 0.5 }, 1.1);
+
+  } else if (type === 'comparison') {
+    const title = screen.querySelector('.comparison-title');
+    const subtitle = screen.querySelector('.comparison-subtitle');
+    const leftCol = screen.querySelector('.comparison-col.gold');
+    const rightCol = screen.querySelectorAll('.comparison-col')[1];
+    const leftItems = leftCol ? leftCol.querySelectorAll('.comparison-item') : [];
+    const rightItems = rightCol ? rightCol.querySelectorAll('.comparison-item') : [];
+
+    gsap.set([title, subtitle], { opacity: 0, y: 30 });
+    gsap.set(leftCol, { x: -120, opacity: 0 });
+    gsap.set(rightCol, { x: 120, opacity: 0 });
+    gsap.set(leftItems, { opacity: 0, x: -30 });
+    gsap.set(rightItems, { opacity: 0, x: 30 });
+
+    entranceTl
+      .to(title, { opacity: 1, y: 0, duration: 0.6 }, 0)
+      .to(subtitle, { opacity: 1, y: 0, duration: 0.5 }, 0.15)
+      .to(leftCol, { x: 0, opacity: 1, duration: 0.7, ease: "power3.out" }, 0.3)
+      .to(rightCol, { x: 0, opacity: 1, duration: 0.7, ease: "power3.out" }, 0.45)
+      .to(leftItems, { opacity: 1, x: 0, duration: 0.5, stagger: 0.12 }, 0.7)
+      .to(rightItems, { opacity: 1, x: 0, duration: 0.5, stagger: 0.12 }, 0.85);
+
+  } else if (type === 'summary') {
+    const title = screen.querySelector('.summary-title');
+    const items = screen.querySelectorAll('.summary-item');
+    const cta = screen.querySelector('.summary-cta');
+
+    gsap.set(title, { opacity: 0, y: 40 });
+    gsap.set(items, { opacity: 0, y: 30 });
+    gsap.set(cta, { opacity: 0, y: 30, scale: 0.96 });
+
+    entranceTl
+      .to(title, { opacity: 1, y: 0, duration: 0.7, ease: "power2.out" }, 0)
+      .to(items, { opacity: 1, y: 0, duration: 0.55, stagger: 0.15, ease: "power2.out" }, 0.3)
+      .to(cta, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out(1.5)" }, 0.9);
+  }
+
+  // Add entrance timeline to main timeline at screen start
+  if (entranceTl.duration() > 0) {
+    mainTl.add(entranceTl.play(), start);
+  }
+});
+
+window.__timelines["main"] = mainTl;
+</script>
+
+</div><!-- /root composition -->
+</body>
+</html>

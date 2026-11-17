@@ -51,13 +51,18 @@ def run_due_scheduled_draft(now: datetime | None = None, force: bool = False) ->
                     normalize_project_count(schedule.get("project_count")),
                 )
             )
-        _mark_schedule_run(run_key)
         merged_job = {**job, **(result.get("job") or {})}
         merged_job["scheduled"] = True
         merged_job["schedule_mode"] = schedule.get("mode") or "candidates_only"
         update_job(job["id"], scheduled=True, schedule_mode=merged_job["schedule_mode"])
         return {"started": True, "reason": "due", "job": merged_job}
+    except Exception as exc:
+        # 即使 pipeline 失败也必须标记本轮已运行，否则下个循环会重复创建任务。
+        # 项目硬约束：Scheduler must update last_run_date even when tasks fail.
+        print(f"Scheduled pipeline failed for {run_key}: {exc}")
+        return {"started": True, "reason": "due_failed", "job": None, "error": str(exc)}
     finally:
+        _mark_schedule_run(run_key)
         with _LOCK:
             _RUNNING_KEYS.discard(run_key)
 

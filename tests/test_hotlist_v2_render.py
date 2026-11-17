@@ -714,6 +714,51 @@ class HotlistV2RenderTest(unittest.TestCase):
             self.assertIn(data["date"], html)
             self.assertIn(f'第 {data["issue"]} 期', html)
 
+    def test_authored_content_overrides_and_safe_area_styles(self) -> None:
+        """验证人工精修字段覆盖、list_narration 自定义、hook/punch 去重及字幕安全边距。"""
+        from src.hotlist_v2.render import _split_project_narration
+
+        data = _data_from_projects([
+            {
+                "full_name": "demo/alpha",
+                "name": "alpha",
+                "hook": "自定义短钩子",
+                "feature_extract": {"core_problem": "比较长的核心痛点描述"},
+                "reason": "人工精修上榜理由。",
+                "tech_tags": ["Rust", "CLI"],
+                "audience_tags": ["#终端党"],
+                "display_tags": ["极速", "CLI"],
+                "stars": 2000,
+                "language": "Rust",
+            }
+        ])
+        data["list_narration"] = "本期精选 1 个硬核工具，先看榜单。"
+        project = data["projects"][0]
+
+        self.assertEqual(project["hook"], "自定义短钩子")
+        self.assertEqual(project["reason"], "人工精修上榜理由。")
+        self.assertEqual(project["tech_tags"], ["Rust", "CLI"])
+        self.assertEqual(project["audience_tags"], ["#终端党"])
+        self.assertEqual(project["display_tags"], ["极速", "CLI"])
+
+        timeline = _timeline_context(data)
+        self.assertEqual(timeline["list_screen"]["narration"], "本期精选 1 个硬核工具，先看榜单。")
+
+        # 当口播以 core_problem 开头而非 hook 开头时，也能去重避免重复朗读「第 1 个，alpha」
+        punch, proof = _split_project_narration(
+            "第 1 个，alpha。比较长的核心痛点描述。这里是后续的价值证明。",
+            project,
+        )
+        self.assertEqual(punch, "第 1 个，alpha。自定义短钩子。")
+        self.assertEqual(proof, "这里是后续的价值证明。")
+
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "apple.html"
+            render_composition({**data, **timeline}, output, style="apple_minimal")
+            html = output.read_text(encoding="utf-8")
+            self.assertIn("padding-bottom: 180px;", html)
+            self.assertIn("padding-bottom: 238px;", html)
+
 
 if __name__ == "__main__":
     unittest.main()

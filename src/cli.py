@@ -115,5 +115,45 @@ def generate(
         raise typer.Exit(1)
 
 
+@app.command("finance-edu")
+def finance_edu(
+    topic: str = typer.Argument(..., help="视频主题，如「60秒带你搞懂MACD」"),
+    topic_type: str = typer.Option("indicator", "--type", help="主题类型: indicator/trading_basic/risk_discipline"),
+    audience: str = typer.Option("beginner", "--audience", help="目标受众: beginner/junior_retail"),
+    visual_style: str = typer.Option("black_gold", "--style", help="视觉风格: black_gold/white_card"),
+    output: str | None = typer.Option(None, "-o", "--output", help="输出目录"),
+    voice: str = typer.Option(TTS_VOICE, "--voice", help="微软 TTS 语音名称"),
+    rate: str = typer.Option("+20%", "--rate", help="TTS 语速"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="只生成计划文件，不合成视频"),
+    verbose: bool = typer.Option(False, "-v", "--verbose", help="详细输出"),
+):
+    """生成炒股科普短视频"""
+    from src.finance_edu.models import FinanceEduTopic
+    from src.finance_edu.pipeline import run_finance_edu_video
+
+    try:
+        finance_topic = FinanceEduTopic(
+            topic=topic,
+            topic_type=topic_type,
+            audience=audience,
+            visual_style=visual_style,
+        )
+        asyncio.run(
+            run_finance_edu_video(
+                topic=finance_topic,
+                output_dir=Path(output) if output else None,
+                voice=voice,
+                rate=rate,
+                dry_run=dry_run,
+            )
+        )
+    except Exception as e:
+        console.print(f"\n[red]❌ 错误: {e}[/red]\n")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

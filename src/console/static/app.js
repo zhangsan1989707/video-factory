@@ -25,6 +25,14 @@ const state = {
   _lastCompletedJobId: null,
 };
 
+let currentTrack = "github";
+
+const STOCK_INPUT_MAP = {
+  finance_site: "finance-site-input",
+  llm: "llm-input",
+  manual: "manual-input",
+};
+
 const DEFAULT_BGM_VOLUME = 0.065;
 const DEFAULT_OFFICIAL_OUTPUT_DIR = "/Users/leohang/Movies/GitHub热榜视频";
 
@@ -60,27 +68,47 @@ function applyTheme(mode) {
 const $ = (id) => document.getElementById(id);
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  const text = await response.text();
-  let data = {};
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch (error) {
-      data = { error: text };
+  const { timeout = 30000, signal: externalSignal, ...rest } = options;
+  const controller = new AbortController();
+  const timer = timeout > 0 ? setTimeout(() => controller.abort(new Error("请求超时")), timeout) : null;
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort(externalSignal.reason);
+    } else {
+      externalSignal.addEventListener("abort", () => controller.abort(externalSignal.reason), { once: true });
     }
   }
-  if (!response.ok) {
-    throw new Error(data.error || `HTTP ${response.status}`);
+  try {
+    const response = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      ...rest,
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    let data = {};
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (error) {
+        data = { error: text };
+      }
+    }
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return data;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error("请求超时，请稍后重试");
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return data;
 }
 
-function post(path, body = {}) {
-  return api(path, { method: "POST", body: JSON.stringify(body) });
+function post(path, body = {}, options = {}) {
+  return api(path, { method: "POST", body: JSON.stringify(body), ...options });
 }
 
 function del(path) {
@@ -130,6 +158,9 @@ function bindEvents() {
   $("providerEditor").addEventListener("click", testProviderFromButton);
   $("openJobFolderBtn").addEventListener("click", openJobFolder);
   $("runRealSmokeBtn").addEventListener("click", runRealSmoke);
+  $("refreshDashboardBtn").addEventListener("click", loadDashboard);
+  $("autoOpenToggle").addEventListener("change", toggleAutoOpen);
+  $("themeSelect").addEventListener("change", (event) => setTheme(event.target.value));
   $("jobType").addEventListener("change", () => {
     syncJobTypeFields();
     syncCandidateCopy(currentJobType());
@@ -152,13 +183,131 @@ function bindEvents() {
   $("loadPresetBtn").addEventListener("click", loadTemplatePreset);
   $("deletePresetBtn").addEventListener("click", deleteTemplatePreset);
   document.addEventListener("keydown", handleKeyboardShortcut);
+  document.querySelectorAll(".track-btn").forEach((btn) => {
+    btn.addEventListener("click", () => switchTrack(btn.dataset.track));
+  });
+  document.querySelectorAll('input[name="content_source"]').forEach((radio) => {
+    radio.addEventListener("change", syncStockContentSource);
+  });
+  const stockForm = $("stock-form");
+  if (stockForm) stockForm.addEventListener("submit", submitStockForm);
   syncJobTypeFields();
+  syncStockContentSource();
 }
 
 function switchTab(name) {
   document.querySelectorAll(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === name));
   document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.remove("active"));
   $(`${name}Tab`).classList.add("active");
+  if (name === "diagnostics") {
+    loadDashboard();
+  }
+}
+
+function switchTrack(track) {
+  currentTrack = track;
+  document.querySelectorAll(".track-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.track === track);
+  });
+  showTrackUI(track);
+}
+
+function showTrackUI(track) {
+  const githubPanel = $("github-panel");
+  const stockPanel = $("stock-panel");
+  if (track === "github") {
+    if (githubPanel) githubPanel.style.display = "";
+    if (stockPanel) stockPanel.style.display = "none";
+  } else {
+    if (githubPanel) githubPanel.style.display = "none";
+    if (stockPanel) stockPanel.style.display = "";
+  }
+}
+
+function syncStockContentSource(event) {
+  const radios = document.querySelectorAll('input[name="content_source"]');
+  const checked = event && event.target ? event.target : [...radios].find((r) => r.checked);
+  const source = checked ? checked.value : "finance_site";
+  document.querySelectorAll(".conditional-input").forEach((el) => {
+    el.style.display = "none";
+  });
+  const targetId = STOCK_INPUT_MAP[source];
+  const target = targetId ? $(targetId) : null;
+  if (target) target.style.display = "";
+}
+
+async function submitStockForm(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const params = currentTemplateParams();
+  const payload = {
+    type: "stock_education",
+    theme: String(formData.get("theme") || "").trim(),
+    content_source: formData.get("content_source"),
+    source_input:
+      String(formData.get("finance_url") || "").trim() ||
+      String(formData.get("topic_keywords") || "").trim() ||
+      String(formData.get("manual_content") || "").trim(),
+    template_params: {
+      tts_voice: params.tts_voice,
+      tts_rate: params.tts_rate,
+    },
+  };
+
+  if (!payload.theme) {
+    alert("请输入主题");
+    return;
+  }
+
+  try {
+    const data = await post("/api/jobs", payload);
+    if (data.error) throw new Error(data.error);
+    const resultBox = $("stock-result");
+    if (resultBox) resultBox.style.display = "";
+    pollJobStatus(data.job.id);
+  } catch (error) {
+    alert("创建任务失败: " + error.message);
+  }
+}
+
+async function pollJobStatus(jobId) {
+  try {
+    await loadJob(jobId);
+    startPollingCurrentJob();
+    updateStockStatus(state.currentJob);
+  } catch (error) {
+    alert("加载任务状态失败: " + error.message);
+  }
+}
+
+function updateStockStatus(job) {
+  const statusBox = $("stock-status");
+  const previewBox = $("stock-video-preview");
+  if (!statusBox) return;
+  if (!job) {
+    statusBox.textContent = "等待创建任务";
+    if (previewBox) previewBox.innerHTML = "";
+    return;
+  }
+  const stage = stageLabel(job.stage || "");
+  const labels = {
+    completed: "已完成",
+    failed: "失败",
+    running: "运行中",
+    awaiting_input: "等待处理",
+  };
+  const statusText = labels[job.status] || job.status;
+  statusBox.textContent = `${statusText} · ${stage}${job.error ? " · " + job.error : ""}`;
+
+  if (previewBox && job.status === "completed") {
+    const official = job.official_video || "";
+    previewBox.innerHTML = official
+      ? `<a href="${escapeAttr(official)}" target="_blank" rel="noreferrer">${escapeHtml(official)}</a>`
+      : "视频已生成";
+  } else if (previewBox) {
+    previewBox.innerHTML = "";
+  }
 }
 
 function handleKeyboardShortcut(event) {
@@ -239,10 +388,12 @@ async function loadPreflight() {
     $("preflightStatus").textContent = label;
     $("preflightStatus").title = report.summary || "";
     renderRealSmokeStatus(report.latest_real_smoke || {});
+    renderProductionReadiness(report.production_readiness || {});
   } catch (error) {
     $("preflightStatus").textContent = "检测失败";
     $("preflightStatus").title = error.message;
     renderRealSmokeStatus({});
+    renderProductionReadiness({});
   }
 }
 
@@ -251,7 +402,7 @@ async function runRealSmoke() {
   button.disabled = true;
   $("realSmokeStatus").textContent = "运行中";
   try {
-    const result = await post("/api/preflight/smoke", {});
+    const result = await post("/api/preflight/smoke", {}, { timeout: 300000 });
     renderRealSmokeStatus(result);
     await loadPreflight();
   } catch (error) {
@@ -279,6 +430,190 @@ function renderRealSmokeStatus(result) {
   };
   node.textContent = `${labels[status] || status}${time && time !== "-" ? ` · ${time}` : ""}`;
   node.title = result.summary || result.error || "";
+}
+
+function renderProductionReadiness(readiness) {
+  const node = $("productionReadiness");
+  if (!node) return;
+  const items = Array.isArray(readiness.items) ? readiness.items : [];
+  if (!items.length) {
+    node.hidden = true;
+    node.innerHTML = "";
+    return;
+  }
+  const status = readiness.status || "warning";
+  const labels = {
+    ready: "良好",
+    warning: "需留意",
+    blocked: "阻塞",
+  };
+  node.hidden = false;
+  node.innerHTML = `
+    <div class="readiness-head">
+      <span class="readiness-summary">${escapeHtml(readiness.summary || "生产链路状态待确认。")}</span>
+      <strong class="readiness-status ${escapeAttr(status)}">${escapeHtml(labels[status] || status)}</strong>
+    </div>
+    <div class="readiness-list">
+      ${items.map((item) => `
+        <div class="readiness-item ${escapeAttr(item.status || "")}" title="${escapeAttr(item.message || "")}">
+          <span>${escapeHtml(item.label || item.id || "")}</span>
+          <strong>${escapeHtml(readinessItemStatusLabel(item.status || ""))}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function readinessItemStatusLabel(status) {
+  const labels = {
+    ok: "ok",
+    warning: "warn",
+    blocked: "stop",
+  };
+  return labels[status] || status || "-";
+}
+
+// ---- Dashboard / Diagnostics tab ----
+
+async function loadDashboard() {
+  // 防重入：快速重复点击 tab 或刷新按钮时避免并发请求乱序覆盖
+  if (state._dashboardInFlight) return;
+  state._dashboardInFlight = true;
+  try {
+    const data = await api("/api/dashboard");
+    renderDashboard(data);
+  } catch (error) {
+    const content = $("dashboardContent");
+    if (content) content.innerHTML = `<div class="job-error">诊断数据加载失败: ${escapeHtml(error.message)}</div>`;
+  } finally {
+    state._dashboardInFlight = false;
+  }
+}
+
+function renderDashboard(data) {
+  if (!data) return;
+  const summary = $("dashboardSummary");
+  if (summary) summary.textContent = data.summary || "生产链路状态待确认。";
+
+  renderDashboardStages(data.pipeline_stages);
+  renderDashboardSources(data.data_sources);
+  renderDashboardModel(data.model_provider);
+  renderDashboardFailure(data.recent_failure);
+}
+
+function renderDashboardStages(stages) {
+  const node = $("dashboardPipelineStages");
+  if (!node) return;
+  if (!stages || !stages.items || !stages.items.length) {
+    node.innerHTML = '<div class="dashboard-failure-none">无管线数据</div>';
+    return;
+  }
+  const statusLabels = { ok: "正常", warning: "需留意", blocked: "阻塞" };
+  node.innerHTML = stages.items.map((item) => `
+    <div class="dashboard-stage-item status-${escapeAttr(item.status || "")}">
+      <span class="stage-label">${escapeHtml(item.label || item.id || "")}</span>
+      <span class="stage-status">${escapeHtml(statusLabels[item.status] || item.status || "-")}</span>
+    </div>
+  `).join("");
+}
+
+function renderDashboardSources(sources) {
+  const node = $("dashboardSources");
+  if (!node) return;
+  if (!sources || !sources.length) {
+    node.innerHTML = '<div class="dashboard-failure-none">无数据源信息</div>';
+    return;
+  }
+  const freshnessLabels = {
+    fresh: "最近",
+    stale: "稍旧",
+    old: "旧",
+    unknown: "未知",
+  };
+  const freshnessClass = {
+    fresh: "freshness-fresh",
+    stale: "freshness-stale",
+    old: "freshness-old",
+    unknown: "",
+  };
+  node.innerHTML = sources.map((src) => {
+    const meta = [];
+    if (src.last_success_time) {
+      meta.push(`最近成功: ${escapeHtml(src.last_success_time.slice(0, 16).replace("T", " "))}`);
+    }
+    if (src.item_count) {
+      meta.push(`缓存条目: ${src.item_count}`);
+    }
+    const freshLabel = freshnessLabels[src.freshness] || src.freshness;
+    const freshCls = freshnessClass[src.freshness] || "";
+    const freshText = src.freshness && src.freshness !== "unknown" ? `<span class="${freshCls}">(${freshLabel})</span>` : "";
+    if (src.cache_status && src.cache_status !== "none") {
+      meta.push(`缓存状态: ${escapeHtml(src.cache_status)} ${freshText}`);
+    }
+    const degradedHtml = src.degraded
+      ? `<div class="degraded-tag">降级: ${escapeHtml((src.degraded_reason || "").slice(0, 80))}</div>`
+      : "";
+    return `
+      <div class="dashboard-source-item status-${escapeAttr(src.status || "")}">
+        <div class="source-head">
+          <span class="source-name">${escapeHtml(src.label || src.id || "")}</span>
+          <span class="source-status">${escapeHtml(src.status === "ok" ? "正常" : "需留意")}</span>
+        </div>
+        <div class="source-meta">${meta.map((m) => `<span>${m}</span>`).join("")}${degradedHtml}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderDashboardModel(model) {
+  const node = $("dashboardModel");
+  if (!node) return;
+  if (!model) {
+    node.innerHTML = '<div class="dashboard-failure-none">无模型供应商信息</div>';
+    return;
+  }
+  const total = Number(model.total) || 0;
+  const enabled = Number(model.enabled) || 0;
+  const passed = Number(model.passed) || 0;
+  const passedClass = passed > 0 ? "stat-passed" : (total > 0 ? "stat-warning" : "");
+  const unconfigured = Math.max(0, total - enabled);
+  node.innerHTML = `
+    <div class="dashboard-model-stats">
+      <div class="dashboard-model-stat">
+        <div class="stat-value">${total}</div>
+        <div class="stat-label">总供应商</div>
+      </div>
+      <div class="dashboard-model-stat">
+        <div class="stat-value">${enabled}</div>
+        <div class="stat-label">已启用</div>
+      </div>
+      <div class="dashboard-model-stat ${passedClass}">
+        <div class="stat-value">${passed}</div>
+        <div class="stat-label">已通过测试</div>
+      </div>
+      <div class="dashboard-model-stat">
+        <div class="stat-value">${unconfigured}</div>
+        <div class="stat-label">未配置</div>
+      </div>
+    </div>
+    ${model.has_template_fallback ? `<div class="dashboard-fallback-hint">${escapeHtml(model.template_fallback_note || "未配置模型时，可使用模板回退出片")}</div>` : ""}
+  `;
+}
+
+function renderDashboardFailure(failure) {
+  const node = $("dashboardFailure");
+  if (!node) return;
+  if (!failure || !failure.has_failure) {
+    node.innerHTML = '<div class="dashboard-failure-none">最近没有失败任务</div>';
+    return;
+  }
+  node.innerHTML = `
+    <div class="dashboard-failure-detail">
+      <div class="failure-stage">${escapeHtml(failure.failed_stage || "unknown")}</div>
+      ${failure.error_summary ? `<div class="failure-error">${escapeHtml(failure.error_summary)}</div>` : ""}
+      ${failure.suggested_action ? `<div class="failure-action">${escapeHtml(failure.suggested_action)}</div>` : ""}
+    </div>
+  `;
 }
 
 async function loadJobs() {
@@ -441,7 +776,12 @@ function renderHistoryJobs(jobs) {
 }
 
 async function loadJob(jobId) {
+  // 并发守卫：快速点击历史任务时，旧响应可能后到并覆盖新选择。
+  // 用递增序号确保只有最后一次 loadJob 的响应才会渲染。
+  state._loadJobSeq = (state._loadJobSeq || 0) + 1;
+  const seq = state._loadJobSeq;
   const detail = await api(`/api/jobs/${jobId}`);
+  if (seq !== state._loadJobSeq) return; // 已被更新的 loadJob 取代，丢弃旧响应
   state.currentJobId = jobId;
   syncDetailState(detail);
   renderJob(detail.job);
@@ -547,6 +887,7 @@ function autoTabForCompletedBackground(job) {
 }
 
 function clearCurrentJob() {
+  stopPollingCurrentJob();
   state.currentJobId = "";
   state.currentJob = null;
   state.candidates = [];
@@ -588,7 +929,8 @@ async function collectCandidatesForCurrentJob() {
     if (!isBackgroundStart(result)) switchTab("candidates");
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -615,7 +957,8 @@ async function regenerateCandidates() {
     if (!isBackgroundStart(result)) switchTab("candidates");
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -642,7 +985,8 @@ async function refreshCandidates() {
     if (!isBackgroundStart(result)) switchTab("candidates");
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -669,7 +1013,9 @@ async function confirmSelection() {
     if (!isBackgroundStart(result)) switchTab("script");
   } catch (error) {
     alert(error.message);
+    await safeRefreshCurrentJob();
   } finally {
+    stopPollingCurrentJob();
     setBusy(false);
   }
 }
@@ -692,8 +1038,9 @@ async function regenerateScript() {
     if (!isBackgroundStart(result)) switchTab("script");
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
   } finally {
+    stopPollingCurrentJob();
     setBusy(false);
   }
 }
@@ -722,7 +1069,9 @@ async function saveScript() {
     await refreshCurrentJob();
   } catch (error) {
     alert(error.message);
+    await safeRefreshCurrentJob();
   } finally {
+    stopPollingCurrentJob();
     setBusy(false);
   }
 }
@@ -742,8 +1091,9 @@ async function preparePlan() {
     await refreshCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
   } finally {
+    stopPollingCurrentJob();
     setBusy(false);
   }
 }
@@ -763,8 +1113,9 @@ async function validatePlan() {
     await refreshCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
   } finally {
+    stopPollingCurrentJob();
     setBusy(false);
   }
 }
@@ -784,7 +1135,8 @@ async function renderVideo() {
     startPollingCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -806,7 +1158,8 @@ async function regenerateVideo() {
     startPollingCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -828,7 +1181,8 @@ async function cancelCurrentJob() {
     startPollingCurrentJob();
   } catch (error) {
     alert(error.message);
-    await refreshCurrentJob();
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
   } finally {
     setBusy(false);
   }
@@ -847,6 +1201,29 @@ async function runNextAction() {
   if (stage === "prepare-plan") return preparePlan();
   if (stage === "validate-plan") return validatePlan();
   if (stage === "render-video") return renderVideo();
+  if (stage === "render-stock") return renderStockVideo();
+}
+
+async function renderStockVideo() {
+  if (!state.currentJobId) {
+    alert("请先创建任务");
+    return;
+  }
+  setBusy(true);
+  try {
+    switchTab("progress");
+    appendLogLine("正在生成股票科普视频，请不要关闭控制台...");
+    const result = await post(`/api/jobs/${state.currentJobId}/render-stock`);
+    renderJob(result.job);
+    await refreshCurrentJob();
+    startPollingCurrentJob();
+  } catch (error) {
+    alert(error.message);
+    await safeRefreshCurrentJob();
+    stopPollingCurrentJob();
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function refreshCurrentJob() {
@@ -881,8 +1258,19 @@ async function refreshCurrentJob() {
         }
       }
     }
+    if (currentTrack === "stock") updateStockStatus(state.currentJob);
   } finally {
     state._refreshInFlight = false;
+  }
+}
+
+// catch 块中安全刷新：refreshCurrentJob 本身只有 try/finally 无 catch，
+// 在 catch 块里直接 await 会导致二次抛错变成 unhandled rejection。
+async function safeRefreshCurrentJob() {
+  try {
+    await refreshCurrentJob();
+  } catch (error) {
+    console.error("safeRefreshCurrentJob failed:", error);
   }
 }
 
@@ -930,15 +1318,15 @@ function renderLarkSyncHistory(job) {
     const detailParts = [];
     if (s.created != null) detailParts.push(`新增 ${s.created}`);
     if (s.updated != null) detailParts.push(`更新 ${s.updated}`);
-    const shouldRetry = ["failed", "partial"].includes(String(s.status || ""));
+    const shouldRetry = ["failed", "partial"].includes(String(s.status || "")) || Boolean(s.error);
     return `<div class="lark-sync-seg">
       <strong>${seg.label}</strong>: ${escapeHtml(s.status)}
       ${s.count != null ? `(${s.count} 条)` : ""}
       ${detailParts.length ? ` · ${escapeHtml(detailParts.join(" / "))}` : ""}
       ${s.at ? ` · ${escapeHtml(s.at)}` : ""}
       ${s.error ? ` · <span class="err">${escapeHtml(s.error)}</span>` : ""}
-      ${errors.length ? `<ul class="lark-sync-errors">${errors.map((item) => `<li>${escapeHtml(item.error || item.message || item)}</li>`).join("")}</ul>` : ""}
-      ${shouldRetry ? `<button class="tiny lark-resync-btn" data-resync-job="${escapeHtml(job.id || "")}" data-resync-seg="${seg.key}">重试</button>` : ""}
+      ${errors.length ? `<ul class="lark-sync-errors">${errors.map((item) => `<li>${escapeHtml(typeof item === "string" ? item : (item.error || item.message || JSON.stringify(item)))}</li>`).join("")}</ul>` : ""}
+      ${shouldRetry ? `<button class="tiny lark-resync-btn" data-resync-job="${escapeAttr(job.id || "")}" data-resync-seg="${escapeAttr(seg.key)}">重试</button>` : ""}
     </div>`;
   }).join("");
   container.innerHTML = html;
@@ -974,6 +1362,7 @@ function renderJob(job) {
   syncJobTypeFields();
   syncCandidateCopy(job.type || "github_hotlist");
   $("openJobFolderBtn").disabled = !job.id;
+  renderProgressBar(job);
   renderModelCall(job.model_calls || []);
   renderCandidateSourceSummary(job.candidate_source || {});
   renderNarrationSourceSummary(job.narration_source || {});
@@ -1284,7 +1673,9 @@ function updateRegenerateActions(job) {
   if (!jobTypeUsesCandidates(type)) {
     candidatesButton.disabled = true;
     scriptButton.disabled = true;
-    videoButton.disabled = !hasJob || isRunning || !["ready_to_render", "completed", "failed"].includes(status);
+    const stockCanRender = type === "stock_education" && ["draft_pending", "ready_to_render", "completed", "failed"].includes(status);
+    const pipelineCanRender = !["draft_pending", "collecting_candidates", "analyzing_candidates", "awaiting_project_confirmation"].includes(stage);
+    videoButton.disabled = !hasJob || isRunning || !(stockCanRender || (type !== "stock_education" && pipelineCanRender));
     cancelButton.disabled = !hasJob || !isRunning || Boolean(job.cancel_requested);
     cancelButton.textContent = job.cancel_requested ? "取消中" : "取消任务";
     if (refreshBtn) refreshBtn.disabled = true;
@@ -1307,8 +1698,18 @@ function updateRegenerateActions(job) {
 function nextActionForJob(job) {
   const stage = job.stage || "draft_pending";
   const status = job.status || "";
+  const type = job.type || "github_hotlist";
   if (hasBackgroundWork(job)) {
     return { label: "任务执行中", action: "running", disabled: true };
+  }
+  if (type === "stock_education") {
+    if (status === "completed") {
+      return { label: "已完成", action: "completed", disabled: true };
+    }
+    if (status === "failed") {
+      return { label: "重试：生成视频", action: "render-stock", disabled: false };
+    }
+    return { label: "生成视频（耗时）", action: "render-stock", disabled: false };
   }
   if (stage === "awaiting_project_confirmation") {
     return { label: "确认项目并生成口播", action: "confirm-selection", disabled: false };
@@ -1371,10 +1772,10 @@ function renderCandidates() {
         <small>${escapeHtml(item.description_zh || "需要打开仓库确认用途")}</small>
         <small class="source-desc">${escapeHtml(item.description || "无英文描述")}</small>
       </td>
-      <td class="score">${item.score}</td>
+      <td class="score">${escapeHtml(item.score)}</td>
       <td>${renderCandidateMetric(item)}</td>
       <td>${escapeHtml(item.language || "-")}</td>
-      <td>${escapeHtml(publicCandidateText(item.recommendation || ""))}<small>${escapeHtml(publicCandidateText(item.ranking_reason || item.visual_potential || ""))}</small></td>
+      <td>${escapeHtml(publicCandidateText(item.recommendation || ""))}<small>${escapeHtml(publicCandidateText(item.ranking_reason || item.visual_potential || ""))}</small>${item.workflow_step || item.live_highlight ? `<small class="source-desc">${escapeHtml([item.workflow_step, item.live_highlight].filter(Boolean).join(" · "))}</small>` : ""}</td>
       <td>${escapeHtml(item.risk || "")}</td>
     </tr>
   `).join("");
@@ -1422,7 +1823,7 @@ function renderStarsToday(item) {
   if (today > 0) {
     const source = String(item.data_source || "");
     const sourceTag = source === "search_api" ? "（估算）" : "";
-    return `<small class="source-desc stars-today" data-source="${escapeHtml(source || "trending")}">今日 +${today.toLocaleString()} stars ${escapeHtml(sourceTag)}</small>`;
+    return `<small class="source-desc stars-today" data-source="${escapeAttr(source || "trending")}">今日 +${today.toLocaleString()} stars ${escapeHtml(sourceTag)}</small>`;
   }
   return `<small class="source-desc">${escapeHtml((item && item.daily_growth) || "估算日均 star 暂无")}</small>`;
 }
@@ -1733,6 +2134,50 @@ function renderStageTimeline(history) {
   `).join("");
 }
 
+function renderProgressBar(job) {
+  const box = $("renderProgressBar");
+  if (!box) return;
+  const progress = job && typeof job.render_progress === "object" ? job.render_progress : null;
+  const status = String(job && job.status || "");
+  const visibleStages = new Set([
+    "capturing_assets",
+    "generating_tts",
+    "composing_video",
+    "composing_html",
+    "rendering_hyperframes",
+    "mixing_audio",
+    "post_processing",
+    "preparing_plan",
+    "completed",
+  ]);
+  const stage = String(job && job.stage || "");
+  const showByStatus = progress && (status === "running" || status === "completed" || status === "failed");
+  const showByStage = visibleStages.has(stage);
+  if (!progress || (!showByStatus && !showByStage)) {
+    box.hidden = true;
+    return;
+  }
+  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+  const stageText = stageLabel(progress.stage || stage || "");
+  const stepCurrent = Number(progress.step_current || 0);
+  const stepTotal = Number(progress.step_total || 0);
+  const stepLabel = stepTotal > 1 ? ` · ${stepCurrent}/${stepTotal}` : "";
+  const message = String(progress.message || "").trim();
+  box.hidden = false;
+  box.dataset.status = status;
+  const stageNode = box.querySelector(".render-progress-stage");
+  const percentNode = box.querySelector(".render-progress-percent");
+  const fillNode = box.querySelector(".render-progress-fill");
+  const messageNode = box.querySelector(".render-progress-message");
+  if (stageNode) stageNode.textContent = `${stageText}${stepLabel}`;
+  if (percentNode) percentNode.textContent = `${percent}%`;
+  if (fillNode) fillNode.style.width = `${percent}%`;
+  if (messageNode) {
+    messageNode.textContent = message;
+    messageNode.hidden = !message;
+  }
+}
+
 function stageLabel(stage) {
   const labels = {
     draft_pending: "等待草稿",
@@ -1877,7 +2322,8 @@ function renderPublishActions(detail) {
   const title = String(publish.title || "").trim();
   const hashtags = (publish.hashtags || []).join(" / ");
   const description = String(publish.description || "").trim();
-  const hasPublish = title || hashtags || description;
+  const commentGuide = String(publish.comment_guide || "").trim();
+  const hasPublish = title || hashtags || description || commentGuide;
   box.hidden = !hasPublish;
   if (!hasPublish) {
     box.innerHTML = "";
@@ -1887,11 +2333,18 @@ function renderPublishActions(detail) {
     <button class="tiny" type="button" data-copy-publish="title">复制标题</button>
     <button class="tiny" type="button" data-copy-publish="hashtags">复制标签</button>
     <button class="tiny" type="button" data-copy-publish="description">复制描述</button>
+    ${commentGuide ? '<button class="tiny" type="button" data-copy-publish="comment_guide">复制评论引导</button>' : ""}
   `;
   box.querySelectorAll("[data-copy-publish]").forEach((button) => {
     button.addEventListener("click", async () => {
       const kind = button.dataset.copyPublish || "";
-      const value = kind === "title" ? title : kind === "hashtags" ? hashtags : description;
+      const value = kind === "title"
+        ? title
+        : kind === "hashtags"
+        ? hashtags
+        : kind === "comment_guide"
+        ? commentGuide
+        : description;
       await copyText(value, kind);
     });
   });
@@ -2246,7 +2699,7 @@ async function testProviderFromButton(event) {
   button.disabled = true;
   button.textContent = "测试中";
   try {
-    const result = await post(`/api/providers/${encodeURIComponent(providerId)}/test`, { model, provider });
+    const result = await post(`/api/providers/${encodeURIComponent(providerId)}/test`, { model, provider }, { timeout: 60000 });
     if (result.saved) {
       state.config = result.config;
       $("routingStatus").textContent = providerStatusLabel(result.config.providers.providers || []);
@@ -2308,7 +2761,10 @@ function selectionButtonState(selectedCount, limit, canConfirm) {
 function setBusy(isBusy) {
   document.querySelectorAll("button:not(#closeSettingsBtn):not(#openSettingsBtn):not(#closeScheduleBtn):not(#openScheduleBtn):not(#openScheduleSideBtn):not(#openScheduleFromSettingsBtn)").forEach((button) => {
     if (isBusy) {
-      button.dataset.wasDisabled = button.disabled ? "1" : "0";
+      // 仅在首次 busy 时记录原状态，避免重复调用丢失原始 disabled 值
+      if (button.dataset.wasDisabled === undefined) {
+        button.dataset.wasDisabled = button.disabled ? "1" : "0";
+      }
       button.disabled = true;
       return;
     }
@@ -2319,6 +2775,7 @@ function setBusy(isBusy) {
 }
 
 function escapeHtml(value) {
+  if (value == null) return "";
   return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -2495,5 +2952,5 @@ if (typeof window !== "undefined") {
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, jobTypeUsesCandidates, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidateMetric, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, startNewJob, state, syncDetailState, syncJobTypeFields, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions };
+  module.exports = { LARK_SETTINGS_IDS, activeTemplateParams, api, appendLogLine, applyTemplateParams, applyTheme, autoTabForCompletedBackground, batchDeleteConfirmed, batchDeselectAll, batchSelectAll, candidateChecked, candidateEmptyMessage, candidateOrder, candidateSourceLabel, copyText, createDraft, currentJobType, deleteTemplatePreset, exitBatchMode, focusScriptSegment, formatDuration, formatFileSize, handleKeyboardShortcut, hasBackgroundWork, initTheme, jobTypeUsesCandidates, larkPayloadFromForm, loadPresets, loadTemplatePreset, modelSummaryLabel, narrationSourceLabel, nextActionForJob, nextScheduleLabel, pollJobStatus, publicCandidateText, qualityBlocksRender, qualityNotes, recoveryHintForJob, refreshCurrentJob, renderArtifacts, renderArtifactSummary, renderCandidateMetric, renderCandidates, renderDiagnostics, renderHistoryJobs, renderJob, renderLarkSettings, renderLarkSyncHistory, renderLogs, renderProgressBar, renderProductionReadiness, renderPublishActions, renderQualityReport, renderRecoveryHint, renderScheduleQueue, renderScheduleRecentJobs, renderScheduler, renderStageTimeline, renderStarsToday, renderTemplateStyles, saveTemplatePreset, scheduleModeLabel, scheduleRecentLabel, schedulerPayloadFromForm, scheduleQueueLabel, scheduleStatusText, selectionButtonState, setBusy, setTheme, showTrackUI, startNewJob, state, submitStockForm, syncDetailState, syncJobTypeFields, syncStockContentSource, switchTrack, templatePayload, testProviderFromButton, toggleAutoOpen, toggleBatchMode, updateBatchDeleteCount, updateRegenerateActions, updateStockStatus };
 }

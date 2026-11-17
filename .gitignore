@@ -28,8 +28,10 @@ bgm/
 .dev.log
 .dev.pid
 
-# Superpowers (temp state)
+# Superpowers / local agent state
 .superpowers/
+.workbuddy/
+.screenshots/
 
 # macOS
 .DS_Store

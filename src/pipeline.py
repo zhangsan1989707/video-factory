@@ -177,8 +177,28 @@ def _stage(stage_callback: Callable[[str, str], None] | None, name: str, message
         stage_callback(name, message)
 
 
-async def _generate_audio_task(script, paths: ProjectPaths, voice: str) -> None:
-    await generate_all_audio(script, paths.base, voice)
+def _progress(
+    progress_callback: Callable[[str, int, int], None] | None,
+    stage: str,
+    step: int,
+    total: int,
+) -> None:
+    """Emit in-stage step progress. ``step`` is 1-based; ``total`` is the step count."""
+    if progress_callback:
+        try:
+            progress_callback(stage, max(1, min(int(step), max(1, int(total)))), max(1, int(total)))
+        except Exception:
+            # Progress reporting must never break the render pipeline.
+            pass
+
+
+async def _generate_audio_task(
+    script,
+    paths: ProjectPaths,
+    voice: str,
+    progress_callback: Callable[[str, int, int], None] | None = None,
+) -> None:
+    await generate_all_audio(script, paths.base, voice, progress_callback=progress_callback)
 
 
 async def _capture_and_tts(
@@ -188,16 +208,19 @@ async def _capture_and_tts(
     voice: str,
     stage_callback: Callable[[str, str], None] | None,
     timing: _TimingReport | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ):
     _stage(stage_callback, "capturing_assets", "开始采集真实素材。")
     console.print("[cyan]🖼️ 正在采集真实素材...[/cyan]")
+    _progress(progress_callback, "capturing_assets", 1, max(1, len(manifest.assets) if manifest and manifest.assets else 1))
     _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
     console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
     block_start = time.perf_counter()
     captured_manifest, _audio_files = await asyncio.gather(
-        timing.measure("capture_assets", capture_assets(manifest, paths.assets_dir)) if timing else capture_assets(manifest, paths.assets_dir),
-        timing.measure("generate_tts", _generate_audio_task(script, paths, voice)) if timing else _generate_audio_task(script, paths, voice),
+        timing.measure("capture_assets", capture_assets(manifest, paths.assets_dir, progress_callback=progress_callback)) if timing else capture_assets(manifest, paths.assets_dir, progress_callback=progress_callback),
+        timing.measure("generate_tts", _generate_audio_task(script, paths, voice, progress_callback=progress_callback)) if timing else _generate_audio_task(script, paths, voice, progress_callback=progress_callback),
     )
+    _progress(progress_callback, "capturing_assets", max(1, len(manifest.assets) if manifest and manifest.assets else 1), max(1, len(manifest.assets) if manifest and manifest.assets else 1))
     _write_json(paths.asset_manifest_json, captured_manifest.to_dict())
     if timing:
         timing.add_stage("capture_and_tts_concurrent", time.perf_counter() - block_start)
@@ -211,6 +234,7 @@ async def _record_desktop_and_tts(
     voice: str,
     stage_callback: Callable[[str, str], None] | None,
     timing: _TimingReport | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ):
     _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
     console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
@@ -218,7 +242,7 @@ async def _record_desktop_and_tts(
     console.print("[cyan]🎥 正在录制桌面浏览镜头...[/cyan]")
     block_start = time.perf_counter()
     _audio_files, frames_info = await asyncio.gather(
-        timing.measure("generate_tts", _generate_audio_task(script, paths, voice)) if timing else _generate_audio_task(script, paths, voice),
+        timing.measure("generate_tts", _generate_audio_task(script, paths, voice, progress_callback=progress_callback)) if timing else _generate_audio_task(script, paths, voice, progress_callback=progress_callback),
         timing.measure("record_desktop", record_desktop_review(desktop_plan, paths.base)) if timing else record_desktop_review(desktop_plan, paths.base),
     )
     if timing:
@@ -240,8 +264,10 @@ def _finish_video(
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None = None,
     timing: _TimingReport | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     _stage(stage_callback, "post_processing", "开始执行视频后处理。")
+    _progress(progress_callback, "post_processing", 1, 1)
     if timing:
         with timing.stage("post_processing"):
             return post_process_video(output_path, no_bgm=no_bgm, bgm_volume=bgm_volume, bgm_path=bgm_path)
@@ -263,6 +289,7 @@ async def _run_from_plan(
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
     timing: _TimingReport | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     """从已有分镜目录恢复执行。"""
     project_dir = _resolve_plan_dir(from_plan)
@@ -281,8 +308,9 @@ async def _run_from_plan(
         if dry_run:
             console.print(f"\n[green]✅ From-plan dry run 完成。请检查: {paths.base}[/green]\n")
             return paths.base
-        frames_info = await _record_desktop_and_tts(desktop_plan, script, paths, voice, stage_callback, timing)
+        frames_info = await _record_desktop_and_tts(desktop_plan, script, paths, voice, stage_callback, timing, progress_callback=progress_callback)
         _stage(stage_callback, "composing_video", "开始合成 desktop-review 视频。")
+        _progress(progress_callback, "composing_video", 1, 1)
         console.print("[cyan]🎬 正在合成 desktop-review 视频...[/cyan]")
         with timing.stage("compose_video") if timing else nullcontext():
             output_path = compose_desktop_review_video(
@@ -294,7 +322,7 @@ async def _run_from_plan(
                 preview_dir=paths.preview_frames_dir,
                 fps=fps,
             )
-        return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
+        return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing, progress_callback=progress_callback)
 
     # 竖屏分镜
     with open(paths.shot_plan_json, encoding="utf-8") as f:
@@ -309,15 +337,16 @@ async def _run_from_plan(
         console.print(f"\n[green]✅ From-plan dry run 完成。请检查: {paths.base}[/green]\n")
         return paths.base
     if _manifest_needs_capture(manifest_data):
-        manifest = await _capture_and_tts(manifest, script, paths, voice, stage_callback, timing)
+        manifest = await _capture_and_tts(manifest, script, paths, voice, stage_callback, timing, progress_callback=progress_callback)
     else:
         _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
         console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
         if timing:
-            await timing.measure("generate_tts", generate_all_audio(script, paths.base, voice))
+            await timing.measure("generate_tts", generate_all_audio(script, paths.base, voice, progress_callback=progress_callback))
         else:
-            await generate_all_audio(script, paths.base, voice)
+            await generate_all_audio(script, paths.base, voice, progress_callback=progress_callback)
     _stage(stage_callback, "composing_video", "开始合成竖屏视频。")
+    _progress(progress_callback, "composing_video", 1, 1)
     console.print("[cyan]🎬 正在合成竖屏视频...[/cyan]")
     with timing.stage("compose_video") if timing else nullcontext():
         output_path = compose_vertical_video(
@@ -329,7 +358,7 @@ async def _run_from_plan(
             preview_dir=paths.preview_frames_dir,
             fps=fps,
         )
-    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
+    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing, progress_callback=progress_callback)
 
 
 async def _run_hotlist(
@@ -343,6 +372,7 @@ async def _run_hotlist(
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
     timing: _TimingReport | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     """热榜模式：多个仓库合成一个竖屏视频。"""
     if len(url_list) < 2:
@@ -388,9 +418,10 @@ async def _run_hotlist(
         console.print(f"\n[green]✅ Hotlist dry run 完成。请检查: {paths.base}[/green]\n")
         return paths.base
 
-    combined_manifest = await _capture_and_tts(combined_manifest, script, paths, voice, stage_callback, timing)
+    combined_manifest = await _capture_and_tts(combined_manifest, script, paths, voice, stage_callback, timing, progress_callback=progress_callback)
 
     _stage(stage_callback, "composing_video", "开始合成热榜竖屏视频。")
+    _progress(progress_callback, "composing_video", 1, 1)
     console.print("[cyan]🎬 正在合成热榜竖屏视频...[/cyan]")
     with timing.stage("compose_video") if timing else nullcontext():
         output_path = compose_vertical_video(
@@ -402,7 +433,7 @@ async def _run_hotlist(
             preview_dir=paths.preview_frames_dir,
             fps=fps,
         )
-    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
+    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing, progress_callback=progress_callback)
 
 
 async def _run_desktop_review(
@@ -417,6 +448,7 @@ async def _run_desktop_review(
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
     timing: _TimingReport | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     """桌面浏览风格：录制浏览器操作 + 合成。"""
     console.print("[cyan]🖥️ 正在生成 desktop-review 分镜...[/cyan]")
@@ -432,9 +464,10 @@ async def _run_desktop_review(
         console.print(f"\n[green]✅ Desktop dry run 完成。请检查: {paths.base}[/green]\n")
         return paths.base
 
-    frames_info = await _record_desktop_and_tts(desktop_plan, script, paths, voice, stage_callback, timing)
+    frames_info = await _record_desktop_and_tts(desktop_plan, script, paths, voice, stage_callback, timing, progress_callback=progress_callback)
 
     _stage(stage_callback, "composing_video", "开始合成 desktop-review 视频。")
+    _progress(progress_callback, "composing_video", 1, 1)
     console.print("[cyan]🎬 正在合成 desktop-review 视频...[/cyan]")
     with timing.stage("compose_video") if timing else nullcontext():
         output_path = compose_desktop_review_video(
@@ -446,7 +479,7 @@ async def _run_desktop_review(
             preview_dir=paths.preview_frames_dir,
             fps=fps,
         )
-    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
+    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing, progress_callback=progress_callback)
 
 
 async def _run_vertical(
@@ -462,6 +495,7 @@ async def _run_vertical(
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
     timing: _TimingReport | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     """竖屏风格：生成 brief + 素材 + 分镜 + 合成。"""
     console.print("[cyan]🧭 正在生成选题 brief...[/cyan]")
@@ -495,9 +529,10 @@ async def _run_vertical(
     if brief.recommendation == "skip":
         console.print("[yellow]⚠ brief 建议跳过，但仍继续生成竖屏草稿。[/yellow]")
 
-    manifest = await _capture_and_tts(manifest, script, paths, voice, stage_callback, timing)
+    manifest = await _capture_and_tts(manifest, script, paths, voice, stage_callback, timing, progress_callback=progress_callback)
 
     _stage(stage_callback, "composing_video", "开始合成竖屏视频。")
+    _progress(progress_callback, "composing_video", 1, 1)
     console.print("[cyan]🎬 正在合成竖屏视频...[/cyan]")
     with timing.stage("compose_video") if timing else nullcontext():
         output_path = compose_vertical_video(
@@ -509,7 +544,7 @@ async def _run_vertical(
             preview_dir=paths.preview_frames_dir,
             fps=fps,
         )
-    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
+    return _finish_video(output_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing, progress_callback=progress_callback)
 
 
 async def _run_horizontal(
@@ -527,6 +562,7 @@ async def _run_horizontal(
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
     timing: _TimingReport | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     """横屏模式（旧版）：脚本 → TTS → 浏览器录制 → 鼠标动效 → 合成。"""
     with timing.stage("script_generation") if timing else nullcontext():
@@ -535,15 +571,16 @@ async def _run_horizontal(
     _stage(stage_callback, "generating_tts", "开始生成 TTS 语音。")
     console.print("[cyan]🎙️ 正在生成语音...[/cyan]")
     if timing:
-        audio_files = await timing.measure("generate_tts", generate_all_audio(script, paths.base, voice))
+        audio_files = await timing.measure("generate_tts", generate_all_audio(script, paths.base, voice, progress_callback=progress_callback))
     else:
-        audio_files = await generate_all_audio(script, paths.base, voice)
+        audio_files = await generate_all_audio(script, paths.base, voice, progress_callback=progress_callback)
 
     total_audio_duration = sum(get_audio_duration(f) for f in audio_files)
     console.print(f"   ✓ 使用语音: {voice}")
     console.print(f"   ✓ 音频总时长: {total_audio_duration:.1f} 秒")
 
     _stage(stage_callback, "capturing_assets", "开始录制浏览器素材。")
+    _progress(progress_callback, "capturing_assets", 1, 1)
     console.print("[cyan]🖥️ 正在录制浏览器...[/cyan]")
     if timing:
         frames_info = await timing.measure("record_browser", record_browser(script, paths.base, fps, total_audio_duration))
@@ -555,6 +592,7 @@ async def _run_horizontal(
         generate_mouse_animations(script, frames_info, paths.base, fps)
 
     _stage(stage_callback, "composing_video", "开始合成横屏视频。")
+    _progress(progress_callback, "composing_video", 1, 1)
     console.print("[cyan]🎬 正在合成视频...[/cyan]")
     with timing.stage("compose_video") if timing else nullcontext():
         final_path = compose_video(
@@ -567,7 +605,7 @@ async def _run_horizontal(
             total_audio_duration=total_audio_duration,
         )
 
-    final_path = _finish_video(final_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing)
+    final_path = _finish_video(final_path, no_bgm, bgm_volume, bgm_path, stage_callback, timing, progress_callback=progress_callback)
     console.print(f"\n[green]✅ 完成！视频已保存到: {final_path}[/green]\n")
     return final_path
 
@@ -592,11 +630,13 @@ async def _run_pipeline_inner(
     bgm_path: str | None,
     stage_callback: Callable[[str, str], None] | None,
     timing: _TimingReport,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     if from_plan:
         return await _run_from_plan(
             from_plan, output, voice, fps, dry_run,
             no_bgm, bgm_volume, bgm_path, stage_callback, timing,
+            progress_callback=progress_callback,
         )
 
     if not url:
@@ -609,6 +649,7 @@ async def _run_pipeline_inner(
         return await _run_hotlist(
             url_list, output, voice, fps, dry_run,
             no_bgm, bgm_volume, bgm_path, stage_callback, timing,
+            progress_callback=progress_callback,
         )
 
     # 单仓库路径
@@ -632,12 +673,14 @@ async def _run_pipeline_inner(
         return await _run_desktop_review(
             project_info, paths, output_path, voice, fps, dry_run,
             no_bgm, bgm_volume, bgm_path, stage_callback, timing,
+            progress_callback=progress_callback,
         )
 
     if orientation == "vertical" or dry_run:
         return await _run_vertical(
             project_info, paths, output_path, voice, fps, style, dry_run,
             no_bgm, bgm_volume, bgm_path, stage_callback, timing,
+            progress_callback=progress_callback,
         )
 
     # 旧版横屏路径
@@ -650,6 +693,7 @@ async def _run_pipeline_inner(
         project_info, script, paths, output_path, voice, fps,
         orientation, min_duration, max_duration,
         no_bgm, bgm_volume, bgm_path, stage_callback, timing,
+        progress_callback=progress_callback,
     )
 
 
@@ -669,6 +713,7 @@ async def run_pipeline(
     bgm_volume: float = BGM_VOLUME,
     bgm_path: str | None = None,
     stage_callback: Callable[[str, str], None] | None = None,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> Path:
     """执行完整的视频生成流程。"""
     from src.tts.edge_tts import set_tts_rate_override, reset_tts_rate_override
@@ -693,6 +738,7 @@ async def run_pipeline(
             bgm_path=bgm_path,
             stage_callback=stage_callback,
             timing=timing,
+            progress_callback=progress_callback,
         )
         report_dir = result if result.is_dir() else result.parent
         _write_timing_report(report_dir, timing)

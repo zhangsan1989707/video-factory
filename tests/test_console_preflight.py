@@ -9,17 +9,22 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from src.console.preflight import preflight_snapshot, run_real_smoke_check
+from src.console.preflight import dashboard_snapshot, invalidate_preflight_cache, preflight_snapshot, run_real_smoke_check
 from src.console.server import ConsoleHandler
 
 
 class ConsolePreflightTest(unittest.TestCase):
+    def setUp(self) -> None:
+        # preflight_snapshot 使用 TTL 缓存，测试间需清除以避免脏数据。
+        invalidate_preflight_cache()
+
     def test_preflight_snapshot_reports_required_render_checks(self) -> None:
         report = preflight_snapshot()
 
         self.assertIn(report["status"], {"ready", "blocked"})
         self.assertIn("checks", report)
         self.assertIn("latest_real_smoke", report)
+        self.assertIn("production_readiness", report)
         check_ids = {item["id"] for item in report["checks"]}
         self.assertIn("ffmpeg", check_ids)
         self.assertIn("ffprobe", check_ids)
@@ -31,6 +36,64 @@ class ConsolePreflightTest(unittest.TestCase):
         self.assertIn("config.model_provider", check_ids)
         self.assertIn("smoke.ffmpeg_ffprobe", check_ids)
         self.assertIn("smoke.hyperframes_cli", check_ids)
+        readiness_ids = {item["id"] for item in report["production_readiness"]["items"]}
+        self.assertIn("render", readiness_ids)
+        self.assertIn("github", readiness_ids)
+        self.assertIn("skills", readiness_ids)
+        self.assertIn("recent_failure", readiness_ids)
+
+    def test_production_readiness_reports_source_cache_and_recent_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_dir = base / "config"
+            jobs_dir = base / "jobs"
+            github_cache = base / "github-cache"
+            skills_cache = base / "skills-cache"
+            github_cache.mkdir()
+            skills_cache.mkdir()
+            (config_dir / "github.json").parent.mkdir(parents=True)
+            (config_dir / "github.json").write_text(
+                json.dumps({"token": "ghp_1234567890abcdef", "last_rate_limit": "ok"}),
+                encoding="utf-8",
+            )
+            cache_payload = {
+                "created_at": "2026-07-28T01:00:00+00:00",
+                "items": [{"name": "demo"}],
+                "degraded": False,
+                "degraded_reason": "",
+            }
+            (github_cache / "daily.json").write_text(json.dumps(cache_payload), encoding="utf-8")
+            (skills_cache / "daily.json").write_text(json.dumps(cache_payload), encoding="utf-8")
+            failed_dir = jobs_dir / "GH-HOTLIST-20260728-001"
+            failed_dir.mkdir(parents=True)
+            (failed_dir / "task.json").write_text(
+                json.dumps({
+                    "id": "GH-HOTLIST-20260728-001",
+                    "status": "failed",
+                    "stage": "generating_tts",
+                    "failed_stage": "generating_tts",
+                    "error": "voice unavailable",
+                }),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.preflight.CONFIG_DIR", config_dir),
+                patch("src.console.preflight.JOBS_DIR", jobs_dir),
+                patch("src.console.github_hotlist.CACHE_DIR", github_cache),
+                patch("src.console.skills_hotlist.CACHE_DIR", skills_cache),
+            ):
+                report = preflight_snapshot()
+
+        items = {item["id"]: item for item in report["production_readiness"]["items"]}
+        self.assertEqual(items["github"]["status"], "ok")
+        self.assertIn("Token 已配置", items["github"]["message"])
+        self.assertEqual(items["skills"]["status"], "ok")
+        self.assertIn("缓存可用", items["skills"]["message"])
+        self.assertEqual(items["recent_failure"]["status"], "warning")
+        self.assertIn("generating_tts", items["recent_failure"]["message"])
 
     def test_preflight_summary_mentions_smoke_when_all_smoke_checks_pass(self) -> None:
         with (
@@ -200,6 +263,231 @@ class ConsolePreflightTest(unittest.TestCase):
                     thread.join(timeout=1)
 
         self.assertEqual(result["status"], "passed")
+
+
+class DashboardSnapshotTest(unittest.TestCase):
+    """``dashboard_snapshot`` 汇总生产链路全景，供前端诊断标签页渲染。"""
+
+    def setUp(self) -> None:
+        invalidate_preflight_cache()
+
+    def test_dashboard_includes_pipeline_stages(self) -> None:
+        data = dashboard_snapshot()
+        self.assertIn("pipeline_stages", data)
+        stages = data["pipeline_stages"]
+        self.assertIn("total", stages)
+        self.assertIn("ok", stages)
+        self.assertIn("items", stages)
+        self.assertGreater(stages["total"], 0)
+        # 每个 stage item 包含 id, label, status, message
+        for item in stages["items"]:
+            self.assertIn("id", item)
+            self.assertIn("label", item)
+            self.assertIn("status", item)
+            self.assertIn("message", item)
+
+    def test_dashboard_includes_data_sources_with_freshness(self) -> None:
+        data = dashboard_snapshot()
+        self.assertIn("data_sources", data)
+        self.assertGreater(len(data["data_sources"]), 0)
+        for src in data["data_sources"]:
+            self.assertIn("id", src)
+            self.assertIn("status", src)
+            self.assertIn("freshness", src)
+            self.assertIn("degraded", src)
+            self.assertIn("item_count", src)
+
+    def test_dashboard_model_provider_has_fallback_hint(self) -> None:
+        data = dashboard_snapshot()
+        self.assertIn("model_provider", data)
+        model = data["model_provider"]
+        self.assertIn("total", model)
+        self.assertIn("enabled", model)
+        self.assertIn("passed", model)
+        self.assertTrue(model.get("has_template_fallback"))
+        self.assertIn("模板回退", model.get("template_fallback_note", ""))
+
+    def test_dashboard_recent_failure_has_actionable_hints(self) -> None:
+        data = dashboard_snapshot()
+        self.assertIn("recent_failure", data)
+        failure = data["recent_failure"]
+        self.assertIn("has_failure", failure)
+        if failure["has_failure"]:
+            self.assertIn("suggested_action", failure)
+
+    def test_dashboard_snapshot_is_consistent_with_preflight(self) -> None:
+        snapshot = preflight_snapshot()
+        dashboard = dashboard_snapshot()
+        readiness = snapshot.get("production_readiness") or {}
+        self.assertEqual(dashboard["overall_status"], readiness.get("status", "warning"))
+        self.assertEqual(dashboard["blocking_count"], readiness.get("blocking_count", 0))
+        self.assertEqual(dashboard["warning_count"], readiness.get("warning_count", 0))
+
+    def test_dashboard_with_fake_cache_shows_source_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_dir = base / "config"
+            jobs_dir = base / "jobs"
+            github_cache = base / "github-cache"
+            skills_cache = base / "skills-cache"
+            github_cache.mkdir()
+            skills_cache.mkdir()
+            (config_dir / "github.json").parent.mkdir(parents=True)
+            (config_dir / "github.json").write_text(
+                json.dumps({"token": "ghp_test", "last_rate_limit": "ok"}),
+                encoding="utf-8",
+            )
+            cache_payload = {
+                "created_at": "2026-07-30T12:00:00+00:00",
+                "items": [{"name": "repo1"}, {"name": "repo2"}, {"name": "repo3"}],
+                "degraded": True,
+                "degraded_reason": "API rate limit exceeded",
+                "cache_status": "stale_rate_limit",
+            }
+            (github_cache / "daily.json").write_text(json.dumps(cache_payload), encoding="utf-8")
+            (skills_cache / "daily.json").write_text(json.dumps(cache_payload), encoding="utf-8")
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.preflight.CONFIG_DIR", config_dir),
+                patch("src.console.preflight.JOBS_DIR", jobs_dir),
+                patch("src.console.github_hotlist.CACHE_DIR", github_cache),
+                patch("src.console.skills_hotlist.CACHE_DIR", skills_cache),
+            ):
+                data = dashboard_snapshot()
+
+        sources = {src["id"]: src for src in data["data_sources"]}
+        for src_id in ("github", "skills"):
+            src = sources[src_id]
+            self.assertEqual(src["item_count"], 3)
+            self.assertEqual(src["last_success_time"], "2026-07-30T12:00:00+00:00")
+            self.assertTrue(src["degraded"])
+            self.assertIn("API rate limit", src["degraded_reason"])
+            self.assertEqual(src["cache_status"], "stale_rate_limit")
+
+    def test_dashboard_with_failed_job_shows_actionable_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            config_dir = base / "config"
+            jobs_dir = base / "jobs"
+            failed_dir = jobs_dir / "GH-HOTLIST-20260730-FAIL"
+            failed_dir.mkdir(parents=True)
+            (failed_dir / "task.json").write_text(
+                json.dumps({
+                    "id": "GH-HOTLIST-20260730-FAIL",
+                    "status": "failed",
+                    "stage": "rendering_hyperframes",
+                    "failed_stage": "rendering_hyperframes",
+                    "error": "HyperFrames render timeout",
+                }),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.preflight.CONFIG_DIR", config_dir),
+                patch("src.console.preflight.JOBS_DIR", jobs_dir),
+            ):
+                data = dashboard_snapshot()
+
+        failure = data["recent_failure"]
+        self.assertTrue(failure["has_failure"])
+        self.assertEqual(failure["failed_job_id"], "GH-HOTLIST-20260730-FAIL")
+        self.assertEqual(failure["failed_stage"], "rendering_hyperframes")
+        self.assertTrue(failure["retryable"])
+        self.assertIn("HyperFrames", failure["suggested_action"])
+
+    def test_dashboard_failed_candidate_stage_is_retryable(self) -> None:
+        """Bug #1 回归：候选阶段失败时 retryable 应为 True，suggested_action 应指向候选重试。"""
+        for stage, expected_hint in [
+            ("collecting_candidates", "候选拉取"),
+            ("analyzing_candidates", "候选分析"),
+            ("generating_script", "口播"),
+        ]:
+            with tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                config_dir = base / "config"
+                jobs_dir = base / "jobs"
+                failed_dir = jobs_dir / f"GH-HOTLIST-20260730-{stage}"
+                failed_dir.mkdir(parents=True)
+                (failed_dir / "task.json").write_text(
+                    json.dumps({
+                        "id": f"GH-HOTLIST-20260730-{stage}",
+                        "status": "failed",
+                        "stage": stage,
+                        "failed_stage": stage,
+                        "error": f"{stage} failed",
+                    }),
+                    encoding="utf-8",
+                )
+                with (
+                    patch("src.console.store.CONFIG_DIR", config_dir),
+                    patch("src.console.store.JOBS_DIR", jobs_dir),
+                    patch("src.console.preflight.CONFIG_DIR", config_dir),
+                    patch("src.console.preflight.JOBS_DIR", jobs_dir),
+                ):
+                    invalidate_preflight_cache()
+                    data = dashboard_snapshot()
+
+            failure = data["recent_failure"]
+            self.assertTrue(failure["has_failure"], f"{stage} should be detected as failure")
+            self.assertTrue(failure["retryable"], f"{stage} should be retryable")
+            self.assertIn(expected_hint, failure["suggested_action"], f"{stage} hint mismatch")
+
+    def test_dashboard_endpoint_returns_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+            ):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/api/dashboard", timeout=10) as response:
+                        data = json.loads(response.read().decode("utf-8"))
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
+
+        self.assertIn("overall_status", data)
+        self.assertIn("data_sources", data)
+        self.assertIn("model_provider", data)
+        self.assertIn("recent_failure", data)
+        self.assertIn("pipeline_stages", data)
+
+    def test_dashboard_endpoint_returns_500_on_error(self) -> None:
+        """Bug #2 回归：GET /api/dashboard 异常时应返回 500 JSON 而非连接重置。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "config"
+            jobs_dir = Path(tmp) / "jobs"
+            with (
+                patch("src.console.store.CONFIG_DIR", config_dir),
+                patch("src.console.store.JOBS_DIR", jobs_dir),
+                patch("src.console.server.JOBS_DIR", jobs_dir),
+                patch("src.console.server.dashboard_snapshot", side_effect=RuntimeError("boom")),
+            ):
+                server = ThreadingHTTPServer(("127.0.0.1", 0), ConsoleHandler)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    with self.assertRaises(urllib.error.HTTPError) as ctx:
+                        urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/api/dashboard", timeout=10)
+                    self.assertEqual(ctx.exception.code, 500)
+                    body = ctx.exception.read().decode("utf-8")
+                    data = json.loads(body)
+                    self.assertIn("error", data)
+                    self.assertIn("boom", data["error"])
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=1)
 
 
 if __name__ == "__main__":
